@@ -10,5 +10,5 @@ OCTRON is built on [Napari](https://www.napari.org), [Segment Anything (SAM2)](h
 
 If you find this project helpful, consider supporting us:
 
-- [GitHub Sponsors](https://github.com/sponsors/horsto)
+- [GitHub Sponsors](https://github.com/sponsors/OCTRON-tracking)
 - [Buy Me a Coffee](https://buymeacoffee.com/octron)
