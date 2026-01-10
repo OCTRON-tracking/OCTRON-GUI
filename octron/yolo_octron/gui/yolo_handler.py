@@ -341,7 +341,7 @@ class YoloHandler(QObject):
             self.yolo.write_yolo_config()
             # Enable next part (YOLO training) of the pipeline 
             self.w.train_train_groupbox.setEnabled(True)
-            self.w.launch_tensorboard_checkBox.setEnabled(False)
+            self.w.launch_tensorboard_checkBox.setEnabled(True)
             self.w.start_stop_training_btn.setStyleSheet('')
             self.w.start_stop_training_btn.setText(f'▷ Train')
 
@@ -382,7 +382,7 @@ class YoloHandler(QObject):
             return
                                           
         # Check status of "Launch Tensorboard" checkbox
-        self.launch_tensorbrd = False #self.w.launch_tensorboard_checkBox.isChecked()   
+        self.launch_tensorbrd = self.w.launch_tensorboard_checkBox.isChecked()   
         # TODO: Implement these options
         #resume_training = self.w.train_resume_checkBox.isChecked()    
         #overwrite = self.w.train_training_overwrite_checkBox.isChecked()  
