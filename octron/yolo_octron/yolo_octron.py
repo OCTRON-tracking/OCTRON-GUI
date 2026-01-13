@@ -800,9 +800,12 @@ class YOLO_octron:
         
         # Track last epoch seen to avoid duplicates
         last_epoch_reported = -1
+        final_total_epochs = None
+        
         # Internal callback to capture training progress
         def _on_fit_epoch_end(trainer):
             nonlocal last_epoch_reported
+            nonlocal final_total_epochs
             current_epoch = trainer.epoch + 1
             
             # Skip if we already reported this epoch (prevents duplicates)
@@ -813,16 +816,33 @@ class YOLO_octron:
             
             # Calculate progress information
             epoch_time = trainer.epoch_time
-            remaining_time = epoch_time * (epochs - current_epoch)
+            total_epochs_current = final_total_epochs if final_total_epochs is not None else epochs
+            remaining_time = epoch_time * (total_epochs_current - current_epoch)
             finish_time = time.time() + remaining_time
             
             # Put the information in the queue
             progress_queue.put({
                 'epoch': current_epoch,
-                'total_epochs': epochs,
+                'total_epochs': total_epochs_current,
                 'epoch_time': epoch_time,
                 'remaining_time': remaining_time,
                 'finish_time': finish_time,
+            })
+
+        # Callback to capture final epoch count on training end (handles early stopping)
+        def _on_train_end(trainer):
+            nonlocal final_total_epochs
+            final_total_epochs = trainer.epoch + 1
+            try:
+                epoch_time = getattr(trainer, 'epoch_time', None)
+            except Exception:
+                epoch_time = None
+            progress_queue.put({
+                'epoch': final_total_epochs,
+                'total_epochs': final_total_epochs,
+                'epoch_time': epoch_time,
+                'remaining_time': 0,
+                'finish_time': time.time(),
             })
         
         def _find_train_image_size(data_path): 
@@ -861,8 +881,8 @@ class YOLO_octron:
                 rect = False
             return height, width, rect
 
-        # Add our callback that will put progress info into the queue
         self.model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
+        self.model.add_callback("on_train_end", _on_train_end)
         
         if self.config_path is None or not self.config_path.exists():
             raise FileNotFoundError(
@@ -956,7 +976,6 @@ class YOLO_octron:
             # If there was an error in the training thread, raise it
             if training_error:
                 raise training_error
-                
         except KeyboardInterrupt:
             print("Training interrupted by user")
             
@@ -1024,7 +1043,7 @@ class YOLO_octron:
             # Open web browser
             tensorboard_url = f"http://localhost:{port}/"
             print(f"Opening TensorBoard in browser: {tensorboard_url}")
-            webbrowser.open(tensorboard_url)
+            webbrowser.open(tensorboard_url, new=1) # to open in new browser window (fingers crossed this works...)
             
             print("TensorBoard is running.")
             return True
