@@ -2,7 +2,7 @@
 
 import requests 
 
-def check_url_availability(url):
+def check_url_availability(url, verbose=False):
     """
     Quick check if a URL is available.
     This is used throughout the package to check if the model files are available.
@@ -12,6 +12,8 @@ def check_url_availability(url):
     url : str
         URL to check. 
         For example "https://dl.fbaipublicfiles.com/segment_anything_2/092824" 
+    verbose : boolean 
+        Print info? 
     
     Returns
     -------
@@ -23,15 +25,19 @@ def check_url_availability(url):
     try:
         response = requests.head(url)
         if response.status_code == 200:
-            print(f"URL {url} is available.")
+            if verbose:
+                print(f"URL {url} is available.")
             available = True
         elif response.status_code == 302:
-            print(f"URL {url} is redirecting, but available.")
+            if verbose: 
+                print(f"URL {url} is redirecting, but available.")
             available = True
         else:
-            print(f"URL {url} returned status code {response.status_code}.")
+            if verbose: 
+                print(f"URL {url} returned status code {response.status_code}.")
             available = False
     except requests.exceptions.RequestException as e:
-        print(f"URL {url} is not available. Exception: {e}")
+        if verbose: 
+            print(f"URL {url} is not available. Exception: {e}")
         available = False
     return available

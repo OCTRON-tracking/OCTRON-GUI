@@ -39,9 +39,9 @@ def download_sam2_checkpoint(url,
                 for chunk in response.iter_content(1024):
                     f.write(chunk)
             
-            print(f"Saved to {fpath}")  
+            print(f"💾 Saved SAM2 model to {fpath}")  
         else:
-            print(f"Failed to download {url}")
+            pass
             
             
             
@@ -129,8 +129,8 @@ def check_sam2_models(SAM2p1_BASE_URL,
                                             overwrite=True
                                             )
                 except AssertionError as e:
-                    print(f"Error: {e}")
-                    print(f"Trying next URL...")
+                    #print(f"Error: {e}")
+                    #print(f"Trying next URL...")
                     continue
                 
     return models_dict

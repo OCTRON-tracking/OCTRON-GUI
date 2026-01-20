@@ -37,11 +37,10 @@ def download_yolo_model(url,
         if response.status_code == 200:
             with open(fpath, 'wb') as f:
                 for chunk in response.iter_content(1024):
-                    f.write(chunk)
-            
-            print(f"Saved to {fpath}")  
+                    f.write(chunk)  
+            print(f"💾 Saved YOLO model to {fpath}")  
         else:
-            print(f"Failed to download {url}")
+            pass
             
                
             
@@ -114,7 +113,6 @@ def check_yolo_models(YOLO_BASE_URL,
             model_name = model_path.name
             model_url = f"{YOLO_BASE_URL}/{model_name}"
             assert check_url_availability(model_url), f"URL {model_url} is not available."
-            
             download_yolo_model(url=model_url, 
                                fpath=model_path, 
                                overwrite=True
