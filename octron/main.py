@@ -198,6 +198,9 @@ class octron_widget(QWidget):
         self._viewer.layers.events.removing.connect(self.on_layer_removing)
         self._viewer.layers.events.removed.connect(self.on_layer_removed)
         
+        # ToolBox tab changed callback
+        self.toolBox.currentChanged.connect(self.on_toolbox_tab_changed)
+        
         # Main video drop area
         self.video_file_drop_widget.callback = self.on_mp4_file_dropped_area
 
@@ -238,6 +241,23 @@ class octron_widget(QWidget):
         
         # Connect to the Napari viewer close event
         self.app.lastWindowClosed.connect(self.closeEvent)
+    
+    def on_toolbox_tab_changed(self, index):
+        """
+        Callback triggered when a different tab is selected in the toolBox.
+        
+        Parameters
+        ----------
+        index : int
+            The index of the currently selected tab
+        """
+        if index == 0:
+            # When the first tab (project tab, index 0) is clicked,
+            # refresh the label table list.
+            # status = self.save_object_organizer() # Optionally save the object organizer again
+            status = True
+            if status:
+                self.refresh_label_table_list(delete_old=False)
     
 
     ###### SAM2 SPECIFIC CALLBACKS ####################################################################
@@ -346,8 +366,9 @@ class octron_widget(QWidget):
         # what we are doing here is creating a video hash from scratch twice (?) and 
         # load the video data, plus we find out which indices have annotation data in the 
         # video. So, that is a lot of processing for just refreshing the table view for example 
-        self.save_object_organizer()
-        self.refresh_label_table_list(delete_old=False) # This is the table in the project tab
+        status = self.save_object_organizer()
+        if status: 
+            self.refresh_label_table_list(delete_old=False) # This is the table in the project tab
         self.batch_predict_progressbar.setMaximum(self.chunk_size)    
 
     def init_prediction_threaded(self):
@@ -404,18 +425,23 @@ class octron_widget(QWidget):
             self.prefetcher_worker.quit()
         # Lastly, save object organizer to json 
         if self.project_path:
-            self.save_object_organizer()
+            status = self.save_object_organizer()
             
     def save_object_organizer(self):
         """
         Save the object organizer to the project directory
+        
+        Returns
+        -------
+        status : boolean : True if saving went through, False if no project was found 
         """
         if self.project_path_video is None or not self.project_path_video.exists():
             print("No project video path set or found. Not exporting object organizer.")
-            return
+            return False
         organizer_path = self.project_path_video  / "object_organizer.json"
         self.object_organizer.save_to_disk(organizer_path)
-
+        return True 
+    
     def refresh_label_table_list(self, delete_old=False):
         """
         Refresh the label list combobox with the current labels in the object organizer
@@ -722,6 +748,10 @@ class octron_widget(QWidget):
             # This has more drastic consequences ...
             elif self.layer_to_remove._basename() == 'Image' and 'VIDEO' in self.layer_to_remove.name:
                 # What to do: 
+                # Save the object organizer and refresh the table on first page
+                status = self.save_object_organizer()
+                if status:
+                    self.refresh_label_table_list(delete_old=False)
                 # Remove all layers and reset SAM predictor
                 self.remove_all_layers(spare=self.layer_to_remove)
                 # Also re-instantiate variables
