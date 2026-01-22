@@ -253,12 +253,7 @@ class octron_widget(QWidget):
         """
         if index == 0:
             # When the first tab (project tab, index 0) is clicked,
-            # refresh the label table list.
-            # status = self.save_object_organizer() # Optionally save the object organizer again
-            status = True
-            if status:
-                self.refresh_label_table_list(delete_old=False)
-    
+            self.refresh_label_table_list(delete_old=False)
 
     ###### SAM2 SPECIFIC CALLBACKS ####################################################################
     
