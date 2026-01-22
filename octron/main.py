@@ -361,14 +361,12 @@ class octron_widget(QWidget):
         self.skip_frames_spinbox.setEnabled(True)
         self.batch_predict_progressbar.setValue(0)
         
-        # Save the object organizer and also refresh the table view
+        # Save the object organizer 
         # ! TODO: Make this more efficient. This slows down everything a lot since 
         # what we are doing here is creating a video hash from scratch twice (?) and 
         # load the video data, plus we find out which indices have annotation data in the 
-        # video. So, that is a lot of processing for just refreshing the table view for example 
+        # video. So, that is a lot of processing ...
         status = self.save_object_organizer()
-        if status: 
-            self.refresh_label_table_list(delete_old=False) # This is the table in the project tab
         self.batch_predict_progressbar.setMaximum(self.chunk_size)    
 
     def init_prediction_threaded(self):
@@ -748,10 +746,6 @@ class octron_widget(QWidget):
             # This has more drastic consequences ...
             elif self.layer_to_remove._basename() == 'Image' and 'VIDEO' in self.layer_to_remove.name:
                 # What to do: 
-                # Save the object organizer and refresh the table on first page
-                status = self.save_object_organizer()
-                if status:
-                    self.refresh_label_table_list(delete_old=False)
                 # Remove all layers and reset SAM predictor
                 self.remove_all_layers(spare=self.layer_to_remove)
                 # Also re-instantiate variables
