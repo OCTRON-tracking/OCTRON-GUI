@@ -251,7 +251,7 @@ class octron_widget(QWidget):
         index : int
             The index of the currently selected tab
         """
-        if index == 0:
+        if index == 0 and self.project_path is not None:
             # When the first tab (project tab, index 0) is clicked,
             self.refresh_label_table_list(delete_old=False)
 
