@@ -84,7 +84,7 @@ def check_yolo_models(YOLO_BASE_URL,
     """
     if not YOLO_BASE_URL:
         # Archiving the YOLO github releases URL here for now ...
-        YOLO_BASE_URL="https://github.com/ultralytics/assets/releases/download/v8.3.0" 
+        YOLO_BASE_URL="https://github.com/ultralytics/assets/releases/download/v8.4.0" 
     
     assert models_yaml_path.exists(), f"Path {models_yaml_path} does not exist"
     yolo_model_path = models_yaml_path.parent / 'models' # OCTRON convention. Currently not changeable.

@@ -4,3 +4,9 @@ YOLO11m:
 YOLO11l:
   name: "YOLO11l-seg"
   model_path: "yolo11l-seg.pt"
+YOLO26m:
+  name: "YOLO26m-seg"
+  model_path: "yolo26m-seg.pt"
+YOLO26l:
+  name: "YOLO26l-seg"
+  model_path: "yolo26l-seg.pt"
