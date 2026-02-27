@@ -55,6 +55,8 @@ import numpy as np
 from octron.sam2_octron.helpers.video_loader import probe_video, get_vfile_hash
 from octron.sam2_octron.helpers.build_sam2_octron import build_sam2_octron  
 from octron.sam2_octron.helpers.sam2_checks import check_sam2_models
+from octron.sam2_octron.helpers.build_sam3_octron import build_sam3_octron
+from octron.sam2_octron.helpers.sam3_checks import check_sam3_models
 from octron.sam2_octron.helpers.sam2_zarr import (
     create_image_zarr,
     load_image_zarr,
@@ -141,6 +143,12 @@ class octron_widget(QWidget):
                                                  models_yaml_path=sam2models_yaml_path,
                                                  force_download=False,
                                                  )
+        # SAM3 checkpoint from HuggingFace
+        sam3_checkpoints_dir = self.base_path / 'sam2_octron/checkpoints'
+        self.sam3models_dict = check_sam3_models(checkpoints_dir=sam3_checkpoints_dir,
+                                                 force_download=False,
+                                                 )
+        
         # Model yaml for YOLO
         yolo_models_yaml_path = self.base_path / 'yolo_octron/yolo_models.yaml'
         self.yolo_octron = YOLO_octron(models_yaml_path=yolo_models_yaml_path) # Feeding in yaml to initiate models dict
@@ -164,6 +172,11 @@ class octron_widget(QWidget):
         # Populate SAM2 dropdown list with available models
         for model_id, model in self.sam2models_dict.items():
             print(f"Adding SAM2 model {model_id}")
+            self.sam2model_list.addItem(model['name'])
+        
+        # Populate SAM3 entries in the same dropdown
+        for model_id, model in self.sam3models_dict.items():
+            print(f"Adding SAM3 model {model_id}")
             self.sam2model_list.addItem(model['name'])
             
         # Populate YOLO dropdown list with available models
@@ -208,7 +221,7 @@ class octron_widget(QWidget):
         # ... project 
         self.create_project_btn.clicked.connect(self.open_project_folder_dialog)
         # ... SAM2 and annotations 
-        self.load_sam2model_btn.clicked.connect(self.load_sam2model)
+        self.load_sam2model_btn.clicked.connect(self.load_model)
         self.create_annotation_layer_btn.clicked.connect(self.create_annotation_layers)
         self.predict_next_batch_btn.clicked.connect(self.init_prediction_threaded)
         self.predict_next_oneframe_btn.clicked.connect(self.init_prediction_threaded)    
@@ -255,7 +268,27 @@ class octron_widget(QWidget):
             # When the first tab (project tab, index 0) is clicked,
             self.refresh_label_table_list(delete_old=False)
 
-    ###### SAM2 SPECIFIC CALLBACKS ####################################################################
+    ###### SAM SPECIFIC CALLBACKS ####################################################################
+    
+    def load_model(self, model_name=''):
+        """
+        Dispatcher: load the selected model from the dropdown.
+        Delegates to load_sam2model or load_sam3model depending on
+        whether the selected name belongs to SAM2 or SAM3.
+        """
+        if not model_name:
+            index = self.sam2model_list.currentIndex()
+            if index == 0:
+                return
+            model_name = self.sam2model_list.currentText()
+        
+        # Check SAM3 first
+        for model_id, model in self.sam3models_dict.items():
+            if model['name'] == model_name:
+                self.load_sam3model(model_name=model_name)
+                return
+        # Fall back to SAM2
+        self.load_sam2model(model_name=model_name)
     
     def load_sam2model(self, 
                        model_name='',
@@ -294,6 +327,47 @@ class octron_widget(QWidget):
                                                         )
         self.predictor.is_initialized = False
         show_info(f"SAM2 model {model_name} loaded on {self.device}")
+        self._on_model_loaded(model_name)
+
+    def load_sam3model(self, model_name=''):
+        """
+        Load the selected SAM3 model (Mode A or Mode B) and enable prediction controls.
+        
+        Parameters
+        ----------
+        model_name : str
+            The name of the SAM3 model to load.
+        """
+        if not model_name:
+            index = self.sam2model_list.currentIndex()
+            if index == 0:
+                return
+            model_name = self.sam2model_list.currentText()
+        # Reverse lookup model_id
+        model_found = False
+        for model_id, model in self.sam3models_dict.items():
+            if model['name'] == model_name:
+                model_found = True
+                break
+        assert model_found, f"Model '{model_name}' not found in SAM3 models dictionary."
+        
+        print(f"Loading SAM3 model {model_id}")
+        model = self.sam3models_dict[model_id]
+        checkpoint_path = self.base_path / Path(f"sam2_octron/{model['checkpoint_path']}")
+        semantic = model.get('semantic', False)
+        self.predictor, self.device = build_sam3_octron(
+            ckpt_path=checkpoint_path.as_posix(),
+            semantic=semantic,
+        )
+        self.predictor.is_initialized = False
+        show_info(f"SAM3 model {model_name} loaded on {self.device}")
+        self._on_model_loaded(model_name)
+
+    def _on_model_loaded(self, model_name):
+        """
+        Common post-load setup shared by SAM2 and SAM3.
+        Disables the dropdown, enables prediction controls, starts zarr prefetcher.
+        """
         # Deactivate the dropdown menu upon successful model loading
         self.sam2model_list.setEnabled(False)
         self.load_sam2model_btn.setEnabled(False)
@@ -319,13 +393,39 @@ class octron_widget(QWidget):
         
     def reset_predictor(self):
         """
-        Reset the predictor and all layers.
+        Reset the predictor and all layers, including clearing masks on current frame.
         """
         self.predictor.reset_state()
+        
+        # Reset detector text embeddings if using SAM3 semantic mode
+        from octron.sam2_octron.helpers.sam3_octron import SAM3_semantic_octron
+        if isinstance(self.predictor, SAM3_semantic_octron):
+            if hasattr(self.predictor, 'detector'):
+                if hasattr(self.predictor.detector, 'text_embeddings'):
+                    self.predictor.detector.text_embeddings = {}
+                if hasattr(self.predictor.detector, 'names'):
+                    self.predictor.detector.names = []
+        
+        # Clear annotation layers (input shapes/points)
         annotation_layers = self.object_organizer.get_annotation_layers()
         for layer in annotation_layers:
             layer.data = []
-        show_info("SAM2 predictor was reset.")
+        
+        # Clear prediction masks on current frame
+        current_frame = self._viewer.dims.current_step[0]
+        for obj_id, entry in self.object_organizer.entries.items():
+            if entry.prediction_layer is not None:
+                # Clear only current frame to allow starting fresh
+                entry.prediction_layer.data[current_frame] = 0
+                entry.prediction_layer.refresh()
+            
+            # Clear accumulated semantic box prompts and masks if using SAM3 Mode B
+            if hasattr(entry, '_semantic_box_prompts'):
+                entry._semantic_box_prompts.pop(current_frame, None)
+            if hasattr(entry, '_semantic_accumulated_masks'):
+                entry._semantic_accumulated_masks.pop(current_frame, None)
+        
+        show_info("SAM predictor was reset.")
         
     
     def _batch_predict_yielded(self, value):
@@ -368,6 +468,21 @@ class octron_widget(QWidget):
         """
         Thread worker for predicting the next batch of images
         """
+        
+        # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
+        from octron.sam2_octron.helpers.sam3_octron import SAM3_semantic_octron
+        if isinstance(self.predictor, SAM3_semantic_octron):
+            for obj_id, entry in self.object_organizer.entries.items():
+                if hasattr(entry, '_semantic_accumulated_masks'):
+                    for frame_idx, mask in entry._semantic_accumulated_masks.items():
+                        # Finalize the accumulated mask to the tracker
+                        self.predictor.tracker.add_new_mask(
+                            frame_idx=frame_idx,
+                            obj_id=obj_id,
+                            mask=mask.astype(bool),
+                        )
+                    # Clear accumulated masks after finalizing
+                    entry._semantic_accumulated_masks = {}
         
         # Before doing anything, make sure, some input has been provided
         valid = False
