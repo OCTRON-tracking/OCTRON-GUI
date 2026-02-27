@@ -252,17 +252,16 @@ class sam2_octron_callbacks():
         # Add the new box to the buffer
         organizer_entry._semantic_box_prompts[frame_idx].append(box_xyxy)
         all_boxes = organizer_entry._semantic_box_prompts[frame_idx]
-        is_first_box = len(all_boxes) == 1
         
-        show_info(f'SAM3 Mode B: Running detection with {len(all_boxes)} box prompt(s)...')
-        
-        # Only reset text embeddings on FIRST box to maintain stable embeddings
-        # across accumulated detections. Resetting every time can cause instability.
-        if is_first_box and hasattr(predictor, 'detector'):
+        # Always reset text embeddings before detection to prevent state corruption
+        # This is especially important after propagation, which can leave stale embeddings
+        if hasattr(predictor, 'detector'):
             if hasattr(predictor.detector, 'text_embeddings'):
                 predictor.detector.text_embeddings = {}
             if hasattr(predictor.detector, 'names'):
                 predictor.detector.names = []
+        
+        show_info(f'SAM3 Mode B: Running detection with {len(all_boxes)} box prompt(s)...')
         
         # Run detection with ALL accumulated boxes together
         # This allows the model to see all examples simultaneously

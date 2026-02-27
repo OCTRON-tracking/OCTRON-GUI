@@ -462,7 +462,7 @@ class octron_widget(QWidget):
         # load the video data, plus we find out which indices have annotation data in the 
         # video. So, that is a lot of processing ...
         status = self.save_object_organizer()
-        self.batch_predict_progressbar.setMaximum(self.chunk_size)    
+        self.batch_predict_progressbar.setMaximum(self.chunk_size)
 
     def init_prediction_threaded(self):
         """
