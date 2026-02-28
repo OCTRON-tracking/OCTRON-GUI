@@ -469,7 +469,7 @@
         <string>Generate annotation data</string>
        </attribute>
        <attribute name="toolTip">
-        <string>Create annotation data for training, i.e. add segmentation or keypoint data on videos.</string>
+        <string>Create annotation data for training your custom models</string>
        </attribute>
        <widget class="QWidget" name="verticalLayoutWidget_2">
         <property name="geometry">
@@ -488,7 +488,7 @@
           <number>15</number>
          </property>
          <item>
-          <widget class="QGroupBox" name="horizontalGroupBox">
+          <widget class="QGroupBox" name="model_select_groupbox">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Minimum">
              <horstretch>0</horstretch>
@@ -524,7 +524,7 @@
               <number>10</number>
              </property>
              <item row="0" column="3" alignment="Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QPushButton" name="load_sam2model_btn">
+              <widget class="QPushButton" name="load_sam_model_btn">
                <property name="minimumSize">
                 <size>
                  <width>165</width>
@@ -596,7 +596,7 @@
               </widget>
              </item>
              <item row="0" column="0" alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QComboBox" name="sam2model_list">
+              <widget class="QComboBox" name="sam_model_list">
                <property name="minimumSize">
                 <size>
                  <width>87</width>
@@ -874,7 +874,7 @@ and octo and suffix 2 for the second octo </string>
                 </size>
                </property>
                <property name="toolTip">
-                <string>Hard reset of the SAM2 predictor. Use this if prediction really did not go well for your data.</string>
+                <string>Hard reset of the SAM predictor. Use this if prediction really did not go well for your data.</string>
                </property>
                <property name="text">
                 <string>〄 Reset</string>
@@ -1085,8 +1085,7 @@ and octo and suffix 2 for the second octo </string>
                </size>
               </property>
               <property name="toolTip">
-               <string>How many frames should be skipped in
-batch prediction?</string>
+               <string>How many frames should be skipped during batch prediction?</string>
               </property>
               <property name="alignment">
                <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
@@ -2370,7 +2369,7 @@ Recommended are at least ~50.</string>
               <height>61</height>
              </rect>
             </property>
-            <layout class="QGridLayout" name="gridLayout_3">
+            <layout class="QGridLayout" name="predict_options_grid_layout">
              <property name="horizontalSpacing">
               <number>5</number>
              </property>
@@ -2608,7 +2607,7 @@ of one label will be fused into one mask.</string>
               <height>101</height>
              </rect>
             </property>
-            <layout class="QGridLayout" name="gridLayout_2">
+            <layout class="QGridLayout" name="predict_grid_layout">
              <property name="horizontalSpacing">
               <number>5</number>
              </property>
