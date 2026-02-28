@@ -1,7 +1,7 @@
 # OCTRON SAM2 related callbacks
 import time
 import numpy as np
-from octron.sam2_octron.helpers.sam2_octron import (
+from octron.sam_octron.helpers.sam2_octron import (
     SAM2_octron,
     run_new_pred,
 )
@@ -91,7 +91,7 @@ class sam2_octron_callbacks():
                 top_left, bottom_right = box[top_left_idx,:], box[bottom_right_idx,:]
                 
                 # Check if Mode B (semantic detection) is active
-                from octron.sam2_octron.helpers.sam3_octron import SAM3_semantic_octron
+                from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
                 if isinstance(predictor, SAM3_semantic_octron):
                     # Mode B: detect ALL similar objects, then add each to tracker
                     mask = self._handle_semantic_box_detection(
@@ -344,7 +344,7 @@ class sam2_octron_callbacks():
         obj_id = points_layer.metadata['_obj_id']
         
         # Check if using SAM3 semantic mode with points (not supported)
-        from octron.sam2_octron.helpers.sam3_octron import SAM3_semantic_octron
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         if isinstance(predictor, SAM3_semantic_octron) and action == 'added':
             show_warning(
                 'SAM3 semantic mode does not support point prompts for detection. '

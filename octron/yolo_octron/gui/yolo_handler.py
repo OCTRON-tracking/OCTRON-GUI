@@ -6,7 +6,7 @@ from napari.qt import create_worker
 from napari.utils.notifications import show_info, show_warning, show_error
 
 from pathlib import Path           
-from octron.sam2_octron.helpers.video_loader import probe_video  
+from octron.sam_octron.helpers.video_loader import probe_video  
 from napari_pyav._reader import FastVideoReader              
 from qtpy.QtWidgets import QDialog                            
 from octron.gui_dialog_elements import remove_video_dialog     

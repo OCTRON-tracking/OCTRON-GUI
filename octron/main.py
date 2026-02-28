@@ -52,12 +52,12 @@ from octron.gui_tables import ExistingDataTable
 # SAM2 specific 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import numpy as np
-from octron.sam2_octron.helpers.video_loader import probe_video, get_vfile_hash
-from octron.sam2_octron.helpers.build_sam2_octron import build_sam2_octron  
-from octron.sam2_octron.helpers.sam2_checks import check_sam2_models
-from octron.sam2_octron.helpers.build_sam3_octron import build_sam3_octron
-from octron.sam2_octron.helpers.sam3_checks import check_sam3_models
-from octron.sam2_octron.helpers.sam2_zarr import (
+from octron.sam_octron.helpers.video_loader import probe_video, get_vfile_hash
+from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron  
+from octron.sam_octron.helpers.sam2_checks import check_sam2_models
+from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
+from octron.sam_octron.helpers.sam3_checks import check_sam3_models
+from octron.sam_octron.helpers.sam2_zarr import (
     create_image_zarr,
     load_image_zarr,
 )
@@ -71,7 +71,7 @@ from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
 from octron.tracking.helpers.tracker_vis import create_color_icon
 
 # Annotation layer creation tools
-from octron.sam2_octron.helpers.sam2_layer import (
+from octron.sam_octron.helpers.sam2_layer import (
     add_sam2_mask_layer,
     add_sam2_shapes_layer,
     add_sam2_points_layer,
@@ -79,10 +79,10 @@ from octron.sam2_octron.helpers.sam2_layer import (
 )                
 
 # Layer callbacks classes
-from octron.sam2_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
+from octron.sam_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
 
 # OCTRON Object organizer
-from octron.sam2_octron.object_organizer import Obj, ObjectOrganizer
+from octron.sam_octron.object_organizer import Obj, ObjectOrganizer
   
 # Custom dialog boxes
 from octron.gui_dialog_elements import (
@@ -139,13 +139,13 @@ class octron_widget(QWidget):
         self.skip_frames = 1 # Skip frames for prefetching images
     
         # Model yaml for SAM2
-        sam2models_yaml_path = self.base_path / 'sam2_octron/sam2_models.yaml'
+        sam2models_yaml_path = self.base_path / 'sam_octron/sam2_models.yaml'
         self.sam2models_dict = check_sam2_models(SAM2p1_BASE_URL='',
                                                  models_yaml_path=sam2models_yaml_path,
                                                  force_download=False,
                                                  )
         # SAM3 checkpoint from HuggingFace
-        sam3_checkpoints_dir = self.base_path / 'sam2_octron/checkpoints'
+        sam3_checkpoints_dir = self.base_path / 'sam_octron/checkpoints'
         self.sam3models_dict = check_sam3_models(checkpoints_dir=sam3_checkpoints_dir,
                                                  force_download=False,
                                                  )
@@ -326,7 +326,7 @@ class octron_widget(QWidget):
         print(f"Loading SAM2 model {model_id}")
         model = self.sam2models_dict[model_id]
         config_path = Path(model['config_path'])
-        checkpoint_path = self.base_path / Path(f"sam2_octron/{model['checkpoint_path']}")
+        checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
         self.predictor, self.device = build_sam2_octron(config_file_path=config_path.as_posix(),
                                                         ckpt_path=checkpoint_path.as_posix(),
                                                         )
@@ -358,7 +358,7 @@ class octron_widget(QWidget):
         
         print(f"Loading SAM3 model {model_id}")
         model = self.sam3models_dict[model_id]
-        checkpoint_path = self.base_path / Path(f"sam2_octron/{model['checkpoint_path']}")
+        checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
         semantic = model.get('semantic', False)
         self.predictor, self.device = build_sam3_octron(
             ckpt_path=checkpoint_path.as_posix(),
@@ -413,7 +413,7 @@ class octron_widget(QWidget):
         self.predictor.reset_state()
         
         # Reset detector text embeddings if using SAM3 semantic mode
-        from octron.sam2_octron.helpers.sam3_octron import SAM3_semantic_octron
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
             if hasattr(self.predictor, 'detector'):
                 if hasattr(self.predictor.detector, 'text_embeddings'):
@@ -486,7 +486,7 @@ class octron_widget(QWidget):
         """
         
         # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
-        from octron.sam2_octron.helpers.sam3_octron import SAM3_semantic_octron
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
             for obj_id, entry in self.object_organizer.entries.items():
                 if hasattr(entry, '_semantic_accumulated_masks'):
@@ -1416,7 +1416,7 @@ class octron_widget(QWidget):
         if layer_type == 'Shapes':
             annotation_layer_name = f"{layer_name} shapes"
             # Create a shape layer
-            from octron.sam2_octron.helpers.sam3_octron import SAM3_semantic_octron
+            from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
             if self.predictor is not None:
                 semantic_mode = isinstance(self.predictor, SAM3_semantic_octron)
             else:

@@ -6,7 +6,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Union, Dict, List, Any
 
-from octron.sam2_octron.helpers.sam2_colors import (
+from octron.sam_octron.helpers.sam2_colors import (
     create_label_colors,
     sample_maximally_different,
 )

@@ -61,7 +61,7 @@ def check_sam3_models(checkpoints_dir, force_download=False):
     ----------
     checkpoints_dir : str or Path
         Directory where sam3.pt and config.json should reside
-        (typically ``<base_path>/sam2_octron/checkpoints``).
+        (typically ``<base_path>/sam_octron/checkpoints``).
     force_download : bool
         Re-download even if files exist.
     
@@ -95,7 +95,7 @@ def check_sam3_models(checkpoints_dir, force_download=False):
         print("⚠️  sam3.pt not found after download attempt.")
         return {}
 
-    # Build the models dict (relative to sam2_octron/)
+    # Build the models dict (relative to sam_octron/)
     rel_ckpt = f"checkpoints/sam3.pt"
 
     sam3_models_dict = {
