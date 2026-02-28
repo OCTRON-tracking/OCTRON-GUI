@@ -1212,7 +1212,7 @@ class SAM3_semantic_octron:
             pred_masks.float()[None],
             size=(video_H, video_W),
             mode="bilinear",
-        )[0] > 0.5
+        )[0] > 0
         
         return pred_masks, pred_scores, pred_cls
     
@@ -1365,7 +1365,7 @@ def run_new_pred(predictor,
         if frame_idx is None:
             return None 
         index_obj_id = obj_ids.index(obj_id)
-        mask = (video_res_masks[index_obj_id] > 0.5).cpu().numpy().astype(np.uint8)
+        mask = (video_res_masks[index_obj_id] > 0).cpu().numpy().astype(np.uint8)
                 
     ########### POINT INPUT ###################################################################
     if points is not None:
@@ -1380,7 +1380,7 @@ def run_new_pred(predictor,
         if frame_idx is None:
             return None
         index_obj_id = obj_ids.index(obj_id)
-        mask = (video_res_masks[index_obj_id] > 0.5).cpu().numpy().astype(np.uint8)
+        mask = (video_res_masks[index_obj_id] > 0).cpu().numpy().astype(np.uint8)
         
     ########### BOX INPUT #####################################################################
     if box is not None:
@@ -1394,7 +1394,7 @@ def run_new_pred(predictor,
         if frame_idx is None:
             return None
         index_obj_id = obj_ids.index(obj_id)
-        mask = (video_res_masks[index_obj_id] > 0.5).cpu().numpy().astype(np.uint8)
+        mask = (video_res_masks[index_obj_id] > 0).cpu().numpy().astype(np.uint8)
     
     mask = mask.squeeze()
     return mask
