@@ -653,6 +653,8 @@ class octron_widget(QWidget):
         # Reset variables for a clean start
         self.object_organizer = ObjectOrganizer()
         # SAM2 
+        self.loaded_model_name = None
+        self.sam_model_list.setCurrentIndex(0)
         self.sam_model_list.setEnabled(True)
         self.load_sam_model_btn.setEnabled(True)
         self.load_sam_model_btn.setText(f'Load model')
@@ -660,8 +662,11 @@ class octron_widget(QWidget):
         self.predict_next_oneframe_btn.setText('')
         self.predict_next_oneframe_btn.setEnabled(False)
         self.predict_next_batch_btn.setEnabled(False)
+        self.hard_reset_layer_btn.setEnabled(False)
         self.sam3detect_thresh.setEnabled(False)
         self.threshold_label.setEnabled(False)
+        # Re-enable Points option (may have been disabled by SAM3 semantic model)
+        self.layer_type_combobox.model().item(2).setEnabled(True)
             
         # Use the file drop method to load the video
         self.on_mp4_file_dropped_area([video_file_path])
@@ -906,7 +911,9 @@ class octron_widget(QWidget):
                 self.prefetcher_worker = None
                 self.all_zarrs = []
                 # SAM2 
-                self.predictor = None   
+                self.predictor = None
+                self.loaded_model_name = None
+                self.sam_model_list.setCurrentIndex(0)
                 self.sam_model_list.setEnabled(True)
                 self.load_sam_model_btn.setEnabled(True)
                 self.load_sam_model_btn.setText(f'Load model')
@@ -914,8 +921,11 @@ class octron_widget(QWidget):
                 self.predict_next_oneframe_btn.setText('')
                 self.predict_next_oneframe_btn.setEnabled(False)
                 self.predict_next_batch_btn.setEnabled(False)
+                self.hard_reset_layer_btn.setEnabled(False)
                 self.sam3detect_thresh.setEnabled(False)
                 self.threshold_label.setEnabled(False)
+                # Re-enable Points option (may have been disabled by SAM3 semantic model)
+                self.layer_type_combobox.model().item(2).setEnabled(True)
                 # Object organizer
                 self.object_organizer = ObjectOrganizer()
                 # Disable the layer annotation box until SAM2 is loaded 
