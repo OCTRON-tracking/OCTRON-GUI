@@ -8,6 +8,7 @@ from octron.sam2_octron.helpers.sam2_octron import (
 from napari.utils.notifications import (
     show_warning,
     show_info,
+    show_error,
 )
 
 import warnings 
@@ -263,11 +264,26 @@ class sam2_octron_callbacks():
         
         show_info(f'SAM3 Mode B: Running detection with {len(all_boxes)} box prompt(s)...')
         
+        # Read detection threshold from GUI input
+        thresh_text = self.octron.sam3detect_thresh.text().strip()
+        if not thresh_text:
+            conf_threshold = 0.5
+        else:
+            try:
+                conf_threshold = float(thresh_text)
+            except (ValueError, TypeError):
+                show_error(f'Invalid detection threshold: "{thresh_text}". Must be a number between 0 and 1.')
+                return None
+            if not (0.0 <= conf_threshold <= 1.0):
+                show_error(f'Detection threshold {conf_threshold} out of range. Must be between 0 and 1.')
+                return None
+        
         # Run detection with ALL accumulated boxes together
         # This allows the model to see all examples simultaneously
         pred_masks, pred_scores, _ = predictor.detect(
             frame_idx=frame_idx,
             bboxes=all_boxes,  # Pass all boxes, not just the latest one
+            conf_threshold=conf_threshold,
         )
         
         if pred_masks is None or pred_masks.shape[0] == 0:

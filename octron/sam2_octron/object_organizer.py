@@ -78,6 +78,9 @@ class ObjectOrganizer(BaseModel):
     # The next available label_id.
     next_label_id: int = 0
     
+    # Project-level settings (persisted to JSON)
+    settings: Dict[str, Any] = {}
+    
     # Color dictionary for all labels
     n_labels_max: int = 10 # max number of distinct label colors
     n_subcolors: int  = 50
@@ -257,6 +260,7 @@ class ObjectOrganizer(BaseModel):
         # Create a copy of the data without non-serializable objects
         serializable_data = {
             "entries": {},
+            "settings": self.settings,
             "time_last_changed": datetime.datetime.now().isoformat()  # Add current timestamp in ISO format
         }
         if not self.entries:

@@ -128,6 +128,7 @@ class octron_widget(QWidget):
         self.all_zarrs = [] # Collect zarrs in list so they can be cleaned up upon closing
         self.prefetcher_worker = None
         self.predictor, self.device = None, None
+        self.loaded_model_name = None # Name of the currently loaded SAM model
         self.object_organizer = ObjectOrganizer() # Initialize top level object organizer
         self.remove_current_layer = False # Removal of layer yes/no
         self.layer_to_remove_idx = None # Index of layer to remove
@@ -244,6 +245,10 @@ class octron_widget(QWidget):
         
         # Disable layer annotation until SAM2 model is loaded
         self.annotate_layer_create_groupbox.setEnabled(False)
+        
+        # Disable SAM3 detection threshold until a SAM3 semantic model is loaded
+        self.sam3detect_thresh.setEnabled(False)
+        self.threshold_label.setEnabled(False)
         
         # And ... 
         self.train_generate_groupbox.setEnabled(False)
@@ -362,13 +367,23 @@ class octron_widget(QWidget):
         self.predictor.is_initialized = False
         show_info(f"SAM3 model {model_name} loaded on {self.device}")
         self._on_model_loaded(model_name)
+        
+        # Disable "Points" option for SAM3 semantic+detector models
+        if semantic:
+            points_index = 2  # "Points" is at index 2
+            self.layer_type_combobox.model().item(points_index).setEnabled(False)
+            # Enable detection threshold input for SAM3 semantic mode
+            self.sam3detect_thresh.setEnabled(True)
+            self.threshold_label.setEnabled(True)
 
     def _on_model_loaded(self, model_name):
         """
         Common post-load setup shared by SAM2 and SAM3.
         Disables the dropdown, enables prediction controls, starts zarr prefetcher.
         """
+        self.loaded_model_name = model_name
         # Deactivate the dropdown menu upon successful model loading
+        self.sam2model_list.setCurrentIndex(-1)
         self.sam2model_list.setEnabled(False)
         self.load_sam2model_btn.setEnabled(False)
         self.load_sam2model_btn.setText(f'{model_name} ✓')
@@ -462,6 +477,7 @@ class octron_widget(QWidget):
         # load the video data, plus we find out which indices have annotation data in the 
         # video. So, that is a lot of processing ...
         status = self.save_object_organizer()
+        self.refresh_label_table_list(delete_old=False)
         self.batch_predict_progressbar.setMaximum(self.chunk_size)
 
     def init_prediction_threaded(self):
@@ -546,6 +562,11 @@ class octron_widget(QWidget):
         if self.project_path_video is None or not self.project_path_video.exists():
             print("No project video path set or found. Not exporting object organizer.")
             return False
+        # Populate project-level settings before saving
+        self.object_organizer.settings = {
+            "model_name": self.loaded_model_name,
+            "sam3_detect_threshold": self.sam3detect_thresh.text().strip() or None,
+        }
         organizer_path = self.project_path_video  / "object_organizer.json"
         self.object_organizer.save_to_disk(organizer_path)
         return True 
@@ -639,6 +660,8 @@ class octron_widget(QWidget):
         self.predict_next_oneframe_btn.setText('')
         self.predict_next_oneframe_btn.setEnabled(False)
         self.predict_next_batch_btn.setEnabled(False)
+        self.sam3detect_thresh.setEnabled(False)
+        self.threshold_label.setEnabled(False)
             
         # Use the file drop method to load the video
         self.on_mp4_file_dropped_area([video_file_path])
@@ -659,6 +682,21 @@ class octron_widget(QWidget):
         if not object_organizer_data:
             show_warning("Could not load object organizer data.")
             return
+        
+        # Restore project-level settings
+        saved_settings = object_organizer_data.get('settings', {})
+        if saved_settings:
+            # Restore detection threshold
+            saved_threshold = saved_settings.get('sam3_detect_threshold')
+            if saved_threshold is not None:
+                self.sam3detect_thresh.setText(str(saved_threshold))
+            # Restore model name — pre-select it in the dropdown
+            saved_model_name = saved_settings.get('model_name')
+            if saved_model_name:
+                self.loaded_model_name = saved_model_name
+                idx = self.sam2model_list.findText(saved_model_name)
+                if idx >= 0:
+                    self.sam2model_list.setCurrentIndex(idx)
         
         # Clear the label list combobox and re-initialize it
         self.label_list_combobox.clear()
@@ -876,6 +914,8 @@ class octron_widget(QWidget):
                 self.predict_next_oneframe_btn.setText('')
                 self.predict_next_oneframe_btn.setEnabled(False)
                 self.predict_next_batch_btn.setEnabled(False)
+                self.sam3detect_thresh.setEnabled(False)
+                self.threshold_label.setEnabled(False)
                 # Object organizer
                 self.object_organizer = ObjectOrganizer()
                 # Disable the layer annotation box until SAM2 is loaded 
@@ -1376,9 +1416,20 @@ class octron_widget(QWidget):
         if layer_type == 'Shapes':
             annotation_layer_name = f"{layer_name} shapes"
             # Create a shape layer
+            from octron.sam2_octron.helpers.sam3_octron import SAM3_semantic_octron
+            if self.predictor is not None:
+                semantic_mode = isinstance(self.predictor, SAM3_semantic_octron)
+            else:
+                # No model loaded yet (e.g. project reload) — check saved model name
+                semantic_mode = self.loaded_model_name is not None and any(
+                    m.get('semantic', False)
+                    for m in self.sam3models_dict.values()
+                    if m['name'] == self.loaded_model_name
+                )
             annotation_layer = add_sam2_shapes_layer(viewer=self._viewer,
                                                      name=annotation_layer_name,
                                                      color=obj_color,
+                                                     semantic_mode=semantic_mode,
                                                      )
             annotation_layer.metadata['_name']   = annotation_layer_name 
             annotation_layer.metadata['_obj_id'] = obj_id 

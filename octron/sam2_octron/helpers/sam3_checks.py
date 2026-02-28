@@ -100,12 +100,12 @@ def check_sam3_models(checkpoints_dir, force_download=False):
 
     sam3_models_dict = {
         "sam3_mode_a": {
-            "name": "SAM3 (tracking)",
+            "name": "SAM3",
             "checkpoint_path": rel_ckpt,
             "semantic": False,
         },
         "sam3_mode_b": {
-            "name": "SAM3 Semantic (detect+track)",
+            "name": "SAM3 multi",
             "checkpoint_path": rel_ckpt,
             "semantic": True,
         },
