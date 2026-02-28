@@ -262,7 +262,7 @@ class sam2_octron_callbacks():
             if hasattr(predictor.detector, 'names'):
                 predictor.detector.names = []
         
-        show_info(f'SAM3 Mode B: Running detection with {len(all_boxes)} box prompt(s)...')
+        print(f'SAM3 Mode B: Running detection with {len(all_boxes)} box prompt(s)...')
         
         # Read detection threshold from GUI input
         thresh_text = self.octron.sam3detect_thresh.text().strip()
@@ -302,7 +302,7 @@ class sam2_octron_callbacks():
         # Get number of box prompts used
         n_boxes = len(organizer_entry._semantic_box_prompts.get(frame_idx, []))
         max_score = pred_scores.max().item() if pred_scores is not None and pred_scores.numel() > 0 else 0.0
-        show_info(
+        print(
             f'SAM3 Mode B: Detected {n_detections} objects using {n_boxes} box prompt(s). '
             f'Max score: {max_score:.3f}'
         )
