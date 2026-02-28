@@ -773,7 +773,13 @@ class SAM3_octron:
         Propagate tracking results through the video.
         Yields (frame_idx, obj_ids, video_res_masks) per frame.
         """
-        self.propagate_in_video_preflight()
+        try:
+            self.propagate_in_video_preflight()
+        except Exception as e:
+            import traceback
+            print(f"❌ SAM3 propagate_in_video_preflight failed: {e}")
+            traceback.print_exc()
+            return
         
         obj_ids = self.inference_state["obj_ids"]
         num_frames = self.inference_state["num_frames"]
@@ -850,8 +856,9 @@ class SAM3_octron:
                 _, video_res_masks = self._get_orig_video_res_output(all_pred_masks)
                 yield frame_idx, obj_ids, video_res_masks
         except Exception as e:
-            print(e)
-            pass
+            import traceback
+            print(f"❌ SAM3 propagate_in_video error at frame {frame_idx}: {e}")
+            traceback.print_exc()
     
     
     # ── State management ──────────────────────────────────────────────────────
