@@ -407,10 +407,12 @@ class SAM3_octron:
         """Run memory encoder on predicted masks to create memory features for a given frame."""
         (_, _, current_vision_feats, _, feat_sizes) = \
             self._get_image_feature(self.inference_state, frame_idx=frame_idx, batch_size=batch_size)
+        # Cast masks to float32 to match the memory encoder's Conv2d weight dtype,
+        # since backbone features (and thus pred_masks) may be in bfloat16.
         maskmem_features, maskmem_pos_enc = self.model._encode_new_memory(
             current_vision_feats=current_vision_feats,
             feat_sizes=feat_sizes,
-            pred_masks_high_res=high_res_masks,
+            pred_masks_high_res=high_res_masks.float(),
             is_mask_from_pts=is_mask_from_pts,
             object_score_logits=object_score_logits,
         )
