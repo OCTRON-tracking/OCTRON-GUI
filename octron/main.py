@@ -57,6 +57,7 @@ from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron
 from octron.sam_octron.helpers.sam2_checks import check_sam2_models
 from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
 from octron.sam_octron.helpers.sam3_checks import check_sam3_models
+import zarr
 from octron.sam_octron.helpers.sam2_zarr import (
     create_image_zarr,
     load_image_zarr,
@@ -275,6 +276,59 @@ class octron_widget(QWidget):
 
     ###### SAM SPECIFIC CALLBACKS ####################################################################
     
+    def _check_model_data_compatibility(self, model_name):
+        """
+        Check whether the model being loaded is compatible with existing
+        annotation data.  SAM2 models operate at 1024×1024 while SAM3 models
+        operate at 1008×1008 – the two are not interchangeable.
+
+        The check reads the existing ``video data.zarr`` (which stores
+        preprocessed images at the model's resolution) and compares its
+        spatial dimensions against what the new model expects.
+
+        Returns True if compatible (or no existing data), False otherwise.
+        """
+        if self.project_path_video is None or not self.project_path_video.exists():
+            return True
+
+        video_zarr_path = self.project_path_video / 'video data.zarr'
+        if not video_zarr_path.exists():
+            return True
+
+        # Only relevant when there are existing mask annotations
+        existing_mask_zarrs = list(self.project_path_video.glob('*masks*.zarr'))
+        if not existing_mask_zarrs:
+            return True
+
+        # Determine image size expected by the model being loaded
+        is_sam3 = any(m['name'] == model_name for m in self.sam3models_dict.values())
+        new_image_size = 1008 if is_sam3 else 1024
+
+        try:
+            store = zarr.storage.LocalStore(video_zarr_path, read_only=True)
+            root = zarr.open_group(store=store, mode='r')
+            if 'masks' not in root:
+                return True
+            existing_shape = root['masks'].shape
+            # shape: (num_frames, num_ch, image_height, image_width)
+            existing_image_size = existing_shape[2]
+        except Exception as e:
+            print(f"Warning: could not read existing zarr for compatibility check: {e}")
+            return True
+
+        if existing_image_size == new_image_size:
+            return True
+
+        existing_family = "SAM2" if existing_image_size == 1024 else "SAM3"
+        new_family = "SAM3" if is_sam3 else "SAM2"
+        show_error(
+            f"Model incompatibility: existing annotations were created with "
+            f"{existing_family} ({existing_image_size}×{existing_image_size}). "
+            f"Cannot load {new_family} model ({new_image_size}×{new_image_size}). "
+            f"SAM2 and SAM3 use different image resolutions and are not interchangeable."
+        )
+        return False
+
     def load_model(self, model_name=''):
         """
         Dispatcher: load the selected model from the dropdown.
@@ -286,7 +340,11 @@ class octron_widget(QWidget):
             if index == 0:
                 return
             model_name = self.sam_model_list.currentText()
-        
+
+        # Block loading if the model family is incompatible with existing data
+        if not self._check_model_data_compatibility(model_name):
+            return
+
         # Check SAM3 first
         for model_id, model in self.sam3models_dict.items():
             if model['name'] == model_name:
