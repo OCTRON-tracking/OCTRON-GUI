@@ -11,6 +11,7 @@ from torchvision.transforms import Resize
 
 import warnings 
 warnings.simplefilter("ignore")
+from ultralytics.data.loaders import SourceTypes
 
 
 MIN_ZARR_CHUNK_SIZE = 50 # Setting minimum chunk size for zarr arrays
@@ -219,6 +220,9 @@ class OctoZarr:
                  zarr_array, 
                  video_data,
                  running_buffer_size=50,
+                 normalize_scale=True,
+                 normalize_mean=True,
+                 normalize_std=True,
                  ):
         self.zarr_array = zarr_array
         self.saved_indices = []
@@ -226,11 +230,24 @@ class OctoZarr:
         # Collect some basic info 
         self.num_frames, self.num_chs, self.image_height, self.image_width = zarr_array.shape
         
-        # The original implementation uses a fixed mean and std 
-        img_mean = (0.485, 0.456, 0.406)
-        img_std  = (0.229, 0.224, 0.225)
+        # Store normalization settings
+        self.normalize_scale = normalize_scale
+        self.normalize_mean = normalize_mean
+        self.normalize_std = normalize_std
+        
+        # Choose normalization constants based on whether we scale to (0,1) or keep (0,255)
+        if self.normalize_scale:
+            # ImageNet normalization (for 0-1 range)
+            img_mean = (0.485, 0.456, 0.406)
+            img_std = (0.229, 0.224, 0.225)
+        else:
+            # Raw pixel normalization (for 0-255 range)
+            img_mean = (123.675, 116.28, 103.53)
+            img_std = (58.395, 57.12, 57.375)
+        
         self.img_mean = torch.tensor(img_mean, dtype=torch.float32)[:, None, None]
         self.img_std = torch.tensor(img_std, dtype=torch.float32)[:, None, None]
+        
         
         # Initialize resizing function
         self._resize_img = Resize(size=(self.image_height, self.image_width))
@@ -242,9 +259,20 @@ class OctoZarr:
                                           self.num_chs, 
                                           self.image_height, 
                                           self.image_width,
-                                          dtype=torch.bfloat16
+                                          dtype=torch.float16
                                           )
         self.cur_cache_idx = 0 # Keep track of where you are in the cache currently
+
+        # Add loader interface attributes to make it compatible with ultralytics loaders
+        self.mode = "video"  # Set mode as video
+        self.bs = 1  # Batch size (process one frame at a time)
+        self.frame = 0  # Current frame index
+        self.frames = self.num_frames  # Total number of frames
+        self.fps = 30  # Default FPS
+        self.count = 0  # Iterator count
+        self.paths = [f"frame_{i}.jpg" for i in range(self.num_frames)]  # Generate dummy paths
+        # Set source type to indicate this is a video stream
+        self.source_type = SourceTypes(stream=True, screenshot=False, from_img=False, tensor=False)
 
     @property
     def indices_in_store(self):
@@ -270,10 +298,13 @@ class OctoZarr:
     @torch.inference_mode()
     def _fetch_one(self, idx):
         img = self.video_data[idx]
-        img = self._resize_img(torch.from_numpy(img).permute(2,0,1)).to(torch.bfloat16)
-        img /= 255.  
-        img -= self.img_mean
-        img /= self.img_std     
+        img = self._resize_img(torch.from_numpy(img).permute(2,0,1)).to(torch.float16)
+        if self.normalize_scale:
+            img /= 255.  
+        if self.normalize_mean:
+            img -= self.img_mean
+        if self.normalize_std:
+            img /= self.img_std     
         # Cache 
         self.cached_indices[self.cur_cache_idx] = idx
         self.cached_images[self.cur_cache_idx] = img
@@ -285,17 +316,20 @@ class OctoZarr:
     @torch.inference_mode()
     def _fetch_many(self, indices):
         imgs = self.video_data[indices]
-        imgs = self._resize_img(torch.from_numpy(imgs).permute(0,3,1,2)).to(torch.bfloat16)
-        imgs /= 255.  
-        imgs -= self.img_mean
-        imgs /= self.img_std
+        imgs = self._resize_img(torch.from_numpy(imgs).permute(0,3,1,2)).to(torch.float16)
+        if self.normalize_scale:
+            imgs /= 255.  
+        if self.normalize_mean:
+            imgs -= self.img_mean
+        if self.normalize_std:
+            imgs /= self.img_std
         # Cache
-        for idx, img in zip(indices, imgs):
+        for i, idx in enumerate(indices):
             self.cached_indices[self.cur_cache_idx] = idx
-            self.cached_images[self.cur_cache_idx] = img
+            self.cached_images[self.cur_cache_idx] = imgs[i]
             self.cur_cache_idx += 1
             if self.cur_cache_idx == len(self.cached_indices):
-                self.cur_cache_idx = 0  
+                self.cur_cache_idx = 0
         return imgs
     
     def fetch(self, indices):   
@@ -322,7 +356,7 @@ class OctoZarr:
                                  self.num_chs, 
                                  self.image_height, 
                                  self.image_width,
-                                 dtype=torch.bfloat16
+                                 dtype=torch.float16
                                  )
         
         # First check whether the indices are in the cache
@@ -340,7 +374,7 @@ class OctoZarr:
             # Single image
             idx = indices[0]
             if idx in self.saved_indices:
-                img = torch.from_numpy(self.zarr_array[idx]).to(torch.bfloat16)
+                img = torch.from_numpy(self.zarr_array[idx]).to(torch.float16)
             else:
                 img = self._fetch_one(idx=idx)
                 self._save_to_zarr([img], [idx])
@@ -358,7 +392,7 @@ class OctoZarr:
                 self._save_to_zarr(imgs, not_in_store)
             if len(in_store):
                 #print(f'Found in store (multiple): {in_store}')
-                imgs_in_store = torch.from_numpy(self.zarr_array[in_store]).squeeze().to(torch.bfloat16)
+                imgs_in_store = torch.from_numpy(self.zarr_array[in_store]).squeeze().to(torch.float16)
                 imgs_torch[np.where(np.isin(indices, in_store))[0]] = imgs_in_store    
 
         return imgs_torch.squeeze()
@@ -379,6 +413,36 @@ class OctoZarr:
 
         images = self.fetch(indices)
         return images
+    
+    def __iter__(self):
+        """Return an iterator for the video frames."""
+        self.count = 0
+        self.frame = 0
+        return self
+    
+    def __next__(self):
+        """
+        Return the next frame in the video sequence.
+        Uses the fetch infrastructure to leverage caching and zarr storage.
+        
+        Returns:
+            tuple: (paths, images, info) where:
+                - paths: list of frame paths/identifiers
+                - images: list of numpy arrays containing the frame data
+                - info: list of string metadata about the frame
+        """
+        if self.count >= self.num_frames:
+            raise StopIteration
+        
+        # Use fetch() directly to leverage caching and zarr storage
+        img = self.fetch([self.count])        
+        path = self.paths[self.count]
+        info = f"video 1/1 (frame {self.count + 1}/{self.num_frames}): "
+        
+        self.count += 1
+        self.frame = self.count
+        
+        return [path], [img], [info]
         
     def __repr__(self):
             return repr(self.zarr_array)

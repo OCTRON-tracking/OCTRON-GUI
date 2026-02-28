@@ -17,7 +17,7 @@ def download_sam2_checkpoint(url,
         URL to download the model from. 
         For example "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"
     fpath : str or Path
-        Destination path to save the model to. For example "sam2_octron/checkpoints/sam2.1_hiera_large.pt"
+        Destination path to save the model to. For example "sam_octron/checkpoints/sam2.1_hiera_large.pt"
     overwrite : bool
         If True, overwrite the file if it already exists. 
         If False, skip the download if the file already exists. Default is False.
@@ -63,7 +63,7 @@ def check_sam2_models(SAM2p1_BASE_URL,
         If not provided, the default URL will be used.
     models_yaml_path : str or Path
         Path to the models yaml file. 
-        For example "sam2_octron/sam2_models.yaml"
+        For example "sam_octron/sam2_models.yaml"
     force_download : bool
         If True, download the model even if it already exists. 
         Default is False.

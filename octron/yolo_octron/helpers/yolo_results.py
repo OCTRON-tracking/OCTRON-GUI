@@ -67,7 +67,7 @@ class YOLO_results:
         Check if video is present in the second parent directory, then probe it for properties.
         OCTRON saves results of analyzed mp4 files into a subdirectory /octron_predictions/VIDEONAME/
         """
-        from octron.sam2_octron.helpers.video_loader import probe_video
+        from octron.sam_octron.helpers.video_loader import probe_video
         results_dir = self.results_dir
         video = None
         video_dict = None
@@ -272,7 +272,7 @@ class YOLO_results:
         we are looking up object IDs from the original model classes
         (See self.get_color_for_track_id())
         """
-        from octron.sam2_octron.helpers.sam2_colors import (create_label_colors, 
+        from octron.sam_octron.helpers.sam2_colors import (create_label_colors, 
                                                             sample_maximally_different
                                                            )
         all_labels_submaps = create_label_colors(n_labels=label_n,

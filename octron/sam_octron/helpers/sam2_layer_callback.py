@@ -1,12 +1,14 @@
 # OCTRON SAM2 related callbacks
 import time
 import numpy as np
-from octron.sam2_octron.helpers.sam2_octron import (
+from octron.sam_octron.helpers.sam2_octron import (
     SAM2_octron,
     run_new_pred,
 )
 from napari.utils.notifications import (
     show_warning,
+    show_info,
+    show_error,
 )
 
 import warnings 
@@ -88,17 +90,31 @@ class sam2_octron_callbacks():
                 bottom_right_idx = np.argmax(box_sum, axis=0)
                 top_left, bottom_right = box[top_left_idx,:], box[bottom_right_idx,:]
                 
-                
-                mask = run_new_pred(predictor=predictor,
-                                    frame_idx=frame_idx,
-                                    obj_id=obj_id,
-                                    labels=[1],
-                                    box=[top_left[1],
-                                         top_left[0],
-                                         bottom_right[1],
-                                         bottom_right[0]
-                                         ],
-                                    )
+                # Check if Mode B (semantic detection) is active
+                from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+                if isinstance(predictor, SAM3_semantic_octron):
+                    # Mode B: detect ALL similar objects, then add each to tracker
+                    mask = self._handle_semantic_box_detection(
+                        predictor=predictor,
+                        frame_idx=frame_idx,
+                        obj_id=obj_id,
+                        organizer_entry=organizer_entry,
+                        prediction_layer=prediction_layer,
+                        top_left=top_left,
+                        bottom_right=bottom_right,
+                    )
+                else:
+                    # Mode A / SAM2: single-instance box prompt
+                    mask = run_new_pred(predictor=predictor,
+                                        frame_idx=frame_idx,
+                                        obj_id=obj_id,
+                                        labels=[1],
+                                        box=[top_left[1],
+                                             top_left[0],
+                                             bottom_right[1],
+                                             bottom_right[0]
+                                             ],
+                                        )
                 shapes_layer.data = shapes_layer.data[:-1]
                 shapes_layer.refresh()  
                 
@@ -139,6 +155,172 @@ class sam2_octron_callbacks():
         return
     
     
+    def _handle_semantic_box_detection(
+        self,
+        predictor,
+        frame_idx,
+        obj_id,
+        organizer_entry,
+        prediction_layer,
+        top_left,
+        bottom_right,
+    ):
+        """
+        Handle Mode B (SAM3 semantic detection) when the user draws a box.
+        
+        Runs detection to find ALL similar objects in the frame, then:
+        - Uses the existing organizer entry for the first detected object
+        - Creates new organizer entries for each additional detection
+        
+        Parameters
+        ----------
+        predictor : SAM3_semantic_octron
+            The semantic predictor.
+        frame_idx : int
+            Current frame index.
+        obj_id : int
+            Object ID of the entry the user drew the box on.
+        organizer_entry : Obj
+            The organizer entry for the current object.
+        prediction_layer : napari.layers.Labels
+            The prediction layer for the current object.
+        top_left : np.ndarray
+            Top-left corner [y, x] in video pixel coordinates.
+        bottom_right : np.ndarray
+            Bottom-right corner [y, x] in video pixel coordinates.
+            
+        Returns
+        -------
+        mask : np.ndarray or None
+            The mask for the first detected object (the one the user drew on).
+        """
+        # Convert to xyxy format: [x1, y1, x2, y2]
+        box_xyxy = [
+            float(top_left[1]),    # x1
+            float(top_left[0]),    # y1
+            float(bottom_right[1]),# x2 
+            float(bottom_right[0]),# y2
+        ]
+        
+        # Helper function to calculate IoU (Intersection over Union) between two boxes
+        def calculate_iou(box1, box2):
+            """Calculate IoU between two boxes in [x1, y1, x2, y2] format."""
+            x1_inter = max(box1[0], box2[0])
+            y1_inter = max(box1[1], box2[1])
+            x2_inter = min(box1[2], box2[2])
+            y2_inter = min(box1[3], box2[3])
+            
+            if x2_inter < x1_inter or y2_inter < y1_inter:
+                return 0.0
+            
+            inter_area = (x2_inter - x1_inter) * (y2_inter - y1_inter)
+            box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+            box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+            union_area = box1_area + box2_area - inter_area
+            
+            return inter_area / union_area if union_area > 0 else 0.0
+        
+        # Buffer box prompts - accumulate all boxes for this frame/object
+        if not hasattr(organizer_entry, '_semantic_box_prompts'):
+            organizer_entry._semantic_box_prompts = {}
+        if frame_idx not in organizer_entry._semantic_box_prompts:
+            organizer_entry._semantic_box_prompts[frame_idx] = []
+        
+        # Check if new box overlaps significantly with existing boxes (IoU > 0.5)
+        existing_boxes = organizer_entry._semantic_box_prompts[frame_idx]
+        is_redundant = False
+        iou_threshold = 0.5
+        
+        for existing_box in existing_boxes:
+            iou = calculate_iou(box_xyxy, existing_box)
+            if iou > iou_threshold:
+                is_redundant = True
+                show_warning(
+                    f'SAM3 Mode B: New box overlaps {iou:.2f} with existing box. '
+                    f'Skipping to avoid redundancy. Draw boxes around DIFFERENT objects.'
+                )
+                break
+        
+        if is_redundant:
+            # Don't add the box, just return current mask without re-detecting
+            current_mask = prediction_layer.data[frame_idx]
+            return current_mask if current_mask is not None else np.zeros(
+                (self.octron.video_layer.metadata['height'], 
+                 self.octron.video_layer.metadata['width']),
+                dtype=np.uint8
+            )
+        
+        # Add the new box to the buffer
+        organizer_entry._semantic_box_prompts[frame_idx].append(box_xyxy)
+        all_boxes = organizer_entry._semantic_box_prompts[frame_idx]
+        
+        # Always reset text embeddings before detection to prevent state corruption
+        # This is especially important after propagation, which can leave stale embeddings
+        if hasattr(predictor, 'detector'):
+            if hasattr(predictor.detector, 'text_embeddings'):
+                predictor.detector.text_embeddings = {}
+            if hasattr(predictor.detector, 'names'):
+                predictor.detector.names = []
+        
+        print(f'SAM3 Mode B: Running detection with {len(all_boxes)} box prompt(s)...')
+        
+        # Read detection threshold from GUI input
+        thresh_text = self.octron.sam3detect_thresh.text().strip()
+        if not thresh_text:
+            conf_threshold = 0.5
+        else:
+            try:
+                conf_threshold = float(thresh_text)
+            except (ValueError, TypeError):
+                show_error(f'Invalid detection threshold: "{thresh_text}". Must be a number between 0 and 1.')
+                return None
+            if not (0.0 <= conf_threshold <= 1.0):
+                show_error(f'Detection threshold {conf_threshold} out of range. Must be between 0 and 1.')
+                return None
+        
+        # Run detection with ALL accumulated boxes together
+        # This allows the model to see all examples simultaneously
+        pred_masks, pred_scores, _ = predictor.detect(
+            frame_idx=frame_idx,
+            bboxes=all_boxes,  # Pass all boxes, not just the latest one
+            conf_threshold=conf_threshold,
+        )
+        
+        if pred_masks is None or pred_masks.shape[0] == 0:
+            show_warning('SAM3 Mode B: No objects detected.')
+            return None
+        
+        n_detections = pred_masks.shape[0]
+        
+        # Merge all detected masks into a single combined mask
+        combined_mask = np.zeros_like(
+            pred_masks[0].cpu().numpy(), dtype=np.uint8
+        )
+        for i in range(n_detections):
+            combined_mask |= (pred_masks[i] > 0).cpu().numpy().astype(np.uint8)
+        
+        # Get number of box prompts used
+        n_boxes = len(organizer_entry._semantic_box_prompts.get(frame_idx, []))
+        max_score = pred_scores.max().item() if pred_scores is not None and pred_scores.numel() > 0 else 0.0
+        print(
+            f'SAM3 Mode B: Detected {n_detections} objects using {n_boxes} box prompt(s). '
+            f'Max score: {max_score:.3f}'
+        )
+        
+        # Update visual layer
+        prediction_layer.data[frame_idx] = combined_mask
+        prediction_layer.refresh()
+        
+        # DO NOT call add_new_mask here - it corrupts detector state!
+        # The tracker will be updated later when needed (before propagation)
+        # Store the accumulated mask for later
+        if not hasattr(organizer_entry, '_semantic_accumulated_masks'):
+            organizer_entry._semantic_accumulated_masks = {}
+        organizer_entry._semantic_accumulated_masks[frame_idx] = combined_mask
+        
+        return combined_mask
+    
+    
     def on_points_changed(self, event):
         """
         Callback function for napari annotation "Points" layer.
@@ -160,6 +342,15 @@ class sam2_octron_callbacks():
         predictor = self.octron.predictor
         frame_idx  = self.viewer.dims.current_step[0] 
         obj_id = points_layer.metadata['_obj_id']
+        
+        # Check if using SAM3 semantic mode with points (not supported)
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+        if isinstance(predictor, SAM3_semantic_octron) and action == 'added':
+            show_warning(
+                'SAM3 semantic mode does not support point prompts for detection. '
+                'Point prompts will perform single-object segmentation only. '
+                'Use the rectangle tool (box prompt) for semantic detection of all similar objects.'
+            )
         
         # Get the corresponding mask layer 
         organizer_entry = self.octron.object_organizer.entries[obj_id]

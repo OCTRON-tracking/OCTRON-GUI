@@ -40,11 +40,12 @@ dependencies = [
     "kornia>=0.8.0",
     "cmasher>=1.9.2",
     "imantics",
-    "ultralytics>=8.4.14",
+    "ultralytics>=8.4.19",
     "tensorboard>=2.19.0",
     "lap>=0.5.12",
     "opencv-python>=4.11.0",       
     "natsort>=8.4.0",   
+    "huggingface_hub>=1.5.0",
     "napari-pyav @ https://github.com/horsto/napari-pyav/releases/download/v0.0.10.1/napari_pyav-0.0.10-py3-none-any.whl",
     "sam-2 @ https://github.com/horsto/sam2/releases/download/v0.0.2/sam_2-1.0-py3-none-any.whl",
     "boxmot @ https://github.com/horsto/boxmot/releases/download/v.15.0.5.1/boxmot-15.0.5-py3-none-any.whl"

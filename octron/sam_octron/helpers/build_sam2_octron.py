@@ -71,19 +71,19 @@ def build_sam2_octron(
             torch.backends.cudnn.allow_tf32 = True
     elif device.type == "mps":
         print(
-            "\nSupport for MPS devices is preliminary. SAM 2 is trained with CUDA and might "
+            "⚠️ Support for MPS devices is preliminary. SAM 2 is trained with CUDA and might "
             "give numerically different outputs and sometimes degraded performance on MPS. "
-            "See e.g. https://github.com/pytorch/pytorch/issues/84936 for a discussion.\n"
+            "See e.g. https://github.com/pytorch/pytorch/issues/84936 for a discussion."
         )
 
     # Hydra configuration 
     if hq_mode:
         hydra_overrides = [
-            "++model._target_=octron.sam2_octron.helpers.sam2hq_octron.SAM2_octron_hq",
+            "++model._target_=octron.sam_octron.helpers.sam2hq_octron.SAM2_octron_hq",
         ]
     else:
         hydra_overrides = [
-            "++model._target_=octron.sam2_octron.helpers.sam2_octron.SAM2_octron",
+"++model._target_=octron.sam_octron.helpers.sam2_octron.SAM2_octron",
         ]
     
     

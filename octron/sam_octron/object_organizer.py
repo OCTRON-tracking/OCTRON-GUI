@@ -6,7 +6,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Union, Dict, List, Any
 
-from octron.sam2_octron.helpers.sam2_colors import (
+from octron.sam_octron.helpers.sam2_colors import (
     create_label_colors,
     sample_maximally_different,
 )
@@ -77,6 +77,9 @@ class ObjectOrganizer(BaseModel):
     label_id_map: Dict[str, int] = {}
     # The next available label_id.
     next_label_id: int = 0
+    
+    # Project-level settings (persisted to JSON)
+    settings: Dict[str, Any] = {}
     
     # Color dictionary for all labels
     n_labels_max: int = 10 # max number of distinct label colors
@@ -257,6 +260,7 @@ class ObjectOrganizer(BaseModel):
         # Create a copy of the data without non-serializable objects
         serializable_data = {
             "entries": {},
+            "settings": self.settings,
             "time_last_changed": datetime.datetime.now().isoformat()  # Add current timestamp in ISO format
         }
         if not self.entries:

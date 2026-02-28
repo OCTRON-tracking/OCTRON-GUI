@@ -52,10 +52,12 @@ from octron.gui_tables import ExistingDataTable
 # SAM2 specific 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import numpy as np
-from octron.sam2_octron.helpers.video_loader import probe_video, get_vfile_hash
-from octron.sam2_octron.helpers.build_sam2_octron import build_sam2_octron  
-from octron.sam2_octron.helpers.sam2_checks import check_sam2_models
-from octron.sam2_octron.helpers.sam2_zarr import (
+from octron.sam_octron.helpers.video_loader import probe_video, get_vfile_hash
+from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron  
+from octron.sam_octron.helpers.sam2_checks import check_sam2_models
+from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
+from octron.sam_octron.helpers.sam3_checks import check_sam3_models
+from octron.sam_octron.helpers.sam2_zarr import (
     create_image_zarr,
     load_image_zarr,
 )
@@ -69,7 +71,7 @@ from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
 from octron.tracking.helpers.tracker_vis import create_color_icon
 
 # Annotation layer creation tools
-from octron.sam2_octron.helpers.sam2_layer import (
+from octron.sam_octron.helpers.sam2_layer import (
     add_sam2_mask_layer,
     add_sam2_shapes_layer,
     add_sam2_points_layer,
@@ -77,10 +79,10 @@ from octron.sam2_octron.helpers.sam2_layer import (
 )                
 
 # Layer callbacks classes
-from octron.sam2_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
+from octron.sam_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
 
 # OCTRON Object organizer
-from octron.sam2_octron.object_organizer import Obj, ObjectOrganizer
+from octron.sam_octron.object_organizer import Obj, ObjectOrganizer
   
 # Custom dialog boxes
 from octron.gui_dialog_elements import (
@@ -126,6 +128,7 @@ class octron_widget(QWidget):
         self.all_zarrs = [] # Collect zarrs in list so they can be cleaned up upon closing
         self.prefetcher_worker = None
         self.predictor, self.device = None, None
+        self.loaded_model_name = None # Name of the currently loaded SAM model
         self.object_organizer = ObjectOrganizer() # Initialize top level object organizer
         self.remove_current_layer = False # Removal of layer yes/no
         self.layer_to_remove_idx = None # Index of layer to remove
@@ -136,11 +139,17 @@ class octron_widget(QWidget):
         self.skip_frames = 1 # Skip frames for prefetching images
     
         # Model yaml for SAM2
-        sam2models_yaml_path = self.base_path / 'sam2_octron/sam2_models.yaml'
+        sam2models_yaml_path = self.base_path / 'sam_octron/sam2_models.yaml'
         self.sam2models_dict = check_sam2_models(SAM2p1_BASE_URL='',
                                                  models_yaml_path=sam2models_yaml_path,
                                                  force_download=False,
                                                  )
+        # SAM3 checkpoint from HuggingFace
+        sam3_checkpoints_dir = self.base_path / 'sam_octron/checkpoints'
+        self.sam3models_dict = check_sam3_models(checkpoints_dir=sam3_checkpoints_dir,
+                                                 force_download=False,
+                                                 )
+        
         # Model yaml for YOLO
         yolo_models_yaml_path = self.base_path / 'yolo_octron/yolo_models.yaml'
         self.yolo_octron = YOLO_octron(models_yaml_path=yolo_models_yaml_path) # Feeding in yaml to initiate models dict
@@ -164,7 +173,12 @@ class octron_widget(QWidget):
         # Populate SAM2 dropdown list with available models
         for model_id, model in self.sam2models_dict.items():
             print(f"Adding SAM2 model {model_id}")
-            self.sam2model_list.addItem(model['name'])
+            self.sam_model_list.addItem(model['name'])
+        
+        # Populate SAM3 entries in the same dropdown
+        for model_id, model in self.sam3models_dict.items():
+            print(f"Adding SAM3 model {model_id}")
+            self.sam_model_list.addItem(model['name'])
             
         # Populate YOLO dropdown list with available models
         for model_id, model in self.yolomodels_dict.items():
@@ -208,7 +222,7 @@ class octron_widget(QWidget):
         # ... project 
         self.create_project_btn.clicked.connect(self.open_project_folder_dialog)
         # ... SAM2 and annotations 
-        self.load_sam2model_btn.clicked.connect(self.load_sam2model)
+        self.load_sam_model_btn.clicked.connect(self.load_model)
         self.create_annotation_layer_btn.clicked.connect(self.create_annotation_layers)
         self.predict_next_batch_btn.clicked.connect(self.init_prediction_threaded)
         self.predict_next_oneframe_btn.clicked.connect(self.init_prediction_threaded)    
@@ -231,6 +245,10 @@ class octron_widget(QWidget):
         
         # Disable layer annotation until SAM2 model is loaded
         self.annotate_layer_create_groupbox.setEnabled(False)
+        
+        # Disable SAM3 detection threshold until a SAM3 semantic model is loaded
+        self.sam3detect_thresh.setEnabled(False)
+        self.threshold_label.setEnabled(False)
         
         # And ... 
         self.train_generate_groupbox.setEnabled(False)
@@ -255,7 +273,27 @@ class octron_widget(QWidget):
             # When the first tab (project tab, index 0) is clicked,
             self.refresh_label_table_list(delete_old=False)
 
-    ###### SAM2 SPECIFIC CALLBACKS ####################################################################
+    ###### SAM SPECIFIC CALLBACKS ####################################################################
+    
+    def load_model(self, model_name=''):
+        """
+        Dispatcher: load the selected model from the dropdown.
+        Delegates to load_sam2model or load_sam3model depending on
+        whether the selected name belongs to SAM2 or SAM3.
+        """
+        if not model_name:
+            index = self.sam_model_list.currentIndex()
+            if index == 0:
+                return
+            model_name = self.sam_model_list.currentText()
+        
+        # Check SAM3 first
+        for model_id, model in self.sam3models_dict.items():
+            if model['name'] == model_name:
+                self.load_sam3model(model_name=model_name)
+                return
+        # Fall back to SAM2
+        self.load_sam2model(model_name=model_name)
     
     def load_sam2model(self, 
                        model_name='',
@@ -273,10 +311,10 @@ class octron_widget(QWidget):
         """
         if not model_name:
             # Assuming this is retrievable from current GUI ...             
-            index = self.sam2model_list.currentIndex()
+            index = self.sam_model_list.currentIndex()
             if index == 0:
                 return
-            model_name = self.sam2model_list.currentText()
+            model_name = self.sam_model_list.currentText()
         # Reverse lookup model_id
         model_found = False
         for model_id, model in self.sam2models_dict.items():
@@ -288,16 +326,67 @@ class octron_widget(QWidget):
         print(f"Loading SAM2 model {model_id}")
         model = self.sam2models_dict[model_id]
         config_path = Path(model['config_path'])
-        checkpoint_path = self.base_path / Path(f"sam2_octron/{model['checkpoint_path']}")
+        checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
         self.predictor, self.device = build_sam2_octron(config_file_path=config_path.as_posix(),
                                                         ckpt_path=checkpoint_path.as_posix(),
                                                         )
         self.predictor.is_initialized = False
         show_info(f"SAM2 model {model_name} loaded on {self.device}")
+        self._on_model_loaded(model_name)
+
+    def load_sam3model(self, model_name=''):
+        """
+        Load the selected SAM3 model (Mode A or Mode B) and enable prediction controls.
+        
+        Parameters
+        ----------
+        model_name : str
+            The name of the SAM3 model to load.
+        """
+        if not model_name:
+            index = self.sam_model_list.currentIndex()
+            if index == 0:
+                return
+            model_name = self.sam_model_list.currentText()
+        # Reverse lookup model_id
+        model_found = False
+        for model_id, model in self.sam3models_dict.items():
+            if model['name'] == model_name:
+                model_found = True
+                break
+        assert model_found, f"Model '{model_name}' not found in SAM3 models dictionary."
+        
+        print(f"Loading SAM3 model {model_id}")
+        model = self.sam3models_dict[model_id]
+        checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
+        semantic = model.get('semantic', False)
+        self.predictor, self.device = build_sam3_octron(
+            ckpt_path=checkpoint_path.as_posix(),
+            semantic=semantic,
+        )
+        self.predictor.is_initialized = False
+        show_info(f"SAM3 model {model_name} loaded on {self.device}")
+        self._on_model_loaded(model_name)
+        
+        # Disable "Points" option for SAM3 semantic+detector models
+        if semantic:
+            points_index = 2  # "Points" is at index 2
+            self.layer_type_combobox.model().item(points_index).setEnabled(False)
+            # Enable detection threshold input for SAM3 semantic mode
+            self.sam3detect_thresh.setEnabled(True)
+            self.threshold_label.setEnabled(True)
+
+    def _on_model_loaded(self, model_name):
+        """
+        Common post-load setup shared by SAM2 and SAM3.
+        Disables the dropdown, enables prediction controls, starts zarr prefetcher.
+        """
+        self.loaded_model_name = model_name
         # Deactivate the dropdown menu upon successful model loading
-        self.sam2model_list.setEnabled(False)
-        self.load_sam2model_btn.setEnabled(False)
-        self.load_sam2model_btn.setText(f'{model_name} ✓')
+        self.sam_model_list.setCurrentIndex(-1)
+        self.sam_model_list.setEnabled(False)
+        self.load_sam_model_btn.setEnabled(False)
+        self.load_sam_model_btn.setText(f'{model_name} ✓')
 
         # Enable the predict next batch button
         # Take care of chunk size for batch prediction
@@ -319,13 +408,39 @@ class octron_widget(QWidget):
         
     def reset_predictor(self):
         """
-        Reset the predictor and all layers.
+        Reset the predictor and all layers, including clearing masks on current frame.
         """
         self.predictor.reset_state()
+        
+        # Reset detector text embeddings if using SAM3 semantic mode
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+        if isinstance(self.predictor, SAM3_semantic_octron):
+            if hasattr(self.predictor, 'detector'):
+                if hasattr(self.predictor.detector, 'text_embeddings'):
+                    self.predictor.detector.text_embeddings = {}
+                if hasattr(self.predictor.detector, 'names'):
+                    self.predictor.detector.names = []
+        
+        # Clear annotation layers (input shapes/points)
         annotation_layers = self.object_organizer.get_annotation_layers()
         for layer in annotation_layers:
             layer.data = []
-        show_info("SAM2 predictor was reset.")
+        
+        # Clear prediction masks on current frame
+        current_frame = self._viewer.dims.current_step[0]
+        for obj_id, entry in self.object_organizer.entries.items():
+            if entry.prediction_layer is not None:
+                # Clear only current frame to allow starting fresh
+                entry.prediction_layer.data[current_frame] = 0
+                entry.prediction_layer.refresh()
+            
+            # Clear accumulated semantic box prompts and masks if using SAM3 Mode B
+            if hasattr(entry, '_semantic_box_prompts'):
+                entry._semantic_box_prompts.pop(current_frame, None)
+            if hasattr(entry, '_semantic_accumulated_masks'):
+                entry._semantic_accumulated_masks.pop(current_frame, None)
+        
+        show_info("SAM predictor was reset.")
         
     
     def _batch_predict_yielded(self, value):
@@ -362,12 +477,28 @@ class octron_widget(QWidget):
         # load the video data, plus we find out which indices have annotation data in the 
         # video. So, that is a lot of processing ...
         status = self.save_object_organizer()
-        self.batch_predict_progressbar.setMaximum(self.chunk_size)    
+        self.refresh_label_table_list(delete_old=False)
+        self.batch_predict_progressbar.setMaximum(self.chunk_size)
 
     def init_prediction_threaded(self):
         """
         Thread worker for predicting the next batch of images
         """
+        
+        # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+        if isinstance(self.predictor, SAM3_semantic_octron):
+            for obj_id, entry in self.object_organizer.entries.items():
+                if hasattr(entry, '_semantic_accumulated_masks'):
+                    for frame_idx, mask in entry._semantic_accumulated_masks.items():
+                        # Finalize the accumulated mask to the tracker
+                        self.predictor.tracker.add_new_mask(
+                            frame_idx=frame_idx,
+                            obj_id=obj_id,
+                            mask=mask.astype(bool),
+                        )
+                    # Clear accumulated masks after finalizing
+                    entry._semantic_accumulated_masks = {}
         
         # Before doing anything, make sure, some input has been provided
         valid = False
@@ -431,6 +562,11 @@ class octron_widget(QWidget):
         if self.project_path_video is None or not self.project_path_video.exists():
             print("No project video path set or found. Not exporting object organizer.")
             return False
+        # Populate project-level settings before saving
+        self.object_organizer.settings = {
+            "model_name": self.loaded_model_name,
+            "sam3_detect_threshold": self.sam3detect_thresh.text().strip() or None,
+        }
         organizer_path = self.project_path_video  / "object_organizer.json"
         self.object_organizer.save_to_disk(organizer_path)
         return True 
@@ -517,13 +653,15 @@ class octron_widget(QWidget):
         # Reset variables for a clean start
         self.object_organizer = ObjectOrganizer()
         # SAM2 
-        self.sam2model_list.setEnabled(True)
-        self.load_sam2model_btn.setEnabled(True)
-        self.load_sam2model_btn.setText(f'Load model')
+        self.sam_model_list.setEnabled(True)
+        self.load_sam_model_btn.setEnabled(True)
+        self.load_sam_model_btn.setText(f'Load model')
         self.predict_next_batch_btn.setText('')
         self.predict_next_oneframe_btn.setText('')
         self.predict_next_oneframe_btn.setEnabled(False)
         self.predict_next_batch_btn.setEnabled(False)
+        self.sam3detect_thresh.setEnabled(False)
+        self.threshold_label.setEnabled(False)
             
         # Use the file drop method to load the video
         self.on_mp4_file_dropped_area([video_file_path])
@@ -544,6 +682,21 @@ class octron_widget(QWidget):
         if not object_organizer_data:
             show_warning("Could not load object organizer data.")
             return
+        
+        # Restore project-level settings
+        saved_settings = object_organizer_data.get('settings', {})
+        if saved_settings:
+            # Restore detection threshold
+            saved_threshold = saved_settings.get('sam3_detect_threshold')
+            if saved_threshold is not None:
+                self.sam3detect_thresh.setText(str(saved_threshold))
+            # Restore model name — pre-select it in the dropdown
+            saved_model_name = saved_settings.get('model_name')
+            if saved_model_name:
+                self.loaded_model_name = saved_model_name
+                idx = self.sam_model_list.findText(saved_model_name)
+                if idx >= 0:
+                    self.sam_model_list.setCurrentIndex(idx)
         
         # Clear the label list combobox and re-initialize it
         self.label_list_combobox.clear()
@@ -754,13 +907,15 @@ class octron_widget(QWidget):
                 self.all_zarrs = []
                 # SAM2 
                 self.predictor = None   
-                self.sam2model_list.setEnabled(True)
-                self.load_sam2model_btn.setEnabled(True)
-                self.load_sam2model_btn.setText(f'Load model')
+                self.sam_model_list.setEnabled(True)
+                self.load_sam_model_btn.setEnabled(True)
+                self.load_sam_model_btn.setText(f'Load model')
                 self.predict_next_batch_btn.setText('')
                 self.predict_next_oneframe_btn.setText('')
                 self.predict_next_oneframe_btn.setEnabled(False)
                 self.predict_next_batch_btn.setEnabled(False)
+                self.sam3detect_thresh.setEnabled(False)
+                self.threshold_label.setEnabled(False)
                 # Object organizer
                 self.object_organizer = ObjectOrganizer()
                 # Disable the layer annotation box until SAM2 is loaded 
@@ -1261,9 +1416,20 @@ class octron_widget(QWidget):
         if layer_type == 'Shapes':
             annotation_layer_name = f"{layer_name} shapes"
             # Create a shape layer
+            from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+            if self.predictor is not None:
+                semantic_mode = isinstance(self.predictor, SAM3_semantic_octron)
+            else:
+                # No model loaded yet (e.g. project reload) — check saved model name
+                semantic_mode = self.loaded_model_name is not None and any(
+                    m.get('semantic', False)
+                    for m in self.sam3models_dict.values()
+                    if m['name'] == self.loaded_model_name
+                )
             annotation_layer = add_sam2_shapes_layer(viewer=self._viewer,
                                                      name=annotation_layer_name,
                                                      color=obj_color,
+                                                     semantic_mode=semantic_mode,
                                                      )
             annotation_layer.metadata['_name']   = annotation_layer_name 
             annotation_layer.metadata['_obj_id'] = obj_id 

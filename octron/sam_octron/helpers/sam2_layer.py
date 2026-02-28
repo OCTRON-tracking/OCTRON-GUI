@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from napari.utils import Colormap
 from napari.utils.notifications import show_info, show_error
-from octron.sam2_octron.helpers.sam2_zarr import create_image_zarr, load_image_zarr
+from octron.sam_octron.helpers.sam2_zarr import create_image_zarr, load_image_zarr
 import warnings 
 warnings.simplefilter("ignore")
 
@@ -113,6 +113,7 @@ def add_sam2_shapes_layer(
     viewer,
     name,
     color,
+    semantic_mode=False,
     ):
     """
     Generic shapes layer for napari and SAM2.
@@ -150,18 +151,35 @@ def add_sam2_shapes_layer(
     # Hide buttons that you don't want the user to access       
     # TODO: This will be deprecated in future versions of napari.
     qctrl = viewer.window.qt_viewer.controls.widgets[shapes_layer]
-    buttons_to_hide = [
-                    'line_button',
-                    'path_button',
-                    'polyline_button',
-                    ]
+    if semantic_mode:
+        buttons_to_hide = [
+                        'select_button',
+                        'direct_button',
+                        'ellipse_button',
+                        'line_button',
+                        'path_button',
+                        'polyline_button',
+                        'polygon_button',
+                        'polygon_lasso_button',
+                        'vertex_insert_button',
+                        'vertex_remove_button',
+                        'move_front_button',
+                        'move_back_button',
+                        'delete_button',
+                        ]
+    else:
+        buttons_to_hide = [
+                        'line_button',
+                        'path_button',
+                        'polyline_button',
+                        ]
     for btn in buttons_to_hide:
         attr = getattr(qctrl, btn)
         attr.hide()
         
-    # Select the current, add tool for the points layer
+    # Select the shapes layer and activate the rectangle tool
     viewer.layers.selection.active = shapes_layer
-    viewer.layers.selection.active.mode = 'pan_zoom'
+    viewer.layers.selection.active.mode = 'add_rectangle'
     return shapes_layer
 
 
