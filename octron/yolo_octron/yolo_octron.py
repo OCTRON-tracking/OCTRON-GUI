@@ -1838,11 +1838,11 @@ class YOLO_octron:
             if hasattr(tracker, 'tracks'):
                 tracker.tracks = []
  
-            # Prepare prediction stores
-            prediction_store_dir = save_dir / 'predictions.zarr'
-            prediction_store = create_prediction_store(prediction_store_dir)
-            zarr_root = zarr.open_group(store=prediction_store, mode='a')
-            zarr_root.attrs['classes'] = model.names
+            # Prepare prediction stores (segmentation only — detection has no masks)
+            prediction_store = None
+            if is_segment:
+                prediction_store_dir = save_dir / 'predictions.zarr'
+                prediction_store = create_prediction_store(prediction_store_dir)
             
             # Process video frames
             video = video_dict['video']
@@ -1852,7 +1852,7 @@ class YOLO_octron:
             frame_start = time.time()
             all_ids = []
             
-            # Initialize buffer structures for masks
+            # Initialize buffer structures for masks (segmentation only)
             mask_buffers = {}  # track_id -> {frame_idx: mask}
             buffer_counts = {}  # track_id -> count
             mask_stores = {}   # track_id -> zarr array
@@ -2195,6 +2195,7 @@ class YOLO_octron:
                 "octron_version": octron_version,
                 "prediction_start_timestamp": datetime.fromtimestamp(video_prediction_start).isoformat(), 
                 "prediction_end_timestamp": datetime.now().isoformat(),
+                "model_classes": {str(k): v for k, v in model.names.items()},
                 "video_info": {
                     "original_video_name": video_name,
                     "original_video_path": video_dict['video_file_path'],
@@ -2387,7 +2388,10 @@ class YOLO_octron:
                 else:
                     raise ValueError("Could not load video or mask metadata for viewer")
         
-        for track_id, label in track_id_label.items(): 
+        for track_id, label in track_id_label.items():
+            if track_id not in tracking_data:
+                print(f"Warning: No tracking data for track_id {track_id} (label '{label}'), skipping.")
+                continue
             color, napari_colormap = yolo_results.get_color_for_track_id(track_id)
             tracking_df = tracking_data[track_id]['data']
             features_df = tracking_data[track_id]['features']

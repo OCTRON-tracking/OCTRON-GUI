@@ -57,16 +57,15 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
     
     # Case A 
     
-    
-    
-    
+    # This is currently not implemented yet ... I am forcing people to  load 
+    # the project through the load project button in the project manager tab.
     
     
     # Case C 
-    # Check if the folder has .csv files AND a predictions.zarr 
+    # Check if the folder has .csv files AND a prediction_metadata.json
     csvs = list(path.glob("*.csv"))
-    prediction_zarr = list(path.glob("predictions.zarr"))
-    if csvs and prediction_zarr:
+    prediction_metadata = path / "prediction_metadata.json"
+    if csvs and prediction_metadata.exists():
         print(
             f"🐙 Detected OCTRON prediction folder: {path}"
         )

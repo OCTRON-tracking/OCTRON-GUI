@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from natsort import natsorted
 import zarr
@@ -55,11 +56,15 @@ class YOLO_results:
         self.csvs = None
         self.zarr, self.zarr_root = None, None
         self.has_masks = False
+        self.classes = None  # Model class definitions {int_id: str_label}
+        self.metadata = None  # Prediction metadata from JSON
         self.frame_indices = {} 
         results_dir = Path(results_dir)
         assert results_dir.exists(), f"Path {results_dir.as_posix()} does not exist"
         self.results_dir = results_dir
         
+        # Load prediction metadata (JSON) if available
+        self._load_metadata()
         # Find video, csv and zarr files associated with prediction output
         self.find_video()
         self.find_csv()
@@ -68,6 +73,34 @@ class YOLO_results:
         # This creates: self.track_ids, self.labels, self.track_id_label 
         self.get_track_ids_labels(csv_header_lines=self.csv_header_lines)
         
+
+    def _load_metadata(self):
+        """
+        Load prediction_metadata.json if it exists in the results directory.
+        Extracts model_classes and stores the full metadata dict.
+        """
+        meta_path = self.results_dir / 'prediction_metadata.json'
+        if meta_path.exists():
+            try:
+                with open(meta_path, 'r') as f:
+                    self.metadata = json.load(f)
+                # Extract model classes {str_id: str_label} -> {int_id: str_label}
+                raw_classes = self.metadata.get('model_classes', None)
+                if raw_classes:
+                    self.classes = {int(k): v for k, v in raw_classes.items()}
+                # Extract video dimensions as fallback (overridden by video/zarr if available)
+                video_info = self.metadata.get('video_info', {})
+                if video_info:
+                    self.num_frames = video_info.get('num_frames_original', None) # These are the original (video) num_frames
+                    self.height = video_info.get('height', None)
+                    self.width = video_info.get('width', None)
+                if self.verbose:
+                    print(f"Loaded prediction metadata from '{meta_path.name}'")
+            except Exception as e:
+                if self.verbose:
+                    print(f"Could not load prediction metadata: {e}")
+        elif self.verbose:
+            print(f"No prediction_metadata.json found in '{self.results_dir.name}'")
 
     def find_video(self):
         """
@@ -105,44 +138,44 @@ class YOLO_results:
                       
     def find_zarr_root(self):
         """
-        First find the zarr archive and then try to open the root group.
+        Find the zarr archive (if it exists) and open the root group.
+        Detection predictions have no zarr — this is expected and not an error.
         """
-        def _find_zarr():
-            results_dir = self.results_dir
-            zarrs = list(results_dir.rglob('predictions.zarr'))
-            assert len(zarrs) == 1, f"Expected exactly one predictions zarr file, got {len(zarrs)}."
-            zarr = zarrs[0]
-            if not zarr and self.verbose:
-                print(f"No tracking zarr found in '{results_dir.name}'")
-                self.zarr = None
-            else:
-                self.zarr = zarr
-                if self.verbose:
-                    print(f"Found tracking zarr in '{results_dir.name}'")
-                    
-        _find_zarr()
-        
-        if self.zarr is not None:
-            store = zarr.storage.LocalStore(self.zarr, read_only=False)
-            root = zarr.open_group(store=store, mode='a')
+        results_dir = self.results_dir
+        zarrs = list(results_dir.rglob('predictions.zarr'))
+        if len(zarrs) == 0:
             if self.verbose:
-                print("Existing keys in zarr archive:", natsorted(root.array_keys()))
-            self.zarr_root = root
-            self.has_masks = any(k.endswith('_masks') for k in root.array_keys())
-            # Check if num_frames, height, width are set, otherwise load one example 
-            # array from zarr to extract these dimensions.
-            if (self.num_frames is None) or (self.height is None) or (self.width is None):
-                example_array = next(iter(self.zarr_root.array_values()), None)
-                if example_array is not None:
-                    self.num_frames = example_array.shape[0] if len(example_array.shape) > 0 else None
-                    self.height = example_array.shape[1] if len(example_array.shape) > 1 else None
-                    self.width = example_array.shape[2] if len(example_array.shape) > 2 else None   
-                    if self.verbose:
-                        print(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
-                elif self.verbose:
-                    print("Zarr archive is empty (detection model — no mask arrays).")
-        else:
-            raise ValueError("No zarr file found. Please run find_zarr() first.")
+                print(f"No zarr archive in '{results_dir.name}' (detection predictions)")
+            return
+        if len(zarrs) > 1:
+            raise ValueError(f"Expected at most one predictions.zarr, got {len(zarrs)}.")
+        
+        self.zarr = zarrs[0]
+        if self.verbose:
+            print(f"Found tracking zarr in '{results_dir.name}'")
+        
+        store = zarr.storage.LocalStore(self.zarr, read_only=False)
+        root = zarr.open_group(store=store, mode='a')
+        if self.verbose:
+            print("Existing keys in zarr archive:", natsorted(root.array_keys()))
+        self.zarr_root = root
+        self.has_masks = any(k.endswith('_masks') for k in root.array_keys())
+        
+        # Try to get classes from zarr root attrs (legacy/segmentation)
+        if self.classes is None:
+            zarr_classes = root.attrs.get('classes', None)
+            if zarr_classes:
+                self.classes = {int(k): v for k, v in dict(zarr_classes).items()}
+        
+        # Extract video dimensions from zarr if not already set from video
+        if (self.num_frames is None) or (self.height is None) or (self.width is None):
+            example_array = next(iter(self.zarr_root.array_values()), None)
+            if example_array is not None:
+                self.num_frames = example_array.shape[0] if len(example_array.shape) > 0 else None
+                self.height = example_array.shape[1] if len(example_array.shape) > 1 else None
+                self.width = example_array.shape[2] if len(example_array.shape) > 2 else None   
+                if self.verbose:
+                    print(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
         
     def get_track_ids_labels(self, csv_header_lines=None): 
         """
@@ -332,15 +365,14 @@ class YOLO_results:
         label = self.track_id_label[track_id] # Get the label for this specific track_id
 
         # Get model class definitions {int_id: str_label}
-        # For segmentation: stored on individual mask arrays
-        # For detection: stored on zarr root group
-        classes = None
-        if self.has_masks:
+        # Priority: self.classes (from metadata JSON or zarr root), then mask array attrs
+        classes = self.classes
+        if classes is None and self.has_masks:
             all_mask_data = self.get_mask_data()
             if track_id in all_mask_data:
-                classes = all_mask_data[track_id]['data'].attrs.get('classes', None)
-        if classes is None and self.zarr_root is not None:
-            classes = dict(self.zarr_root.attrs.get('classes', {}))
+                raw = all_mask_data[track_id]['data'].attrs.get('classes', None)
+                if raw:
+                    classes = {int(k): v for k, v in dict(raw).items()}
         if not classes:
             raise ValueError(f"Model class definitions not found for track_id {track_id}.")
 
@@ -411,6 +443,7 @@ class YOLO_results:
                            "bbox_y_min",
                            "bbox_y_max",
                            "bbox_area",
+                           "bbox_aspect_ratio",
                            "area",
                            "eccentricity",
                            "solidity",
