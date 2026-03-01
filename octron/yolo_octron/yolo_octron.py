@@ -511,13 +511,10 @@ class YOLO_octron:
                 assert 'frames_split' in labels[entry], "No data split found in labels, run prepare_split() first"  
 
         # Create the training root directory
-        # If it already exists, delete it and create a new one
-        "self.training_path"
+        # If it already exists and overwrite is enabled, delete it and create a new one
         if self.data_path.exists() and self.clean_training_dir:
-            raise FileExistsError(
-                f"Training data path '{self.data_path.as_posix()}' already exists. "
-                "Please remove it or set self.clean_training_dir=False."
-            )
+            shutil.rmtree(self.data_path)
+            print(f"Removed existing training data directory '{self.data_path.as_posix()}'")
         if self.data_path.exists() and not self.clean_training_dir:
             print(f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory.")
             # Remove any model subdirectories
@@ -610,6 +607,7 @@ class YOLO_octron:
                          train_path="train",
                          val_path="val",
                          test_path="test",
+                         train_mode="segment",
                         ):
         """
         Write the YOLO configuration file for training.
@@ -622,6 +620,8 @@ class YOLO_octron:
             Path to validation data (subfolder of self.data_path)
         test_path : str
             Path to test data (subfolder of self.data_path)
+        train_mode : str
+            Training mode, either 'segment' or 'detect'.
             
         """
         if self.label_dict is None:
@@ -666,6 +666,7 @@ class YOLO_octron:
             "test": test_path,
             "val": val_path,
             "names": label_id_label_dict,
+            "train_mode": train_mode,
         }
         header = "# OCTRON training config\n# Last edited on {}\n\n".format(datetime.now())
         

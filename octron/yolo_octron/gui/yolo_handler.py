@@ -15,6 +15,7 @@ from octron.gui_dialog_elements import remove_video_dialog
 from octron.tracking.helpers.tracker_checks import load_boxmot_tracker_config
 from octron.tracking.tracker_config_ui import open_boxmot_tracker_config_dialog
 
+import yaml
 import torch 
 
 class YoloHandler(QObject):
@@ -138,6 +139,19 @@ class YoloHandler(QObject):
             # Check if the training folder already exists
             # If it does, we can skip everything after this step
             if self.yolo.data_path is not None and self.yolo.data_path.exists():
+                # Check if the existing config was generated with the same train_mode
+                existing_config_path = self.yolo.data_path / 'yolo_config.yaml'
+                if existing_config_path.exists():
+                    with open(existing_config_path, 'r') as f:
+                        existing_config = yaml.safe_load(f)
+                    existing_mode = existing_config.get('train_mode', 'segment')
+                    if existing_mode != self.w.train_mode:
+                        msg = (f"Train mode mismatch: existing training data was generated for '{existing_mode}' "
+                               f"but current mode is '{self.w.train_mode}'. "
+                               f"Please enable 'Overwrite' to regenerate training data or switch mode.")
+                        print(msg)
+                        show_error(msg)
+                        return
                 # Remove any model subdirectories
                 # Assuming /training as the model subfolder which is set during YOLO training initialization
                 assert self.yolo.training_path is not None 
@@ -337,8 +351,9 @@ class YoloHandler(QObject):
             self.w.train_data_overwrite_checkBox.setEnabled(False)
             self.w.train_prune_checkBox.setEnabled(False)
             self.w.train_data_watershed_checkBox.setEnabled(False)
+            self.w.segmentation_bbox_decision_groupbox.setEnabled(False)
             # Write the YOLO config file
-            self.yolo.write_yolo_config()
+            self.yolo.write_yolo_config(train_mode=self.w.train_mode)
             # Enable next part (YOLO training) of the pipeline 
             self.w.train_train_groupbox.setEnabled(True)
             self.w.launch_tensorboard_checkBox.setEnabled(True)
@@ -361,6 +376,21 @@ class YoloHandler(QObject):
             return
         if not hasattr(self, 'yolo'):
             show_warning("Please load YOLO first.")
+            return
+        
+        if not self.yolo.config_path and self.yolo.config_path.exists():
+            show_warning(f"No YOLO config .yaml was found under '{self.yolo.config_path}'")
+            
+        # Verify that train_mode in the config matches the current GUI selection
+        with open(self.yolo.config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        config_mode = config.get('train_mode', 'segment')
+        if config_mode != self.w.train_mode:
+            msg = (f"Train mode mismatch: training data was generated for '{config_mode}' "
+                    f"but current mode is '{self.w.train_mode}'. "
+                    f"Please regenerate training data or switch mode.")
+            print(msg)
+            show_error(msg)
             return
         
         index_model_list = self.w.yolomodel_list.currentIndex()
