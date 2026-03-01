@@ -38,6 +38,12 @@ class YOLO_results:
             category=UserWarning,
             module="zarr.core.group"
         )
+        # Suppress vispy DeprecationWarnings (third-party, not actionable)
+        warnings.filterwarnings(
+            "ignore",
+            category=DeprecationWarning,
+            module="vispy"
+        )
         
         # Process kwargs
         self.csv_header_lines = kwargs.get('csv_header_lines', 7)
@@ -48,6 +54,7 @@ class YOLO_results:
         self.width, self.height, self.num_frames = None, None, None 
         self.csvs = None
         self.zarr, self.zarr_root = None, None
+        self.has_masks = False
         self.frame_indices = {} 
         results_dir = Path(results_dir)
         assert results_dir.exists(), f"Path {results_dir.as_posix()} does not exist"
@@ -121,18 +128,21 @@ class YOLO_results:
             if self.verbose:
                 print("Existing keys in zarr archive:", natsorted(root.array_keys()))
             self.zarr_root = root
+            self.has_masks = any(k.endswith('_masks') for k in root.array_keys())
             # Check if num_frames, height, width are set, otherwise load one example 
             # array from zarr to extract these dimensions.
             if (self.num_frames is None) or (self.height is None) or (self.width is None):
                 example_array = next(iter(self.zarr_root.array_values()), None)
-                assert example_array is not None, "No arrays found in zarr root."
-                self.num_frames = example_array.shape[0] if len(example_array.shape) > 0 else None
-                self.height = example_array.shape[1] if len(example_array.shape) > 1 else None
-                self.width = example_array.shape[2] if len(example_array.shape) > 2 else None   
-                if self.verbose:
-                    print(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
+                if example_array is not None:
+                    self.num_frames = example_array.shape[0] if len(example_array.shape) > 0 else None
+                    self.height = example_array.shape[1] if len(example_array.shape) > 1 else None
+                    self.width = example_array.shape[2] if len(example_array.shape) > 2 else None   
+                    if self.verbose:
+                        print(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
+                elif self.verbose:
+                    print("Zarr archive is empty (detection model — no mask arrays).")
         else:
-            raise ValueError("No zarr file found. Please run find_zarr() first.")   
+            raise ValueError("No zarr file found. Please run find_zarr() first.")
         
     def get_track_ids_labels(self, csv_header_lines=None): 
         """
@@ -205,13 +215,18 @@ class YOLO_results:
         zarr_ids = _track_ids_zarr()
         csv_ids, csv_labels, track_id_label  = _track_ids_labels_csv(self.csv_header_lines)
 
-        if not zarr_ids: 
-            raise ValueError("No track IDs found in zarr archive.")
         if not csv_ids:
             raise ValueError("No track IDs found in CSV files.")
         if not csv_labels:
             raise ValueError("No labels found in CSV files.")
-        assert set(zarr_ids) == set(csv_ids), f"Track IDs zarr and CSVs do not match: {set(zarr_ids) - set(csv_ids)}"
+        
+        if zarr_ids:
+            # Segmentation results: zarr and CSV track IDs must match
+            assert set(zarr_ids) == set(csv_ids), f"Track IDs zarr and CSVs do not match: {set(zarr_ids) - set(csv_ids)}"
+        elif self.verbose:
+            # Detection results: no mask arrays in zarr, rely on CSVs only
+            print("No mask track IDs in zarr (detection model). Using CSV track IDs only.")
+        
         self.track_ids = sorted(csv_ids)
         self.labels = sorted(csv_labels)
         self.track_id_label = track_id_label
@@ -316,15 +331,18 @@ class YOLO_results:
         track_id = int(track_id)
         label = self.track_id_label[track_id] # Get the label for this specific track_id
 
-        # Get mask data for this specific track_id to access its attributes
-        all_mask_data = self.get_mask_data() # This might be inefficient if called repeatedly
-        if track_id not in all_mask_data:
-            raise ValueError(f"Mask data for track_id {track_id} not found.")
-        current_mask_attrs = all_mask_data[track_id]['data'].attrs
-        
-        classes = current_mask_attrs.get('classes', None) # Original model class definitions {int_id: str_label}
-        if classes is None:
-            raise ValueError(f"Model class definitions not found in Zarr attributes for track_id {track_id}.")
+        # Get model class definitions {int_id: str_label}
+        # For segmentation: stored on individual mask arrays
+        # For detection: stored on zarr root group
+        classes = None
+        if self.has_masks:
+            all_mask_data = self.get_mask_data()
+            if track_id in all_mask_data:
+                classes = all_mask_data[track_id]['data'].attrs.get('classes', None)
+        if classes is None and self.zarr_root is not None:
+            classes = dict(self.zarr_root.attrs.get('classes', {}))
+        if not classes:
+            raise ValueError(f"Model class definitions not found for track_id {track_id}.")
 
         # Find the original integer class ID from the model's definition for this track's label
         original_class_id_keys = self._find_keys_for_value(classes, label)

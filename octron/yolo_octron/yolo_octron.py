@@ -1730,6 +1730,17 @@ class YOLO_octron:
         # Check YOLO configuration
         model_path = Path(model_path)
         assert model_path.exists(), f"Model path {model_path} does not exist."
+        
+        # Determine model task (detect vs segment)
+        model_task = self.get_model_task(model_path) or 'segment'
+        is_segment = (model_task == 'segment')
+        print(f"Model task: {model_task} ({'segmentation' if is_segment else 'detection'})")
+        
+        # Detection models do not produce masks — disable mask-dependent options
+        if not is_segment:
+            region_details = False
+            opening_radius = 0
+        
         # Try to find model args 
         model_args = self.load_model_args(model_name_path=model_path)
         if model_args is not None:
@@ -1780,7 +1791,7 @@ class YOLO_octron:
             #     retina_masks = False
             # else:
             #     retina_masks = True
-            retina_masks = True # Always set to True for now 
+            retina_masks = True if is_segment else False
             
             # Set up prediction directory structure
             save_dir = video_path.parent / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
@@ -1831,6 +1842,7 @@ class YOLO_octron:
             prediction_store_dir = save_dir / 'predictions.zarr'
             prediction_store = create_prediction_store(prediction_store_dir)
             zarr_root = zarr.open_group(store=prediction_store, mode='a')
+            zarr_root.attrs['classes'] = model.names
             
             # Process video frames
             video = video_dict['video']
@@ -1893,7 +1905,7 @@ class YOLO_octron:
                 # Run tracking on this frame
                 results = model.predict(
                     source=frame, 
-                    task='segment',
+                    task=model_task,
                     project=save_dir.parent.as_posix(),
                     name=save_dir.name,
                     show=False,
@@ -1914,10 +1926,13 @@ class YOLO_octron:
                     confidences = results[0].boxes.conf.cpu().numpy()
                     classes = results[0].boxes.cls.cpu().numpy()
                     label_names = tuple([results[0].names[int(r)] for r in results[0].boxes.cls.cpu().numpy()])
-                    masks = results[0].masks.data.cpu().numpy()
                     boxes = results[0].boxes.xyxy.cpu().numpy()
+                    if is_segment:
+                        masks = results[0].masks.data.cpu().numpy()
+                    else:
+                        masks = None
                 except AttributeError as e:
-                    print(f'No segmentation result for frame_idx {frame_idx}: {e}')
+                    print(f'No result for frame_idx {frame_idx}: {e}')
                     continue
 
                 # Pass things to the boxmot tracker 
@@ -1943,11 +1958,10 @@ class YOLO_octron:
                     continue
                             
                 # Filter all result arrays using tracked_box_indices
-                tracked_masks = masks[tracked_idxs]
                 tracked_confidences = confidences[tracked_idxs]
                 tracked_label_names = [label_names[i] for i in tracked_idxs]
                 tracked_boxes = boxes[tracked_idxs]
-                #tracked_classes = classes[tracked_box_indices]
+                tracked_masks = masks[tracked_idxs] if is_segment else [None] * len(tracked_idxs)
 
                 # Extract tracks 
                 for track_id, label, conf, bbox, mask in zip(tracked_ids,
@@ -1991,37 +2005,37 @@ class YOLO_octron:
                         
                     # Take care of zarr array and tracking dataframe 
                     if not track_id in all_ids:
-                        # Initialize mask store to original length of video
-                        video_shape = (video_dict['num_frames'], video_dict['height'], video_dict['width'])   
-                        mask_store = create_prediction_zarr(prediction_store, 
-                                        f'{track_id}_masks',
-                                        shape=video_shape,
-                                        chunk_size=500,     
-                                        fill_value=-1,
-                                        dtype='int8',                           
-                                        video_hash=''
-                                        )
-                        mask_store.attrs['label'] = label
-                        mask_store.attrs['classes'] = results[0].names
+                        # Initialize mask store (only for segmentation models)
+                        if is_segment:
+                            video_shape = (video_dict['num_frames'], video_dict['height'], video_dict['width'])   
+                            mask_store = create_prediction_zarr(prediction_store, 
+                                            f'{track_id}_masks',
+                                            shape=video_shape,
+                                            chunk_size=500,     
+                                            fill_value=-1,
+                                            dtype='int8',                           
+                                            video_hash=''
+                                            )
+                            mask_store.attrs['label'] = label
+                            mask_store.attrs['classes'] = results[0].names
+                            mask_buffers[track_id] = {}
+                            buffer_counts[track_id] = 0
+                            mask_stores[track_id] = mask_store
                         
-                        # Initialize tracking dataframe (keep unchanged)
+                        # Initialize tracking dataframe
                         tracking_df = self.create_tracking_dataframe(video_dict, region_details=region_details)
                         tracking_df.attrs['video_name'] = video_name
                         tracking_df.attrs['label'] = label
                         tracking_df.attrs['track_id'] = track_id
                         tracking_df_dict[track_id] = tracking_df
 
-                        # Initialize buffers for this track
-                        mask_buffers[track_id] = {}
-                        buffer_counts[track_id] = 0
-                        mask_stores[track_id] = mask_store
-
                         all_ids.append(track_id)
                     else:
-                        mask_store = mask_stores[track_id]
                         tracking_df = tracking_df_dict[track_id]
                         assert tracking_df.attrs['track_id'] == track_id, "ID mismatch" 
-                        assert tracking_df.attrs['label'] == label, "Label mismatch"    
+                        assert tracking_df.attrs['label'] == label, "Label mismatch"
+                        if is_segment:
+                            mask_store = mask_stores[track_id]
 
                     # Check if a row already exists and compare current confidence with existing one
                     # This happens if one_object_per_label is True or iou_thresh < 0.01 
@@ -2036,27 +2050,23 @@ class YOLO_octron:
                             # Average the confidence values
                             conf = (conf + existing_conf) / 2
                     
-                    # Work on mask a bit - perform morphological opening
-                    mask = postprocess_mask(mask, opening_radius=opening_radius)
-                    if iou_thresh < 0.01:
-                        # Fuse this mask with prior mask (if any) from buffer or zarr
-                        if frame_idx in mask_buffers[track_id]:
-                            # Get from buffer first
-                            previous_mask = mask_buffers[track_id][frame_idx].copy()
-                        else:
-                            # Otherwise check zarr store
-                            previous_mask = mask_store[frame_idx,:,:].copy()
-                            previous_mask[previous_mask == -1] = 0
-                        
-                        mask = np.logical_or(previous_mask, mask)
-                        mask = mask.astype('int8')
-                
-                    # Add to buffer instead of writing directly
-                    mask_buffers[track_id][frame_idx] = mask
-                    buffer_counts[track_id] = buffer_counts.get(track_id, 0) + 1
-                    
-                    if buffer_counts[track_id] >= buffer_size:
-                        _flush_mask_buffer(track_id)
+                    # Mask processing (segmentation models only)
+                    if is_segment:
+                        mask = postprocess_mask(mask, opening_radius=opening_radius)
+                        if iou_thresh < 0.01:
+                            # Fuse this mask with prior mask (if any) from buffer or zarr
+                            if frame_idx in mask_buffers[track_id]:
+                                previous_mask = mask_buffers[track_id][frame_idx].copy()
+                            else:
+                                previous_mask = mask_store[frame_idx,:,:].copy()
+                                previous_mask[previous_mask == -1] = 0
+                            mask = np.logical_or(previous_mask, mask)
+                            mask = mask.astype('int8')
+                        # Add to buffer instead of writing directly
+                        mask_buffers[track_id][frame_idx] = mask
+                        buffer_counts[track_id] = buffer_counts.get(track_id, 0) + 1
+                        if buffer_counts[track_id] >= buffer_size:
+                            _flush_mask_buffer(track_id)
                     
                     # Store tracking data directly (no buffering for tracking dataframes)
                     tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_x'] = (bbox[0] + bbox[2])/2
@@ -2071,9 +2081,10 @@ class YOLO_octron:
                     tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_y_max'] = bbox[3]
                     tracking_df.loc[(frame_no, frame_idx, track_id), 'confidence'] = conf
                                             
-                    # If the "Detailed" checkbox has been checked, supplement info from regionprops extraction 
+                    # If the "Detailed" checkbox has been checked, supplement info from regionprops extraction
+                    # (only available for segmentation models with masks)
                     regions_props = None
-                    if region_details:
+                    if region_details and is_segment:
                         _, regions_props = find_objects_in_mask(mask, min_area=0)
                         if not regions_props:
                             # Skip if no regions were found
@@ -2109,8 +2120,9 @@ class YOLO_octron:
                 # A FRAME IS COMPLETE
             
             # A VIDEO IS COMPLETE 
-            for track_id in all_ids:
-                _flush_mask_buffer(track_id)
+            if is_segment:
+                for track_id in all_ids:
+                    _flush_mask_buffer(track_id)
                 
             # Save each tracking DataFrame with a label column added
             for track_id, tr_df in tracking_df_dict.items():
@@ -2194,8 +2206,10 @@ class YOLO_octron:
                 },
                 "prediction_parameters": {
                     "model_path": meta_model_path_str,
+                    "model_task": model_task,
                     "model_imgsz": imgsz,
                     "model_retina_masks": retina_masks,
+                    "region_details": region_details,
                     "device": device,
                     "tracker_name": tracker_name,
                     "skip_frames": skip_frames,
@@ -2347,12 +2361,13 @@ class YOLO_octron:
         yolo_results = YOLO_results(save_dir)
         track_id_label = yolo_results.track_id_label
         assert track_id_label is not None, "No track ID - label mapping found in the results"
+        has_masks = yolo_results.has_masks
         tracking_data = yolo_results.get_tracking_data(interpolate=True,
                                                        interpolate_method='linear',
                                                        interpolate_limit=None,
                                                        sigma=sigma_tracking_pos,
                                                        )
-        mask_data = yolo_results.get_mask_data()
+        mask_data = yolo_results.get_mask_data() if has_masks else {}
 
         if open_viewer:
             viewer = napari.Viewer()    
@@ -2367,13 +2382,16 @@ class YOLO_octron:
                 layer_dict = {'name': 'dummy mask'}
                 add_layer(np.zeros((yolo_results.height, yolo_results.width)), **layer_dict)
             else:
-                raise ValueError("Could not load video or mask metadata for viewer")
+                if not has_masks:
+                    print("Detection results — no video or mask dimensions available for viewer background.")
+                else:
+                    raise ValueError("Could not load video or mask metadata for viewer")
         
         for track_id, label in track_id_label.items(): 
             color, napari_colormap = yolo_results.get_color_for_track_id(track_id)
             tracking_df = tracking_data[track_id]['data']
             features_df = tracking_data[track_id]['features']
-            masks = mask_data[track_id]['data']
+            masks = mask_data[track_id]['data'] if track_id in mask_data else None
             
             if open_viewer:
                 viewer.add_tracks(tracking_df.values, 
@@ -2385,15 +2403,16 @@ class YOLO_octron:
                 viewer.layers[f'{label} - id {track_id}'].tail_width = 3
                 viewer.layers[f'{label} - id {track_id}'].tail_length = yolo_results.num_frames
                 viewer.layers[f'{label} - id {track_id}'].color_by = 'frame_idx'
-                # Add masks
-                _ = viewer.add_labels(
-                    masks,
-                    name=f'{label} - MASKS - id {track_id}',  
-                    opacity=0.5,
-                    blending='translucent',  
-                    colormap=napari_colormap,
-                    visible=True,
-                )
+                # Add masks (segmentation results only)
+                if masks is not None:
+                    _ = viewer.add_labels(
+                        masks,
+                        name=f'{label} - MASKS - id {track_id}',  
+                        opacity=0.5,
+                        blending='translucent',  
+                        colormap=napari_colormap,
+                        visible=True,
+                    )
                 viewer.dims.set_point(0,0)
                 
             yield label, track_id, color, tracking_df, features_df, masks

@@ -59,6 +59,7 @@ class YoloHandler(QObject):
         self.w.tune_tracker_btn.clicked.connect(self.on_tune_tracker_clicked)
         self.w.single_subject_checkBox.clicked.connect(self.on_one_object_per_label_clicked)
         self.w.train_resume_checkBox.toggled.connect(self.on_resume_toggled)
+        self.w.yolomodel_trained_list.currentIndexChanged.connect(self.on_trained_model_changed)
         
     def on_resume_toggled(self, checked):
         """
@@ -67,6 +68,36 @@ class YoloHandler(QObject):
         """
         self.w.yolomodel_list.setEnabled(not checked)
         self.w.yoloimagesize_list.setEnabled(not checked)
+
+    def on_trained_model_changed(self, index):
+        """
+        When the user selects a trained model, check its task type and
+        enable/disable mask-related prediction options accordingly.
+        """
+        if index <= 0:
+            # Header item — reset to enabled
+            self.w.predict_mask_opening_spinbox.setEnabled(True)
+            self.w.prediction_mask_opening_label.setEnabled(True)
+            self.w.detailed_extraction_checkBox.setEnabled(True)
+            return
+
+        model_name = self.w.yolomodel_trained_list.currentText()
+        model_path = self.trained_models.get(model_name)
+        if model_path is None:
+            return
+
+        task = self.yolo.get_model_task(model_path)
+        is_segment = (task == 'segment')
+
+        # Opening and detailed extraction only apply to segmentation models
+        # IOU remains enabled — it controls NMS for both detect and segment
+        self.w.predict_mask_opening_spinbox.setEnabled(is_segment)
+        self.w.prediction_mask_opening_label.setEnabled(is_segment)
+        self.w.detailed_extraction_checkBox.setEnabled(is_segment)
+
+        if not is_segment:
+            self.w.predict_mask_opening_spinbox.setValue(0)
+            self.w.detailed_extraction_checkBox.setChecked(False)
 
     def refresh_trained_model_list(self):
         """
