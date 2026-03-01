@@ -319,15 +319,16 @@ class YOLO_octron:
                                 if min_area is None:
                                     # Determine area threshold once
                                     min_area = MIN_SIZE_RATIO_OBJECT_FRAME*sample_mask.shape[0]*sample_mask.shape[1]
-                                l, r = find_objects_in_mask(sample_mask, 
-                                                           min_area=min_area
-                                                           ) 
-                                for r_ in r:
+                                sample_labeled = measure.label(sample_mask > 0, background=0, connectivity=2)
+                                regions = measure.regionprops(sample_labeled)
+                                for r_ in regions:
+                                    if r_.area < min_area:
+                                        continue
                                     # Choosing feret diameter as a measure of object size
                                     # See https://en.wikipedia.org/wiki/Feret_diameter
                                     # and https://scikit-image.org/docs/stable/api/skimage.measure.html
-                                    # "Maximum Feret’s diameter computed as the longest distance between 
-                                    # points around a region’s convex hull contour
+                                    # "Maximum Feret's diameter computed as the longest distance between 
+                                    # points around a region's convex hull contour
                                     # as determined by find_contours."
                                     obj_diameters.append(r_.feret_diameter_max)
                                     
@@ -433,11 +434,9 @@ class YOLO_octron:
     def prepare_bboxes(self):
         """
         Calculate bounding boxes for each mask in each frame and label in the label_dict.
-        For each mask frame, connected components are found via measure.label + regionprops,
-        small objects are filtered (same constants as prepare_polygons), and the bounding box
-        is extracted as normalized (x_center, y_center, width, height).
-
-        No watershed is needed for bbox extraction.
+        Optional watershedding is performed on the masks to separate touching instances
+        (same logic as prepare_polygons). The bounding box for each object is extracted
+        as normalized (x_center, y_center, width, height).
 
         Creates
         -------
@@ -466,7 +465,10 @@ class YOLO_octron:
         if self.label_dict is None:
             raise ValueError("No labels found. Please run prepare_labels() first.")
 
+        print(f"Watershed: {self.enable_watershed}")
         for no_entry, labels in enumerate(self.label_dict.values(), start=1):
+            min_area = None
+
             for entry in labels:
                 if entry == 'video' or entry == 'video_file_path':
                     continue
@@ -474,6 +476,32 @@ class YOLO_octron:
                 frames = labels[entry]['frames']
                 mask_arrays = labels[entry]['masks']  # zarr arrays
 
+                if self.enable_watershed:
+                    # On a subset of masks, determine object properties
+                    random_frames = pick_random_frames(frames, n=25)
+                    obj_diameters = []
+                    for f in random_frames:
+                        for mask_array in mask_arrays:
+                            sample_mask = mask_array[f]
+                            if sample_mask.sum() == 0:
+                                continue
+                            else:
+                                if min_area is None:
+                                    min_area = MIN_SIZE_RATIO_OBJECT_FRAME * sample_mask.shape[0] * sample_mask.shape[1]
+                                sample_labeled = measure.label(sample_mask > 0, background=0, connectivity=2)
+                                regions = measure.regionprops(sample_labeled)
+                                for r_ in regions:
+                                    if r_.area < min_area:
+                                        continue
+                                    obj_diameters.append(r_.feret_diameter_max)
+
+                    median_obj_diameter = np.nanmedian(obj_diameters)
+                    if np.isnan(median_obj_diameter):
+                        median_obj_diameter = 5
+                    if median_obj_diameter < 1:
+                        median_obj_diameter = 5
+
+                ##################################################################################
                 bboxes_dict = {}  # frame_id -> list of bbox tuples
                 for f_no, f in tqdm(enumerate(frames, start=1),
                                     desc=f'Bboxes for label {label}',
@@ -486,27 +514,46 @@ class YOLO_octron:
                         h, w = mask_current.shape
                         min_area = MIN_SIZE_RATIO_OBJECT_FRAME * h * w
 
-                        mask_labeled = np.asarray(measure.label(mask_current))
-                        props = measure.regionprops(mask_labeled)
-                        if not props:
-                            continue
-
-                        # Determine max area for relative filtering
-                        areas = [r.area for r in props]
-                        max_area = np.percentile(areas, 99.)
-
-                        for region in props:
-                            if region.area < min_area:
+                        if self.enable_watershed:
+                            try:
+                                _, water_masks = watershed_mask(mask_current,
+                                                                footprint_diameter=median_obj_diameter,
+                                                                min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,
+                                                                plot=False)
+                            except AssertionError:
                                 continue
-                            if region.area < MIN_SIZE_RATIO_OBJECT_MAX * max_area:
+                            for mask in water_masks:
+                                mask_labeled = np.asarray(measure.label(mask))
+                                props = measure.regionprops(mask_labeled)
+                                for region in props:
+                                    if region.area < min_area:
+                                        continue
+                                    min_row, min_col, max_row, max_col = region.bbox
+                                    bbox_w = (max_col - min_col) / w
+                                    bbox_h = (max_row - min_row) / h
+                                    x_center = (min_col + max_col) / 2.0 / w
+                                    y_center = (min_row + max_row) / 2.0 / h
+                                    frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
+                        else:
+                            mask_labeled = np.asarray(measure.label(mask_current))
+                            props = measure.regionprops(mask_labeled)
+                            if not props:
                                 continue
-                            # regionprops bbox: (min_row, min_col, max_row, max_col)
-                            min_row, min_col, max_row, max_col = region.bbox
-                            bbox_w = (max_col - min_col) / w
-                            bbox_h = (max_row - min_row) / h
-                            x_center = (min_col + max_col) / 2.0 / w
-                            y_center = (min_row + max_row) / 2.0 / h
-                            frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
+
+                            areas = [r.area for r in props]
+                            max_area = np.percentile(areas, 99.)
+
+                            for region in props:
+                                if region.area < min_area:
+                                    continue
+                                if region.area < MIN_SIZE_RATIO_OBJECT_MAX * max_area:
+                                    continue
+                                min_row, min_col, max_row, max_col = region.bbox
+                                bbox_w = (max_col - min_col) / w
+                                bbox_h = (max_row - min_row) / h
+                                x_center = (min_col + max_col) / 2.0 / w
+                                y_center = (min_row + max_row) / 2.0 / h
+                                frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
 
                     bboxes_dict[f] = frame_bboxes
                     yield (no_entry, len(self.label_dict), label, f_no, len(frames))
