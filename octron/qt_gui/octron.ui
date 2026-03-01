@@ -874,7 +874,9 @@ and octo and suffix 2 for the second octo </string>
                 </size>
                </property>
                <property name="toolTip">
-                <string>Hard reset of the SAM predictor. Use this if prediction really did not go well for your data.</string>
+                <string>Hard reset of the predictor.
+Use this if prediction is not working well for you.
+This will delete the masks on the current frame but no other (already annotated) frame.</string>
                </property>
                <property name="text">
                 <string>〄 Reset</string>
@@ -1200,12 +1202,15 @@ and octo and suffix 2 for the second octo </string>
           <x>0</x>
           <y>0</y>
           <width>402</width>
-          <height>450</height>
+          <height>461</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="train_vertical_layout" stretch="0,0,0">
          <property name="spacing">
           <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>10</number>
          </property>
          <item alignment="Qt::AlignmentFlag::AlignTop">
           <widget class="QGroupBox" name="segmentation_bbox_decision_groupbox">
@@ -1230,7 +1235,7 @@ and octo and suffix 2 for the second octo </string>
            <property name="title">
             <string>Segmentation or Detection?</string>
            </property>
-           <widget class="QWidget" name="">
+           <widget class="QWidget" name="layoutWidget">
             <property name="geometry">
              <rect>
               <x>12</x>
@@ -1248,6 +1253,9 @@ that yield both masks and bounding boxes.</string>
                </property>
                <property name="text">
                 <string>Masks and bboxes (Segmentation)</string>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
                </property>
               </widget>
              </item>
@@ -2155,7 +2163,7 @@ Recommended are at least ~50.</string>
           <x>0</x>
           <y>0</y>
           <width>402</width>
-          <height>401</height>
+          <height>409</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="predict_verticalLayout">
