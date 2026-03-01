@@ -719,7 +719,8 @@ class octron_widget(QWidget):
             self.main_toolbox.widget(2).setEnabled(True)  # Training
             self.segmentation_bbox_decision_groupbox.setEnabled(True)
             self.train_generate_groupbox.setEnabled(True)
-            self.train_train_groupbox.setEnabled(True)
+            # train_train_groupbox is enabled only after training data generation finishes
+            # (see _on_training_data_finished in yolo_handler.py)
             # Enable some buttons too 
             self.train_data_watershed_checkBox.setEnabled(True)
             self.train_data_overwrite_checkBox.setEnabled(True)

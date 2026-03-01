@@ -305,6 +305,9 @@ class YoloHandler(QObject):
 
     def _create_worker_bboxes(self):
         # Create a new worker for bbox generation
+        # Watershed?
+        enable_watershed = self.w.train_data_watershed_checkBox.isChecked()
+        self.yolo.enable_watershed = enable_watershed
         self.bbox_worker = create_worker(self.yolo.prepare_bboxes)
         self.bbox_worker.setAutoDelete(True)
         self.bbox_worker.yielded.connect(self._bbox_yielded)
@@ -384,6 +387,7 @@ class YoloHandler(QObject):
 
         self.w.training_data_folder_label.setEnabled(True)
         self.w.training_data_folder_label.setText(f'→{self.yolo.training_path.as_posix()[-38:]}')
+        self.w.training_data_folder_label.setToolTip(self.yolo.training_path.as_posix())
 
     def _create_worker_training_data(self):
         # Create a new worker for training data generation / export
