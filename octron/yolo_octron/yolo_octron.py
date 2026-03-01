@@ -97,6 +97,7 @@ class YOLO_octron:
         self.config_path = None
         self.models_dict = {}
         self.enable_watershed = False
+        self.train_mode = None  # Set by handler before directory setup ('segment' or 'detect')
         
         if models_yaml_path is not None:
             self.models_yaml_path = Path(models_yaml_path) 
@@ -182,10 +183,14 @@ class YOLO_octron:
         Setup folders for training. 
         This is called from the constructor and when the project path is set.
         
+        When clean_training_dir is True, only the training data directory is removed.
+        The model checkpoint directory ('training/') is only removed when there is a
+        mismatch between the existing train mode and the current train mode.
+        
         Parameters
         ----------
         clean_training_dir : bool
-            Whether to clean the training directory if it's not empty
+            Whether to clean the training data directory if it's not empty
         """
         if self._project_path is None:
             raise ValueError("Project path must be set before setting up training directories")
@@ -199,9 +204,24 @@ class YOLO_octron:
             self.training_path.mkdir(exist_ok=False)
         except FileExistsError:
             if clean_training_dir:
-                shutil.rmtree(self.training_path)
-                self.training_path.mkdir()
-                print(f'Created fresh training directory "{self.training_path.as_posix()}"')     
+                # Check for train mode mismatch before cleaning
+                # Only remove the model checkpoint directory if the mode has changed
+                if self.train_mode is not None:
+                    existing_config_path = self.data_path / 'yolo_config.yaml'
+                    if existing_config_path.exists():
+                        with open(existing_config_path, 'r') as f:
+                            existing_config = yaml.safe_load(f)
+                        existing_mode = existing_config.get('train_mode', 'segment')
+                        if existing_mode != self.train_mode:
+                            model_subdir = self.training_path / 'training'
+                            if model_subdir.exists():
+                                shutil.rmtree(model_subdir)
+                                print(f"Train mode mismatch ({existing_mode} → {self.train_mode}): "
+                                      f"removed model checkpoint directory '{model_subdir.as_posix()}'")
+                # Only remove training data, preserving model checkpoints
+                if self.data_path.exists():
+                    shutil.rmtree(self.data_path)
+                    print(f'Cleaned training data directory "{self.data_path.as_posix()}"')
 
                     
                     
@@ -939,7 +959,7 @@ class YOLO_octron:
 
 
     ##### TRAINING AND INFERENCE ############################################################################
-    def load_model(self, model_name_path):
+    def load_model(self, model_name_path, train_mode='segment'):
         """
         Load the YOLO model
         
@@ -947,7 +967,11 @@ class YOLO_octron:
         ----------
         model_name_path : str or Path
             Path to the model to load, or name of the model to load
-            (e.g. 'YOLO11m-seg'), defaults to the model in the models.yaml file.
+            (e.g. 'YOLO11m'). When loading from models_dict, the correct
+            variant (seg or detect) is selected based on train_mode.
+        train_mode : str
+            'segment' or 'detect'. Determines which model variant to load
+            from models_dict (model_path_seg vs model_path_detect).
         
         Returns
         -------
@@ -973,11 +997,12 @@ class YOLO_octron:
             # If this path exists, load this model, otherwise 
             # assume that this models is part of the models_dict
         except AssertionError:
-            model_name_path = self.models_dict[model_name_path]['model_path_seg']
+            model_key = 'model_path_detect' if train_mode == 'detect' else 'model_path_seg'
+            model_name_path = self.models_dict[model_name_path][model_key]
             model_name_path = self.models_yaml_path.parent / f'models/{model_name_path}'
             
         model = YOLO(model_name_path)
-        print(f"Model loaded from '{model_name_path.as_posix()}'")
+        print(f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})")
         self.model = model
         return model
     
@@ -1020,6 +1045,8 @@ class YOLO_octron:
               imagesz = 640,    
               epochs=30, 
               save_period=15,
+              train_mode='segment',
+              resume=False,
               ):
         """
         Train the YOLO model with epoch progress updates
@@ -1034,6 +1061,11 @@ class YOLO_octron:
             Number of epochs to train for
         save_period : int
             Save model every n epochs
+        train_mode : str
+            'segment' or 'detect'. Controls mode and seg-specific parameters.
+        resume : bool
+            If True, resume training from the loaded checkpoint (last.pt).
+            Most training parameters are restored from the checkpoint.
             
         Yields
         ------
@@ -1170,21 +1202,20 @@ class YOLO_octron:
                 print(f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)")
                 print(f"Using device: {device}")
                 print("################################################################")
-                self.model.train(
+                # Build training kwargs — shared between segment and detect
+                train_kwargs = dict(
                     data=self.config_path.as_posix() if self.config_path is not None else '', 
                     name='training',
                     project=self.training_path.as_posix() if self.training_path is not None else '',
-                    mode='segment',
+                    mode=train_mode,
                     device=device,
                     optimizer='auto',
                     rect=rect, # if square training images then rect=False 
                     cos_lr=True,
-                    mask_ratio=2,
-                    overlap_mask=True,
                     fraction=1.0,
                     epochs=epochs,
                     imgsz=imagesz,
-                    resume=False,
+                    resume=resume,
                     patience=50,
                     plots=True,
                     batch=-1, # auto
@@ -1211,6 +1242,12 @@ class YOLO_octron:
                     copy_paste_mode='mixup', 
                     erasing=0.,
                 )
+                # Segmentation-specific parameters
+                if train_mode == 'segment':
+                    train_kwargs['mask_ratio'] = 2
+                    train_kwargs['overlap_mask'] = True
+
+                self.model.train(**train_kwargs)
             except Exception as e:
                 training_error = e
             finally:

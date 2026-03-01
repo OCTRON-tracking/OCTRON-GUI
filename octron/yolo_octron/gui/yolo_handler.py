@@ -56,7 +56,16 @@ class YoloHandler(QObject):
         self.w.yolomodel_tracker_list.currentIndexChanged.connect(self.on_tracker_selection_change)
         self.w.tune_tracker_btn.clicked.connect(self.on_tune_tracker_clicked)
         self.w.single_subject_checkBox.clicked.connect(self.on_one_object_per_label_clicked)
+        self.w.train_resume_checkBox.toggled.connect(self.on_resume_toggled)
         
+    def on_resume_toggled(self, checked):
+        """
+        When the resume checkbox is toggled, disable/enable model and image size
+        dropdowns to signal that these options are ignored when resuming.
+        """
+        self.w.yolomodel_list.setEnabled(not checked)
+        self.w.yoloimagesize_list.setEnabled(not checked)
+
     def refresh_trained_model_list(self):
         """
         Refresh the trained model list combobox with the current models in the project directory
@@ -114,6 +123,65 @@ class YoloHandler(QObject):
         prune = self.w.train_prune_checkBox.isChecked()
         # Check whether training folder should be overwritten or not 
         self.yolo.clean_training_dir = self.w.train_data_overwrite_checkBox.isChecked()
+        # Inform YOLO of the current train mode before project_path triggers directory setup
+        self.yolo.train_mode = self.w.train_mode
+
+        # --- Overwrite: warn user before deleting anything ---
+        if self.yolo.clean_training_dir:
+            training_path = self.w.project_path / 'model'
+            data_path = training_path / 'training_data'
+            model_subdir = training_path / 'training'
+
+            if data_path.exists():
+                # Check for train-mode mismatch
+                mode_mismatch = False
+                existing_mode = None
+                existing_config_path = data_path / 'yolo_config.yaml'
+                if existing_config_path.exists():
+                    with open(existing_config_path, 'r') as f:
+                        existing_config = yaml.safe_load(f)
+                    existing_mode = existing_config.get('train_mode', 'segment')
+                    mode_mismatch = (existing_mode != self.w.train_mode)
+
+                if mode_mismatch and model_subdir.exists():
+                    # Training data AND model checkpoints will be deleted
+                    warning_dialog = QMessageBox()
+                    warning_dialog.setIcon(QMessageBox.Warning)
+                    warning_dialog.setWindowTitle("Overwrite Training Data")
+                    warning_dialog.setText("You are about to delete existing training data and model checkpoints.")
+                    warning_dialog.setInformativeText(
+                        f"Train mode has changed from '{existing_mode}' to '{self.w.train_mode}'. "
+                        "The training data will be regenerated and model checkpoints will be removed.\n\n"
+                        "Do you want to proceed?"
+                    )
+                    warning_dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                    warning_dialog.setDefaultButton(QMessageBox.No)
+                    if warning_dialog.exec_() == QMessageBox.No:
+                        return
+                    shutil.rmtree(model_subdir)
+                    print(f"Removed model checkpoint directory '{model_subdir.as_posix()}'")
+                else:
+                    # Only training data will be deleted
+                    warning_dialog = QMessageBox()
+                    warning_dialog.setIcon(QMessageBox.Warning)
+                    warning_dialog.setWindowTitle("Overwrite Training Data")
+                    warning_dialog.setText("You are about to overwrite existing training data.")
+                    warning_dialog.setInformativeText(
+                        "The training data directory will be removed and regenerated. "
+                        "Model checkpoints will be preserved.\n\n"
+                        "Do you want to proceed?"
+                    )
+                    warning_dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                    warning_dialog.setDefaultButton(QMessageBox.No)
+                    if warning_dialog.exec_() == QMessageBox.No:
+                        return
+                # Remove training data
+                shutil.rmtree(data_path)
+                print(f'Removed training data directory "{data_path.as_posix()}"')
+
+            # Cleanup handled here; prevent _setup_training_directories from cleaning again
+            self.yolo.clean_training_dir = False
+
         # Set the project_path (which also takes care of setting up training subfolders)
         if not self.yolo.project_path:
             self.yolo.project_path = self.w.project_path
@@ -152,13 +220,7 @@ class YoloHandler(QObject):
                         print(msg)
                         show_error(msg)
                         return
-                # Remove any model subdirectories
-                # Assuming /training as the model subfolder which is set during YOLO training initialization
-                assert self.yolo.training_path is not None 
-                if self.yolo.training_path / 'training' in self.yolo.training_path.glob('*'):
-                    shutil.rmtree(self.yolo.training_path / 'training')
-                    print(f"Removed existing model subdirectory '{self.yolo.training_path / 'training'}'")
-                # TODO: Since we just generated the labels_dict (in prepare_labels above), 
+                # TODO: Since we just generated the labels_dict (in prepare_labels above),
                 # a rudimentary check is actually possible, comparing the total number of expected labeled 
                 # frames and the number of images in the training folder. I am skipping any checks for now.
                 # Show a warning dialog that user must dismiss
@@ -448,6 +510,7 @@ class YoloHandler(QObject):
             # Enable next part (YOLO training) of the pipeline 
             self.w.train_train_groupbox.setEnabled(True)
             self.w.launch_tensorboard_checkBox.setEnabled(True)
+            self.w.train_resume_checkBox.setEnabled(True)
             self.w.start_stop_training_btn.setStyleSheet('')
             self.w.start_stop_training_btn.setText(f'▷ Train')
 
@@ -484,29 +547,8 @@ class YoloHandler(QObject):
             show_error(msg)
             return
         
-        index_model_list = self.w.yolomodel_list.currentIndex()
-        if index_model_list == 0:
-            show_warning("Please select a YOLO model")
-            return
-        model_name = self.w.yolomodel_list.currentText()
-        # Reverse lookup model_id
-        for model_id, model in self.w.yolomodels_dict.items():
-            if model['name'] == model_name:
-                break        
-        index_imagesize_list = self.w.yoloimagesize_list.currentIndex()
-        if index_imagesize_list == 0:
-            show_warning("Please select an image size")
-            return 
-        self.image_size_yolo = int(self.w.yoloimagesize_list.currentText())   
-        if self.image_size_yolo % 32 != 0:
-            show_warning(f'Training image size must be divisible by 32')
-            return
-                                          
         # Check status of "Launch Tensorboard" checkbox
         self.launch_tensorbrd = self.w.launch_tensorboard_checkBox.isChecked()   
-        # TODO: Implement these options
-        #resume_training = self.w.train_resume_checkBox.isChecked()    
-        #overwrite = self.w.train_training_overwrite_checkBox.isChecked()  
         
         self.num_epochs_yolo = int(self.w.num_epochs_input.value())   
         if self.num_epochs_yolo <= 1:
@@ -514,12 +556,72 @@ class YoloHandler(QObject):
             return
         self.save_period = int(self.w.save_period_input.value())
         
-        # LOAD YOLO MODEL 
-        print(f"Loading YOLO model {model_id}")
-        yolo_model = self.yolo.load_model(model_id)
-        if not yolo_model:
-            show_warning("Could not load YOLO model.")
-            return
+        # Check for resume first: model/image-size selections are irrelevant when resuming
+        self.resume_training = False
+        if self.w.train_resume_checkBox.isChecked():
+            checkpoint_path = self.yolo.training_path / 'training' / 'weights' / 'last.pt'
+            if checkpoint_path.exists():
+                # Check whether the previous training run already completed
+                ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+                ckpt_epoch = ckpt.get('epoch', -1)
+                if ckpt_epoch == -1:
+                    show_warning(
+                        "The previous training run already completed all epochs. "
+                        "Nothing to resume. Uncheck 'Resume' to start a new training run."
+                    )
+                    return
+                print(f"Resuming training from checkpoint: {checkpoint_path} (epoch {ckpt_epoch})")
+                yolo_model = self.yolo.load_model(checkpoint_path, train_mode=self.w.train_mode)
+                if not yolo_model:
+                    show_warning("Could not load checkpoint model.")
+                    return
+                self.resume_training = True
+                self.image_size_yolo = 0  # Ignored by YOLO when resume=True
+            else:
+                print("No checkpoint found (last.pt), starting fresh training.")
+                show_info("No checkpoint found — starting fresh.")
+        
+        if not self.resume_training:
+            index_model_list = self.w.yolomodel_list.currentIndex()
+            if index_model_list == 0:
+                show_warning("Please select a YOLO model")
+                return
+            model_name = self.w.yolomodel_list.currentText()
+            # Reverse lookup model_id
+            for model_id, model in self.w.yolomodels_dict.items():
+                if model['name'] == model_name:
+                    break        
+            index_imagesize_list = self.w.yoloimagesize_list.currentIndex()
+            if index_imagesize_list == 0:
+                show_warning("Please select an image size")
+                return 
+            self.image_size_yolo = int(self.w.yoloimagesize_list.currentText())   
+            if self.image_size_yolo % 32 != 0:
+                show_warning(f'Training image size must be divisible by 32')
+                return
+            # If a previous model folder exists, warn and delete before fresh training
+            model_subdir = self.yolo.training_path / 'training'
+            if model_subdir.exists():
+                warning_dialog = QMessageBox()
+                warning_dialog.setIcon(QMessageBox.Warning)
+                warning_dialog.setWindowTitle("Existing Model Found")
+                warning_dialog.setText("You are about to delete a previous model and its checkpoints.")
+                warning_dialog.setInformativeText(
+                    f"A previous training run exists at:\n'{model_subdir.as_posix()}'\n\n"
+                    "Starting fresh training will remove it. Do you want to proceed?"
+                )
+                warning_dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                warning_dialog.setDefaultButton(QMessageBox.No)
+                if warning_dialog.exec_() == QMessageBox.No:
+                    return
+                shutil.rmtree(model_subdir)
+                print(f"Removed previous model directory '{model_subdir.as_posix()}'")
+            # LOAD YOLO MODEL (select seg or detect variant based on current train_mode)
+            print(f"Loading YOLO model {model_id} (mode: {self.w.train_mode})")
+            yolo_model = self.yolo.load_model(model_id, train_mode=self.w.train_mode)
+            if not yolo_model:
+                show_warning("Could not load YOLO model.")
+                return
         
         # Deactivate the training data generation box 
         self.w.segmentation_bbox_decision_groupbox.setEnabled(False)
@@ -559,6 +661,8 @@ class YoloHandler(QObject):
                                             imagesz=self.image_size_yolo,
                                             epochs=self.num_epochs_yolo,
                                             save_period=self.save_period,
+                                            train_mode=self.w.train_mode,
+                                            resume=self.resume_training,
                                         ):
             # Yield the progress info back to the GUI thread
             yield progress_info
