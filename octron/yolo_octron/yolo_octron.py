@@ -2061,7 +2061,10 @@ class YOLO_octron:
                     # Store tracking data directly (no buffering for tracking dataframes)
                     tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_x'] = (bbox[0] + bbox[2])/2
                     tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_y'] = (bbox[1] + bbox[3])/2
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_area'] = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+                    bbox_w = bbox[2] - bbox[0]
+                    bbox_h = bbox[3] - bbox[1]
+                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_area'] = bbox_w * bbox_h
+                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_aspect_ratio'] = bbox_w / bbox_h if bbox_h > 0 else np.nan
                     tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_x_min'] = bbox[0]
                     tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_x_max'] = bbox[2]
                     tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_y_min'] = bbox[1]
@@ -2258,6 +2261,7 @@ class YOLO_octron:
                     'pos_x', 
                     'pos_y', 
                     'bbox_area',
+                    'bbox_aspect_ratio',
                     'bbox_x_min',
                     'bbox_x_max',
                     'bbox_y_min',
@@ -2272,6 +2276,7 @@ class YOLO_octron:
                     'pos_x', 
                     'pos_y', 
                     'bbox_area',
+                    'bbox_aspect_ratio',
                     'bbox_x_min',
                     'bbox_x_max',
                     'bbox_y_min',
