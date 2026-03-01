@@ -700,10 +700,8 @@ class YoloHandler(QObject):
             self.w.start_stop_training_btn.setText(f'✓ Done.')
             self.w.train_epochs_progressbar.setEnabled(False)  
             self.w.train_finishtime_label.setEnabled(False)
-            # Enable the prediction tab
-            self.w.main_toolbox.widget(3).setEnabled(True) # Prediction
-            self.w.predict_video_drop_groupbox.setEnabled(True)
-            self.w.predict_video_predict_groupbox.setEnabled(True)
+            # Refresh the trained model list and enable the prediction tab
+            self.refresh_trained_model_list()
             
 
     #######################################################################################################
