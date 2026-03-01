@@ -125,6 +125,7 @@ class octron_widget(QWidget):
         self.project_path_video = None # Video path that the user selects
         self.video_layer = None
         self.current_video_hash = None # Hashed video file
+        self.train_mode = 'segment'
         self.video_zarr = None
         self.all_zarrs = [] # Collect zarrs in list so they can be cleaned up upon closing
         self.prefetcher_worker = None
@@ -236,6 +237,8 @@ class octron_widget(QWidget):
         self.generate_training_data_btn.setText('')
         self.start_stop_training_btn.setText('')
         self.predict_start_btn.setText('')
+        # Train mode radiobuttons
+        self.segmentation_radiobutton.toggled.connect(self.on_train_mode_changed)
         # Lists
         self.label_list_combobox.currentIndexChanged.connect(self.on_label_change)
         # Upon start, disable some of the toolbox tabs and functionality for video drop 
@@ -251,16 +254,29 @@ class octron_widget(QWidget):
         self.sam3detect_thresh.setEnabled(False)
         self.threshold_label.setEnabled(False)
         
-        # And ... 
+        # And disable some more boxes
+        # Training
+        self.segmentation_bbox_decision_groupbox.setEnabled(False)
         self.train_generate_groupbox.setEnabled(False)
         self.train_train_groupbox.setEnabled(False)
-        # ... 
+        # Prediction
         self.predict_video_drop_groupbox.setEnabled(False)
         self.predict_video_predict_groupbox.setEnabled(False)
         
         # Connect to the Napari viewer close event
         self.app.lastWindowClosed.connect(self.closeEvent)
     
+    def on_train_mode_changed(self, checked):
+        """
+        Callback triggered when the segmentation/detection radiobutton is toggled.
+        Updates self.train_mode accordingly.
+        """
+        if checked:
+            self.train_mode = 'segment'
+        else:
+            self.train_mode = 'detection'
+        print(f'Train mode set to: {self.train_mode}')
+
     def on_toolbox_tab_changed(self, index):
         """
         Callback triggered when a different tab is selected in the toolBox.
