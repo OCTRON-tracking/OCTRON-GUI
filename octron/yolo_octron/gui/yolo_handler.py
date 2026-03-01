@@ -16,7 +16,9 @@ from octron.tracking.helpers.tracker_checks import load_boxmot_tracker_config
 from octron.tracking.tracker_config_ui import open_boxmot_tracker_config_dialog
 
 import yaml
-import torch 
+import torch
+from octron.tracking.helpers.tracker_vis import create_color_icon
+from octron.yolo_octron.constants import TASK_COLORS
 
 class YoloHandler(QObject):
     def __init__(self, parent_widget, yolo_octron):
@@ -68,7 +70,9 @@ class YoloHandler(QObject):
 
     def refresh_trained_model_list(self):
         """
-        Refresh the trained model list combobox with the current models in the project directory
+        Refresh the trained model list combobox with the current models in the project directory.
+        Each entry gets a colored square indicator showing whether the model is a
+        segmentation (purple) or detection (blue) model.
         """
         # Clear the old list, and re-instantiate
         self.w.yolomodel_trained_list.clear()
@@ -85,7 +89,14 @@ class YoloHandler(QObject):
             model_name = '/'.join(model.parts[-5:])
             if model_name not in self.trained_models:
                 self.trained_models[model_name] = model
-            self.w.yolomodel_trained_list.addItem(model_name)
+            # Add colored indicator square based on model task
+            task = self.yolo.get_model_task(model)
+            color = TASK_COLORS.get(task)
+            if color:
+                icon = create_color_icon(color)
+                self.w.yolomodel_trained_list.addItem(icon, model_name)
+            else:
+                self.w.yolomodel_trained_list.addItem(model_name)
         # Enable prediction tab if trained models are available
         self.w.main_toolbox.widget(3).setEnabled(True)
         self.w.predict_video_drop_groupbox.setEnabled(True)

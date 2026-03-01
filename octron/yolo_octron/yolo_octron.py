@@ -1462,6 +1462,40 @@ class YOLO_octron:
         # return metrics
         pass
     
+    @staticmethod
+    def get_model_task(model_path):
+        """
+        Determine the task type ('detect' or 'segment') of a trained YOLO model
+        by reading the checkpoint metadata.
+        
+        Parameters
+        ----------
+        model_path : str or Path
+            Path to the .pt model file
+            
+        Returns
+        -------
+        str or None
+            'detect', 'segment', or None if the task could not be determined
+        """
+        import torch
+        try:
+            ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
+            # Primary: check train_args dict
+            train_args = ckpt.get('train_args', {})
+            if isinstance(train_args, dict) and 'task' in train_args:
+                return train_args['task']
+            # Fallback: infer from model class name
+            if 'model' in ckpt:
+                class_name = type(ckpt['model']).__name__
+                if 'Segment' in class_name:
+                    return 'segment'
+                elif 'Detect' in class_name:
+                    return 'detect'
+        except Exception as e:
+            print(f"Could not determine task for '{model_path}': {e}")
+        return None
+
     def find_trained_models(self, 
                            search_path, 
                            subfolder_route='training/weights',

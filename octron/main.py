@@ -67,6 +67,7 @@ from octron.sam_octron.helpers.sam2_zarr import (
 from octron.yolo_octron.gui.yolo_handler import YoloHandler
 from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
 from octron.yolo_octron.yolo_octron import YOLO_octron
+from octron.yolo_octron.constants import TASK_COLORS
 
 # Tracker specific 
 from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
@@ -247,7 +248,7 @@ class octron_widget(QWidget):
         self.train_mode_indicator = QLabel(self.train_train_groupbox)
         self.train_mode_indicator.setFixedSize(14, 14)
         self.train_mode_indicator.move(380, 2)
-        self._update_train_mode_indicators('#7e56c2')
+        self._update_train_mode_indicators(TASK_COLORS['segment'])
         self.segmentation_radiobutton.toggled.connect(self.on_train_mode_changed)
         
         # Lists
@@ -295,12 +296,12 @@ class octron_widget(QWidget):
             self.train_mode = 'segment'
             self.train_generate_groupbox.setTitle('Generate training data (Mode: Segmentation)')
             self.train_train_groupbox.setTitle('Train (Mode: Segmentation)')
-            self._update_train_mode_indicators('#7e56c2')
+            self._update_train_mode_indicators(TASK_COLORS['segment'])
         else:
             self.train_mode = 'detect'
             self.train_generate_groupbox.setTitle('Generate training data (Mode: Detection)')
             self.train_train_groupbox.setTitle('Train (Mode: Detection)')
-            self._update_train_mode_indicators("#5f9bdb")
+            self._update_train_mode_indicators(TASK_COLORS['detect'])
         print(f'Train mode set to: {self.train_mode}')
 
     def on_toolbox_tab_changed(self, index):
