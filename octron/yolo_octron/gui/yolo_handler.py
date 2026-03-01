@@ -79,9 +79,11 @@ class YoloHandler(QObject):
             self.w.predict_mask_opening_spinbox.setEnabled(True)
             self.w.prediction_mask_opening_label.setEnabled(True)
             self.w.detailed_extraction_checkBox.setEnabled(True)
+            self.w.yolomodel_trained_list.setToolTip('')
             return
 
         model_name = self.w.yolomodel_trained_list.currentText()
+        self.w.yolomodel_trained_list.setToolTip(model_name)
         model_path = self.trained_models.get(model_name)
         if model_path is None:
             return
@@ -760,11 +762,13 @@ class YoloHandler(QObject):
             self.w.tune_tracker_btn.setEnabled(True)
             self.w.tune_tracker_btn.setText("Tune")
             self.w.tune_tracker_btn.setStyleSheet("")
+            self.w.yolomodel_tracker_list.setToolTip(self.w.yolomodel_tracker_list.currentText().strip())
         else:
             # First item selected (header/placeholder)
             self.w.tune_tracker_btn.setEnabled(False)
             self.w.tune_tracker_btn.setText("")
             self.w.tune_tracker_btn.setStyleSheet("")
+            self.w.yolomodel_tracker_list.setToolTip('')
         
     def on_tune_tracker_clicked(self):
         """
@@ -960,8 +964,16 @@ class YoloHandler(QObject):
         # Disable the annotation + training data generation tabs
         self.w.main_toolbox.widget(1).setEnabled(False) # Annotation
         self.w.main_toolbox.widget(2).setEnabled(False) # Training
-        # And the video dropbox
+        # Disable prediction controls during batch prediction
         self.w.predict_video_drop_groupbox.setEnabled(False)
+        self.w.yolomodel_trained_list.setEnabled(False)
+        self.w.yolomodel_tracker_list.setEnabled(False)
+        self.w.tune_tracker_btn.setEnabled(False)
+        self.w.open_when_finish_checkBox.setEnabled(False)
+        self.w.single_subject_checkBox.setEnabled(False)
+        self.w.overwrite_prediction_checkBox.setEnabled(False)
+        self.w.predict_conf_thresh_spinbox.setEnabled(False)
+        self.w.skip_frames_analysis_spinBox.setEnabled(False)
 
     def _create_yolo_predictor(self):
         # Create a new worker for YOLO prediction 
@@ -1067,6 +1079,14 @@ class YoloHandler(QObject):
             self.w.main_toolbox.widget(1).setEnabled(True)  # Re-enable Annotation tab
             self.w.main_toolbox.widget(2).setEnabled(True)  # Re-enable Training tab
             self.w.predict_video_drop_groupbox.setEnabled(True)
+            self.w.yolomodel_trained_list.setEnabled(True)
+            self.w.yolomodel_tracker_list.setEnabled(True)
+            self.w.tune_tracker_btn.setEnabled(True)
+            self.w.open_when_finish_checkBox.setEnabled(True)
+            self.w.single_subject_checkBox.setEnabled(True)
+            self.w.overwrite_prediction_checkBox.setEnabled(True)
+            self.w.predict_conf_thresh_spinbox.setEnabled(True)
+            self.w.skip_frames_analysis_spinBox.setEnabled(True)
 
 
     # Worker uncoupling functions
