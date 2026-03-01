@@ -677,8 +677,15 @@ class YoloHandler(QObject):
             self.w.start_stop_training_btn.setText(f'↯ Training')
             self.yolo_trainer_worker.start()
             self.w.start_stop_training_btn.setEnabled(False)
-            # Disable the training data generation box
+            # Disable training controls during training
             self.w.main_toolbox.widget(1).setEnabled(False) # Annotation
+            self.w.yolomodel_list.setEnabled(False)
+            self.w.yoloimagesize_list.setEnabled(False)
+            self.w.train_resume_checkBox.setEnabled(False)
+            self.w.train_training_overwrite_checkBox.setEnabled(False)
+            self.w.launch_tensorboard_checkBox.setEnabled(False)
+            self.w.num_epochs_input.setEnabled(False)
+            self.w.save_period_input.setEnabled(False)
 
     def _create_yolo_trainer(self):
         # Create a new worker for YOLO training 
