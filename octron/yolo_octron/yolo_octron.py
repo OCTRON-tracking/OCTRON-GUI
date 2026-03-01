@@ -430,6 +430,90 @@ class YOLO_octron:
                 labels[entry]['polygons'] = polys  
             
     
+    def prepare_bboxes(self):
+        """
+        Calculate bounding boxes for each mask in each frame and label in the label_dict.
+        For each mask frame, connected components are found via measure.label + regionprops,
+        small objects are filtered (same constants as prepare_polygons), and the bounding box
+        is extracted as normalized (x_center, y_center, width, height).
+
+        No watershed is needed for bbox extraction.
+
+        Creates
+        -------
+        labels[entry]['bboxes'] : dict
+            Dictionary mapping frame_id -> list of (x_center, y_center, width, height) tuples,
+            all normalized to [0, 1] relative to mask dimensions.
+
+        Yields
+        ------
+        no_entry : int
+            Number of entry processed
+        total_label_dict : int
+            Total number of entries in label_dict (all json files)
+        label : str
+            Current label name
+        frame_no : int
+            Current frame number being processed
+        total_frames : int
+            Total number of frames for the current label
+        """
+
+        # Same size-filtering constants as prepare_polygons
+        MIN_SIZE_RATIO_OBJECT_FRAME = 0.00001
+        MIN_SIZE_RATIO_OBJECT_MAX = 0.01
+
+        if self.label_dict is None:
+            raise ValueError("No labels found. Please run prepare_labels() first.")
+
+        for no_entry, labels in enumerate(self.label_dict.values(), start=1):
+            for entry in labels:
+                if entry == 'video' or entry == 'video_file_path':
+                    continue
+                label = labels[entry]['label']
+                frames = labels[entry]['frames']
+                mask_arrays = labels[entry]['masks']  # zarr arrays
+
+                bboxes_dict = {}  # frame_id -> list of bbox tuples
+                for f_no, f in tqdm(enumerate(frames, start=1),
+                                    desc=f'Bboxes for label {label}',
+                                    total=len(frames),
+                                    unit='frames',
+                                    leave=True):
+                    frame_bboxes = []
+                    for mask_array in mask_arrays:
+                        mask_current = mask_array[f]
+                        h, w = mask_current.shape
+                        min_area = MIN_SIZE_RATIO_OBJECT_FRAME * h * w
+
+                        mask_labeled = np.asarray(measure.label(mask_current))
+                        props = measure.regionprops(mask_labeled)
+                        if not props:
+                            continue
+
+                        # Determine max area for relative filtering
+                        areas = [r.area for r in props]
+                        max_area = np.percentile(areas, 99.)
+
+                        for region in props:
+                            if region.area < min_area:
+                                continue
+                            if region.area < MIN_SIZE_RATIO_OBJECT_MAX * max_area:
+                                continue
+                            # regionprops bbox: (min_row, min_col, max_row, max_col)
+                            min_row, min_col, max_row, max_col = region.bbox
+                            bbox_w = (max_col - min_col) / w
+                            bbox_h = (max_row - min_row) / h
+                            x_center = (min_col + max_col) / 2.0 / w
+                            y_center = (min_row + max_row) / 2.0 / h
+                            frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
+
+                    bboxes_dict[f] = frame_bboxes
+                    yield (no_entry, len(self.label_dict), label, f_no, len(frames))
+
+                labels[entry]['bboxes'] = bboxes_dict
+
+
     def prepare_split(self,
                       training_fraction=0.7,
                       validation_fraction=0.15,
@@ -457,9 +541,9 @@ class YOLO_octron:
                 labels[entry]['frames_split'] = split_dict
         
     
-    def create_training_data(self,
-                             verbose=False,
-                            ):
+    def create_training_data_segment(self,
+                                    verbose=False,
+                                    ):
         """
         Create training data for YOLO segmentation.
         This function exports the training data to the data_path folder.
@@ -600,7 +684,136 @@ class YOLO_octron:
                         # Yield, to update the progress bar
                         yield((no_entry, len(self.label_dict), label, split, frame_no, len(current_indices)))  
                         
-        if verbose: print(f"Training data exported to {self.data_path.as_posix()}")
+        if verbose: print(f"Segmentation training data exported to {self.data_path.as_posix()}")
+        return
+
+    def create_training_data_detect(self,
+                                   verbose=False,
+                                   ):
+        """
+        Create training data for YOLO detection (bbox-only).
+        Same image export as create_training_data_segment(), but writes label files
+        in the YOLO detection format: `class x_center y_center width height`
+        (all values normalized to [0, 1]).
+
+        Parameters
+        ----------
+        verbose : bool
+            Whether to print progress messages
+
+        Yields
+        ------
+        no_entry : int
+            Number of entry processed
+        total_label_dict : int
+            Total number of entries in label_dict (all json files)
+        label : str
+            Current label name
+        split : str
+            Current split (train, val, test)
+        frame_no : int
+            Current frame number being processed
+        total_frames : int
+            Total number of frames for the current label
+        """
+        if self.data_path is None:
+            raise ValueError("No data path set. Please set 'project_path' first.")
+        if self.training_path is None:
+            raise ValueError("No training path set. Please set 'project_path' first.")
+        if self.label_dict is None:
+            raise ValueError("No labels found. Please run prepare_labels() first.")
+
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            print('Please install PIL first, via pip install pillow')
+            return
+
+        # Completeness checks
+        for labels in self.label_dict.values():
+            for entry in labels:
+                if entry == 'video' or entry == 'video_file_path':
+                    continue
+                assert 'frames' in labels[entry], "No frame indices (frames) found in labels"
+                assert 'bboxes' in labels[entry], "No bboxes found in labels, run prepare_bboxes() first"
+                assert 'frames_split' in labels[entry], "No data split found in labels, run prepare_split() first"
+
+        # Create the training root directory
+        if self.data_path.exists() and self.clean_training_dir:
+            shutil.rmtree(self.data_path)
+            print(f"Removed existing training data directory '{self.data_path.as_posix()}'")
+        if self.data_path.exists() and not self.clean_training_dir:
+            print(f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory.")
+            if self.training_path / 'training' in self.training_path.glob('*'):
+                shutil.rmtree(self.training_path / 'training')
+                print(f"Removed existing model subdirectory '{self.training_path / 'training'}'")
+            return
+        if not self.data_path.exists():
+            self.data_path.mkdir(parents=True, exist_ok=False)
+            print(f"Created training data directory '{self.data_path.as_posix()}'")
+
+        # Create subdirectories for train, val, and test
+        for split in ['train', 'val', 'test']:
+            path_to_split = self.data_path / split
+            try:
+                path_to_split.mkdir(exist_ok=False)
+            except FileExistsError:
+                shutil.rmtree(path_to_split)
+                path_to_split.mkdir()
+
+        #######################################################################################################
+        # Export the training data (detection format)
+
+        for no_entry, (path, labels) in enumerate(self.label_dict.items(), start=1):
+            path_prefix = Path(path).name
+            video_data = labels.pop('video')
+            _ = labels.pop('video_file_path')
+            for entry in tqdm(labels,
+                              total=len(labels),
+                              position=0,
+                              unit='labels',
+                              leave=True,
+                              desc=f'Exporting {len(labels)} label(s)'):
+                current_label_id = entry
+                label = labels[entry]['label']
+
+                for split in ['train', 'val', 'test']:
+                    current_indices = labels[entry]['frames_split'][split]
+                    for frame_no, frame_id in tqdm(enumerate(current_indices),
+                                                    total=len(current_indices),
+                                                    desc=f'Exporting {split} frames',
+                                                    position=1,
+                                                    unit='frames',
+                                                    leave=False):
+                        frame = video_data[frame_id]
+                        image_output_path = self.data_path / split / f'{path_prefix}_{frame_id}.png'
+                        if not image_output_path.exists():
+                            if frame.dtype != np.uint8:
+                                if frame.max() <= 1.0:
+                                    frame_uint8 = (frame * 255).astype(np.uint8)
+                                else:
+                                    frame_uint8 = frame.astype(np.uint8)
+                            else:
+                                frame_uint8 = frame
+                            img = Image.fromarray(frame_uint8)
+                            img.save(
+                                image_output_path,
+                                format="PNG",
+                                compress_level=0,
+                                optimize=True,
+                            )
+
+                        # Write label file in YOLO detection format:
+                        # class x_center y_center width height (all normalized)
+                        with open(self.data_path / split / f'{path_prefix}_{frame_id}.txt', 'a') as f:
+                            for bbox in labels[entry]['bboxes'][frame_id]:
+                                x_center, y_center, bbox_w, bbox_h = bbox
+                                f.write(f'{current_label_id} {x_center} {y_center} {bbox_w} {bbox_h}\n')
+
+                        yield (no_entry, len(self.label_dict), label, split, frame_no, len(current_indices))
+
+        if verbose:
+            print(f"Detection training data exported to {self.data_path.as_posix()}")
         return
 
     def write_yolo_config(self,
@@ -634,14 +847,14 @@ class YOLO_octron:
         
         if len(list(dataset_path.glob('*'))) <= 1:
             raise FileNotFoundError(
-                f"No training data found in {dataset_path.as_posix()}. Please run create_training_data() first."
+                f"No training data found in {dataset_path.as_posix()}. Please generate training data first."
                 )
         if (not (dataset_path / "train").exists() 
             or not (dataset_path / "val").exists() 
             or not (dataset_path / "test").exists()
             ):
             raise FileNotFoundError(
-                f"Training data not found(train/val/test). Please run create_training_data() first."
+                f"Training data not found (train/val/test). Please generate training data first."
                 )   
         
         # Get label names from the object organizer

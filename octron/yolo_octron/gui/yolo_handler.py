@@ -36,8 +36,8 @@ class YoloHandler(QObject):
         
         
         # Set up variables
-        self.polygon_interrupt  = False # Training data generation interrupt
-        self.polygons_generated = False
+        self.bbox_or_polygon_interrupt  = False # Training data generation interrupt
+        self.bbox_or_polygon_generated = False
         self.training_data_interrupt  = False # Training data generation interrupt
         self.training_data_generated = False
         self.training_finished = False # YOLO training
@@ -100,8 +100,8 @@ class YoloHandler(QObject):
         """
         # Whenever the button "Generate" is clicked, 
         # the training data generation pipeline is started anew.
-        if not hasattr(self, 'polygon_worker') and not hasattr(self, 'training_data_worker'):   
-            self.polygons_generated = False
+        if not hasattr(self, 'polygon_worker') and not hasattr(self, 'bbox_worker') and not hasattr(self, 'training_data_worker'):   
+            self.bbox_or_polygon_generated = False
             self.training_data_generated = False   
         # Sanity check 
         if not self.w.project_path:
@@ -171,7 +171,7 @@ class YoloHandler(QObject):
                                                   "If you want to regenerate the data, please check the 'Overwrite' option.")
                 warning_dialog.setStandardButtons(QMessageBox.Ok)
                 warning_dialog.exec_()
-                self.polygons_generated = True
+                self.bbox_or_polygon_generated = True
                 self.training_data_generated = True
                 self._on_training_data_finished()
                 
@@ -179,8 +179,11 @@ class YoloHandler(QObject):
                 return
 
         # Else ... continue the training data generation pipeline
-        # Kick off polygon generation - check are done within the following functions 
-        self._polygon_generation()
+        # Kick off polygon or bbox generation based on train mode
+        if self.w.train_mode == 'detect':
+            self._bbox_generation()
+        else:
+            self._polygon_generation()
         return
 
     def _polygon_generation(self):
@@ -191,7 +194,7 @@ class YoloHandler(QObject):
         """
         # Check if the worker has already run and was not interrupted.
         # If so, do not create a new worker, but just call the callback function.
-        if not self.polygon_interrupt and self.polygons_generated:
+        if not self.bbox_or_polygon_interrupt and self.bbox_or_polygon_generated:
             self._on_polygon_finished()
             return
         # Otherwise, create a new worker and manage interruptions
@@ -200,7 +203,7 @@ class YoloHandler(QObject):
             self.w.generate_training_data_btn.setStyleSheet('QPushButton { color: #e7a881;}')
             self.w.generate_training_data_btn.setText(f'🅧 Interrupt')
             self.polygon_worker.start()
-            self.polygon_interrupt = False
+            self.bbox_or_polygon_interrupt = False
         elif hasattr(self, 'polygon_worker') and not self.polygon_worker.is_running:
             # Worker exists but is not running - clean up and create a new one
             self._uncouple_worker_polygons()
@@ -208,12 +211,12 @@ class YoloHandler(QObject):
             self.w.generate_training_data_btn.setStyleSheet('QPushButton { color: #e7a881;}')
             self.w.generate_training_data_btn.setText(f'🅧 Interrupt')
             self.polygon_worker.start()
-            self.polygon_interrupt = False
+            self.bbox_or_polygon_interrupt = False
         elif hasattr(self, 'polygon_worker') and self.polygon_worker.is_running:
             self.polygon_worker.quit()
             self.w.generate_training_data_btn.setStyleSheet('')
             self.w.generate_training_data_btn.setText(f'▷ Generate')
-            self.polygon_interrupt = True
+            self.bbox_or_polygon_interrupt = True
 
     def _create_worker_polygons(self):
         # Create a new worker for polygon generation        
@@ -253,18 +256,97 @@ class YoloHandler(QObject):
         self.w.train_polygons_label.setText('')
         self.w.train_polygons_label.setEnabled(False) 
         
-        if self.polygon_interrupt:
+        if self.bbox_or_polygon_interrupt:
             show_warning("Polygon generation interrupted.")  
-            self.polygons_generated = False
+            self.bbox_or_polygon_generated = False
             self.w.generate_training_data_btn.setStyleSheet('')
             self.w.generate_training_data_btn.setText(f'▷ Generate')
         else:
-            self.polygons_generated = True
+            self.bbox_or_polygon_generated = True
             
-        # If self.polygons_generated is True, then start the 
+        # If self.bbox_or_polygon_generated is True, then start the 
         # training data export worker right after ...
-        if self.polygons_generated and not self.training_data_generated:
+        if self.bbox_or_polygon_generated and not self.training_data_generated:
             # split train/val/test then kick off data export
+            self.yolo.prepare_split()
+            self._training_data_export()
+        else:
+            pass
+
+    def _bbox_generation(self):
+        """
+        MAIN MANAGER FOR BBOX GENERATION
+        bbox_worker()
+        Manages thread worker for generating bounding boxes (detect mode)
+        """
+        # Check if the worker has already run and was not interrupted.
+        if not self.bbox_or_polygon_interrupt and self.bbox_or_polygon_generated:
+            self._on_bbox_finished()
+            return
+        # Otherwise, create a new worker and manage interruptions
+        if not hasattr(self, 'bbox_worker'):
+            self._create_worker_bboxes()
+            self.w.generate_training_data_btn.setStyleSheet('QPushButton { color: #e7a881;}')
+            self.w.generate_training_data_btn.setText(f'🅧 Interrupt')
+            self.bbox_worker.start()
+            self.bbox_or_polygon_interrupt = False
+        elif hasattr(self, 'bbox_worker') and not self.bbox_worker.is_running:
+            self._uncouple_worker_bboxes()
+            self._create_worker_bboxes()
+            self.w.generate_training_data_btn.setStyleSheet('QPushButton { color: #e7a881;}')
+            self.w.generate_training_data_btn.setText(f'🅧 Interrupt')
+            self.bbox_worker.start()
+            self.bbox_or_polygon_interrupt = False
+        elif hasattr(self, 'bbox_worker') and self.bbox_worker.is_running:
+            self.bbox_worker.quit()
+            self.w.generate_training_data_btn.setStyleSheet('')
+            self.w.generate_training_data_btn.setText(f'▷ Generate')
+            self.bbox_or_polygon_interrupt = True
+
+    def _create_worker_bboxes(self):
+        # Create a new worker for bbox generation
+        self.bbox_worker = create_worker(self.yolo.prepare_bboxes)
+        self.bbox_worker.setAutoDelete(True)
+        self.bbox_worker.yielded.connect(self._bbox_yielded)
+        self.bbox_worker.finished.connect(self._on_bbox_finished)
+        self.w.train_polygons_overall_progressbar.setEnabled(True)
+        self.w.train_polygons_frames_progressbar.setEnabled(True)
+        self.w.train_polygons_label.setEnabled(True)
+
+    def _bbox_yielded(self, value):
+        """
+        bbox_worker()
+        Called upon yielding from the batch bbox generation thread worker.
+        Updates the progress bar and label text next to it.
+        """
+        no_entry, total_label_dict, label, frame_no, total_frames = value
+        self.w.train_polygons_overall_progressbar.setMaximum(total_label_dict)
+        self.w.train_polygons_overall_progressbar.setValue(no_entry-1)
+        self.w.train_polygons_frames_progressbar.setMaximum(total_frames)
+        self.w.train_polygons_frames_progressbar.setValue(frame_no)
+        self.w.train_polygons_label.setText(label)
+
+    def _on_bbox_finished(self):
+        """
+        bbox_worker()
+        Callback for when bbox generation worker has finished executing.
+        """
+        self.w.train_polygons_overall_progressbar.setValue(0)
+        self.w.train_polygons_frames_progressbar.setValue(0)
+        self.w.train_polygons_overall_progressbar.setEnabled(False)
+        self.w.train_polygons_frames_progressbar.setEnabled(False)
+        self.w.train_polygons_label.setText('')
+        self.w.train_polygons_label.setEnabled(False)
+
+        if self.bbox_or_polygon_interrupt:
+            show_warning("Bbox generation interrupted.")
+            self.bbox_or_polygon_generated = False
+            self.w.generate_training_data_btn.setStyleSheet('')
+            self.w.generate_training_data_btn.setText(f'▷ Generate')
+        else:
+            self.bbox_or_polygon_generated = True
+
+        if self.bbox_or_polygon_generated and not self.training_data_generated:
             self.yolo.prepare_split()
             self._training_data_export()
         else:
@@ -298,14 +380,19 @@ class YoloHandler(QObject):
             self.w.generate_training_data_btn.setStyleSheet('')
             self.w.generate_training_data_btn.setText('▷ Generate')
             self.training_data_interrupt = True
-            self.polygons_generated = False
+            self.bbox_or_polygon_generated = False
 
         self.w.training_data_folder_label.setEnabled(True)
         self.w.training_data_folder_label.setText(f'→{self.yolo.training_path.as_posix()[-38:]}')
 
     def _create_worker_training_data(self):
         # Create a new worker for training data generation / export
-        self.training_data_worker = create_worker(self.yolo.create_training_data)
+        # Route to the correct export function based on train_mode
+        if self.w.train_mode == 'detect':
+            export_func = self.yolo.create_training_data_detect
+        else:
+            export_func = self.yolo.create_training_data_segment
+        self.training_data_worker = create_worker(export_func)
         self.training_data_worker.setAutoDelete(True) # auto destruct!
         self.training_data_worker.yielded.connect(self._training_data_yielded)
         self.training_data_worker.finished.connect(self._on_training_data_finished)
@@ -842,6 +929,14 @@ class YoloHandler(QObject):
             self.polygon_worker.quit()
         except Exception as e:
             print(f"Error when uncoupling polygon worker: {e}")
+
+    def _uncouple_worker_bboxes(self):
+        try:
+            self.bbox_worker.yielded.disconnect(self._bbox_yielded)
+            self.bbox_worker.finished.disconnect(self._on_bbox_finished)
+            self.bbox_worker.quit()
+        except Exception as e:
+            print(f"Error when uncoupling bbox worker: {e}")
 
     def _uncouple_worker_training_data(self):
         try:
