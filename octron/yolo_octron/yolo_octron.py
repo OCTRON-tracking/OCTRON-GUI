@@ -1216,7 +1216,7 @@ class YOLO_octron:
                     epochs=epochs,
                     imgsz=imagesz,
                     resume=resume,
-                    patience=50,
+                    patience=100,
                     plots=True,
                     batch=-1, # auto
                     cache='disk', # for fast access
