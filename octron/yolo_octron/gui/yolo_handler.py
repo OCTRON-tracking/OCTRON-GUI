@@ -65,7 +65,7 @@ class YoloHandler(QObject):
         self.w.yolomodel_trained_list.addItem('Model ...')
         trained_models = self.yolo.find_trained_models(search_path=self.w.project_path)
         if not trained_models:
-            self.w.toolBox.widget(3).setEnabled(False)
+            self.w.main_toolbox.widget(3).setEnabled(False)
             return
         
         # Write the trained models to yolomodel_trained_list one by one
@@ -77,7 +77,7 @@ class YoloHandler(QObject):
                 self.trained_models[model_name] = model
             self.w.yolomodel_trained_list.addItem(model_name)
         # Enable prediction tab if trained models are available
-        self.w.toolBox.widget(3).setEnabled(True)
+        self.w.main_toolbox.widget(3).setEnabled(True)
         self.w.predict_video_drop_groupbox.setEnabled(True)
         self.w.predict_video_predict_groupbox.setEnabled(True)
         self.w.predict_start_btn.setEnabled(True)
@@ -410,7 +410,7 @@ class YoloHandler(QObject):
             self.yolo_trainer_worker.start()
             self.w.start_stop_training_btn.setEnabled(False)
             # Disable the training data generation box
-            self.w.toolBox.widget(1).setEnabled(False) # Annotation
+            self.w.main_toolbox.widget(1).setEnabled(False) # Annotation
 
     def _create_yolo_trainer(self):
         # Create a new worker for YOLO training 
@@ -475,7 +475,7 @@ class YoloHandler(QObject):
             self.w.train_epochs_progressbar.setEnabled(False)  
             self.w.train_finishtime_label.setEnabled(False)
             # Enable the prediction tab
-            self.w.toolBox.widget(3).setEnabled(True) # Prediction
+            self.w.main_toolbox.widget(3).setEnabled(True) # Prediction
             self.w.predict_video_drop_groupbox.setEnabled(True)
             self.w.predict_video_predict_groupbox.setEnabled(True)
             
@@ -691,8 +691,8 @@ class YoloHandler(QObject):
         self.w.predict_start_btn.setEnabled(False)
         self.yolo_prediction_worker.start()
         # Disable the annotation + training data generation tabs
-        self.w.toolBox.widget(1).setEnabled(False) # Annotation
-        self.w.toolBox.widget(2).setEnabled(False) # Training
+        self.w.main_toolbox.widget(1).setEnabled(False) # Annotation
+        self.w.main_toolbox.widget(2).setEnabled(False) # Training
         # And the video dropbox
         self.w.predict_video_drop_groupbox.setEnabled(False)
 
@@ -797,8 +797,8 @@ class YoloHandler(QObject):
             self.w.predict_start_btn.setStyleSheet('')
             self.w.predict_start_btn.setText('▷ Predict')
             self.w.predict_start_btn.setEnabled(True)
-            self.w.toolBox.widget(1).setEnabled(True)  # Re-enable Annotation tab
-            self.w.toolBox.widget(2).setEnabled(True)  # Re-enable Training tab
+            self.w.main_toolbox.widget(1).setEnabled(True)  # Re-enable Annotation tab
+            self.w.main_toolbox.widget(2).setEnabled(True)  # Re-enable Training tab
             self.w.predict_video_drop_groupbox.setEnabled(True)
 
 

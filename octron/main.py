@@ -214,7 +214,7 @@ class octron_widget(QWidget):
         self._viewer.layers.events.removed.connect(self.on_layer_removed)
         
         # ToolBox tab changed callback
-        self.toolBox.currentChanged.connect(self.on_toolbox_tab_changed)
+        self.main_toolbox.currentChanged.connect(self.on_toolbox_tab_changed)
         
         # Main video drop area
         self.video_file_drop_widget.callback = self.on_mp4_file_dropped_area
@@ -240,9 +240,9 @@ class octron_widget(QWidget):
         self.label_list_combobox.currentIndexChanged.connect(self.on_label_change)
         # Upon start, disable some of the toolbox tabs and functionality for video drop 
         self.project_video_drop_groupbox.setEnabled(False)
-        self.toolBox.widget(1).setEnabled(False) # Annotation
-        self.toolBox.widget(2).setEnabled(False) # Training
-        self.toolBox.widget(3).setEnabled(False) # Prediction
+        self.main_toolbox.widget(1).setEnabled(False) # Annotation
+        self.main_toolbox.widget(2).setEnabled(False) # Training
+        self.main_toolbox.widget(3).setEnabled(False) # Prediction
         
         # Disable layer annotation until SAM2 model is loaded
         self.annotate_layer_create_groupbox.setEnabled(False)
@@ -674,7 +674,7 @@ class octron_widget(QWidget):
         # Enable training tab if data is available
         if label_dict and any(v for k, v in label_dict.items() if k != 'video' and k != 'video_file_path'):
             print("Data available, enabling training tab.")
-            self.toolBox.widget(2).setEnabled(True)  # Training
+            self.main_toolbox.widget(2).setEnabled(True)  # Training
             self.train_generate_groupbox.setEnabled(True)
             self.train_train_groupbox.setEnabled(True)
             # Enable some buttons too 
@@ -989,7 +989,7 @@ class octron_widget(QWidget):
                 # Disable the layer annotation box until SAM2 is loaded 
                 self.annotate_layer_create_groupbox.setEnabled(False)
                 # Reset naming of annotation tab 
-                self.toolBox.setItemText(1, "Generate annotation data")
+                self.main_toolbox.setItemText(1, "Generate annotation data")
             # Reset the flag 
             self.remove_current_layer = False
     
@@ -1094,8 +1094,8 @@ class octron_widget(QWidget):
             self.init_zarr_prefetcher_threaded()
             
             print(f"VIDEO LAYER >>> {layer_name}")
-            self.toolBox.widget(1).setEnabled(True) 
-            self.toolBox.setItemText(1, f"Generate annotation data for: {self.current_video_hash}")
+            self.main_toolbox.widget(1).setEnabled(True) 
+            self.main_toolbox.setItemText(1, f"Generate annotation data for: {self.current_video_hash}")
 
         return
         
