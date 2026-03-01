@@ -124,7 +124,7 @@ class YOLO_octron:
 
         """
         pr = f"YOLO_octron(project_path={self.project_path})"
-        models = [f"{k}: {v['model_path']}" for k, v in self.models_dict.items()]
+        models = [f"{k}: seg={v['model_path_seg']}, detect={v['model_path_detect']}" for k, v in self.models_dict.items()]
         return pr + f"\nModels: {models}"
     
     @property
@@ -712,8 +712,8 @@ class YOLO_octron:
             # If this path exists, load this model, otherwise 
             # assume that this models is part of the models_dict
         except AssertionError:
-            model_name_path = self.models_dict[model_name_path]['model_path']
-            model_name_path = self.models_yaml_path.parent / f'models/{model_name_path}'    
+            model_name_path = self.models_dict[model_name_path]['model_path_seg']
+            model_name_path = self.models_yaml_path.parent / f'models/{model_name_path}'
             
         model = YOLO(model_name_path)
         print(f"Model loaded from '{model_name_path.as_posix()}'")

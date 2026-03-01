@@ -32,6 +32,7 @@ from qtpy.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QHeaderView,
+    QLabel,
 )
 import napari
 from napari.utils.notifications import (
@@ -237,8 +238,18 @@ class octron_widget(QWidget):
         self.generate_training_data_btn.setText('')
         self.start_stop_training_btn.setText('')
         self.predict_start_btn.setText('')
-        # Train mode radiobuttons
+        # Train mode radiobuttons — set initial titles and color indicators
+        self.train_generate_groupbox.setTitle('Generate training data (Mode: Segmentation)')
+        self.generate_mode_indicator = QLabel(self.train_generate_groupbox)
+        self.generate_mode_indicator.setFixedSize(14, 14)
+        self.generate_mode_indicator.move(380, 2)
+        self.train_train_groupbox.setTitle('Train (Mode: Segmentation)')
+        self.train_mode_indicator = QLabel(self.train_train_groupbox)
+        self.train_mode_indicator.setFixedSize(14, 14)
+        self.train_mode_indicator.move(380, 2)
+        self._update_train_mode_indicators('#7e56c2')
         self.segmentation_radiobutton.toggled.connect(self.on_train_mode_changed)
+        
         # Lists
         self.label_list_combobox.currentIndexChanged.connect(self.on_label_change)
         # Upon start, disable some of the toolbox tabs and functionality for video drop 
@@ -266,15 +277,30 @@ class octron_widget(QWidget):
         # Connect to the Napari viewer close event
         self.app.lastWindowClosed.connect(self.closeEvent)
     
+    def _update_train_mode_indicators(self, color):
+        """
+        Update the colored square indicators on the generate and train groupboxes.
+        """
+        icon = create_color_icon(color, size=14)
+        pixmap = icon.pixmap(14, 14)
+        self.generate_mode_indicator.setPixmap(pixmap)
+        self.train_mode_indicator.setPixmap(pixmap)
+
     def on_train_mode_changed(self, checked):
         """
         Callback triggered when the segmentation/detection radiobutton is toggled.
-        Updates self.train_mode accordingly.
+        Updates self.train_mode, groupbox titles, and color indicators.
         """
         if checked:
             self.train_mode = 'segment'
+            self.train_generate_groupbox.setTitle('Generate training data (Mode: Segmentation)')
+            self.train_train_groupbox.setTitle('Train (Mode: Segmentation)')
+            self._update_train_mode_indicators('#7e56c2')
         else:
-            self.train_mode = 'detection'
+            self.train_mode = 'detect'
+            self.train_generate_groupbox.setTitle('Generate training data (Mode: Detection)')
+            self.train_train_groupbox.setTitle('Train (Mode: Detection)')
+            self._update_train_mode_indicators("#5f9bdb")
         print(f'Train mode set to: {self.train_mode}')
 
     def on_toolbox_tab_changed(self, index):
@@ -691,6 +717,7 @@ class octron_widget(QWidget):
         if label_dict and any(v for k, v in label_dict.items() if k != 'video' and k != 'video_file_path'):
             print("Data available, enabling training tab.")
             self.main_toolbox.widget(2).setEnabled(True)  # Training
+            self.segmentation_bbox_decision_groupbox.setEnabled(True)
             self.train_generate_groupbox.setEnabled(True)
             self.train_train_groupbox.setEnabled(True)
             # Enable some buttons too 

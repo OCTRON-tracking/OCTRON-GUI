@@ -401,6 +401,7 @@ class YoloHandler(QObject):
             return
         
         # Deactivate the training data generation box 
+        self.w.segmentation_bbox_decision_groupbox.setEnabled(False)
         self.w.train_generate_groupbox.setEnabled(False)
         # Otherwise, create a new worker and manage interruptions
         if not hasattr(self, 'yolo_trainer_worker'):
@@ -683,6 +684,7 @@ class YoloHandler(QObject):
         self.skip_frames = self.w.skip_frames_analysis_spinBox.value()
         
         # Deactivate the training data generation box 
+        self.w.segmentation_bbox_decision_groupbox.setEnabled(False)
         self.w.train_generate_groupbox.setEnabled(False)
         # Create new prediction worker
         self._create_yolo_predictor()
