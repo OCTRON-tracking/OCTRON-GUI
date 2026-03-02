@@ -18,16 +18,16 @@ class Ui_octron_widgetui(object):
         if not octron_widgetui.objectName():
             octron_widgetui.setObjectName(u"octron_widgetui")
         octron_widgetui.setEnabled(True)
-        octron_widgetui.resize(410, 700)
-        octron_widgetui.setMinimumSize(QSize(410, 700))
-        octron_widgetui.setMaximumSize(QSize(410, 700))
+        octron_widgetui.resize(410, 750)
+        octron_widgetui.setMinimumSize(QSize(410, 750))
+        octron_widgetui.setMaximumSize(QSize(410, 750))
         octron_widgetui.setCursor(QCursor(Qt.ArrowCursor))
         octron_widgetui.setWindowOpacity(1.000000000000000)
         self.verticalLayoutWidget = QWidget(octron_widgetui)
         self.verticalLayoutWidget.setObjectName(u"verticalLayoutWidget")
-        self.verticalLayoutWidget.setGeometry(QRect(0, 0, 412, 691))
+        self.verticalLayoutWidget.setGeometry(QRect(0, 0, 412, 751))
         self.mainLayout = QVBoxLayout(self.verticalLayoutWidget)
-        self.mainLayout.setSpacing(10)
+        self.mainLayout.setSpacing(20)
         self.mainLayout.setObjectName(u"mainLayout")
         self.mainLayout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -41,26 +41,26 @@ class Ui_octron_widgetui(object):
         self.octron_logo.setPixmap(QPixmap(u"octron_logo.svg"))
         self.octron_logo.setAlignment(Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignTop)
 
-        self.mainLayout.addWidget(self.octron_logo, 0, Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignTop)
+        self.mainLayout.addWidget(self.octron_logo, 0, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop)
 
-        self.toolBox = QToolBox(self.verticalLayoutWidget)
-        self.toolBox.setObjectName(u"toolBox")
-        self.toolBox.setEnabled(True)
+        self.main_toolbox = QToolBox(self.verticalLayoutWidget)
+        self.main_toolbox.setObjectName(u"main_toolbox")
+        self.main_toolbox.setEnabled(True)
         sizePolicy = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Expanding)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.toolBox.sizePolicy().hasHeightForWidth())
-        self.toolBox.setSizePolicy(sizePolicy)
-        self.toolBox.setMinimumSize(QSize(410, 550))
-        self.toolBox.setMaximumSize(QSize(410, 550))
-        self.toolBox.setCursor(QCursor(Qt.ArrowCursor))
-        self.toolBox.setFrameShape(QFrame.Shape.NoFrame)
-        self.toolBox.setFrameShadow(QFrame.Shadow.Plain)
-        self.toolBox.setLineWidth(0)
-        self.toolBox.setMidLineWidth(0)
+        sizePolicy.setHeightForWidth(self.main_toolbox.sizePolicy().hasHeightForWidth())
+        self.main_toolbox.setSizePolicy(sizePolicy)
+        self.main_toolbox.setMinimumSize(QSize(410, 600))
+        self.main_toolbox.setMaximumSize(QSize(410, 600))
+        self.main_toolbox.setCursor(QCursor(Qt.ArrowCursor))
+        self.main_toolbox.setFrameShape(QFrame.Shape.NoFrame)
+        self.main_toolbox.setFrameShadow(QFrame.Shadow.Plain)
+        self.main_toolbox.setLineWidth(0)
+        self.main_toolbox.setMidLineWidth(0)
         self.project_tab = QWidget()
         self.project_tab.setObjectName(u"project_tab")
-        self.project_tab.setGeometry(QRect(0, 0, 410, 414))
+        self.project_tab.setGeometry(QRect(0, 0, 410, 464))
         sizePolicy1 = QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         sizePolicy1.setHorizontalStretch(0)
         sizePolicy1.setVerticalStretch(0)
@@ -68,7 +68,7 @@ class Ui_octron_widgetui(object):
         self.project_tab.setSizePolicy(sizePolicy1)
         self.verticalLayoutWidget_3 = QWidget(self.project_tab)
         self.verticalLayoutWidget_3.setObjectName(u"verticalLayoutWidget_3")
-        self.verticalLayoutWidget_3.setGeometry(QRect(0, -1, 402, 412))
+        self.verticalLayoutWidget_3.setGeometry(QRect(0, 0, 402, 461))
         self.project_vertical_layout = QVBoxLayout(self.verticalLayoutWidget_3)
         self.project_vertical_layout.setSpacing(20)
         self.project_vertical_layout.setObjectName(u"project_vertical_layout")
@@ -80,8 +80,8 @@ class Ui_octron_widgetui(object):
         sizePolicy2.setVerticalStretch(0)
         sizePolicy2.setHeightForWidth(self.folder_sect_groupbox.sizePolicy().hasHeightForWidth())
         self.folder_sect_groupbox.setSizePolicy(sizePolicy2)
-        self.folder_sect_groupbox.setMinimumSize(QSize(400, 80))
-        self.folder_sect_groupbox.setMaximumSize(QSize(400, 90))
+        self.folder_sect_groupbox.setMinimumSize(QSize(400, 95))
+        self.folder_sect_groupbox.setMaximumSize(QSize(400, 95))
         self.horizontalLayout_11 = QHBoxLayout(self.folder_sect_groupbox)
         self.horizontalLayout_11.setSpacing(20)
         self.horizontalLayout_11.setObjectName(u"horizontalLayout_11")
@@ -96,8 +96,8 @@ class Ui_octron_widgetui(object):
         self.project_folder_path_label = QLabel(self.folder_sect_groupbox)
         self.project_folder_path_label.setObjectName(u"project_folder_path_label")
         self.project_folder_path_label.setEnabled(False)
-        self.project_folder_path_label.setMinimumSize(QSize(250, 50))
-        self.project_folder_path_label.setMaximumSize(QSize(250, 50))
+        self.project_folder_path_label.setMinimumSize(QSize(255, 53))
+        self.project_folder_path_label.setMaximumSize(QSize(255, 53))
         self.project_folder_path_label.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
         self.project_folder_path_label.setWordWrap(True)
         self.project_folder_path_label.setMargin(0)
@@ -132,16 +132,16 @@ class Ui_octron_widgetui(object):
         self.project_existing_data_groupbox.setEnabled(False)
         sizePolicy2.setHeightForWidth(self.project_existing_data_groupbox.sizePolicy().hasHeightForWidth())
         self.project_existing_data_groupbox.setSizePolicy(sizePolicy2)
-        self.project_existing_data_groupbox.setMinimumSize(QSize(400, 180))
-        self.project_existing_data_groupbox.setMaximumSize(QSize(400, 180))
+        self.project_existing_data_groupbox.setMinimumSize(QSize(400, 220))
+        self.project_existing_data_groupbox.setMaximumSize(QSize(400, 220))
         self.horizontalLayout_9 = QHBoxLayout(self.project_existing_data_groupbox)
         self.horizontalLayout_9.setSpacing(20)
         self.horizontalLayout_9.setObjectName(u"horizontalLayout_9")
         self.horizontalLayout_9.setContentsMargins(9, 12, 9, 12)
         self.existing_data_table = QTableView(self.project_existing_data_groupbox)
         self.existing_data_table.setObjectName(u"existing_data_table")
-        self.existing_data_table.setMinimumSize(QSize(380, 140))
-        self.existing_data_table.setMaximumSize(QSize(380, 130))
+        self.existing_data_table.setMinimumSize(QSize(380, 180))
+        self.existing_data_table.setMaximumSize(QSize(380, 180))
         self.existing_data_table.setEditTriggers(QAbstractItemView.EditTrigger.AnyKeyPressed|QAbstractItemView.EditTrigger.EditKeyPressed|QAbstractItemView.EditTrigger.SelectedClicked)
         self.existing_data_table.setProperty("showDropIndicator", False)
         self.existing_data_table.setDragDropOverwriteMode(False)
@@ -160,17 +160,17 @@ class Ui_octron_widgetui(object):
         self.existing_data_table.verticalHeader().setDefaultSectionSize(20)
         self.existing_data_table.verticalHeader().setHighlightSections(False)
 
-        self.horizontalLayout_9.addWidget(self.existing_data_table, 0, Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalLayout_9.addWidget(self.existing_data_table, 0, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop)
 
 
         self.project_vertical_layout.addWidget(self.project_existing_data_groupbox, 0, Qt.AlignmentFlag.AlignTop)
 
         icon = QIcon()
         icon.addFile(u"icons/noun-project-7158867.svg", QSize(), QIcon.Normal, QIcon.Off)
-        self.toolBox.addItem(self.project_tab, icon, u"Manage project")
+        self.main_toolbox.addItem(self.project_tab, icon, u"Manage project")
         self.annotate_tab = QWidget()
         self.annotate_tab.setObjectName(u"annotate_tab")
-        self.annotate_tab.setGeometry(QRect(0, 0, 405, 414))
+        self.annotate_tab.setGeometry(QRect(0, 0, 405, 464))
         sizePolicy1.setHeightForWidth(self.annotate_tab.sizePolicy().hasHeightForWidth())
         self.annotate_tab.setSizePolicy(sizePolicy1)
         self.annotate_tab.setMaximumSize(QSize(405, 700))
@@ -192,7 +192,7 @@ class Ui_octron_widgetui(object):
         self.model_select_groupbox.setMaximumSize(QSize(400, 80))
         self.layoutWidget = QWidget(self.model_select_groupbox)
         self.layoutWidget.setObjectName(u"layoutWidget")
-        self.layoutWidget.setGeometry(QRect(10, 34, 381, 37))
+        self.layoutWidget.setGeometry(QRect(10, 30, 381, 41))
         self.model_select_grid_layout = QGridLayout(self.layoutWidget)
         self.model_select_grid_layout.setObjectName(u"model_select_grid_layout")
         self.model_select_grid_layout.setHorizontalSpacing(10)
@@ -231,7 +231,7 @@ class Ui_octron_widgetui(object):
         self.model_select_grid_layout.addWidget(self.sam_model_list, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
 
-        self.annotate_vertical_layout.addWidget(self.model_select_groupbox)
+        self.annotate_vertical_layout.addWidget(self.model_select_groupbox, 0, Qt.AlignmentFlag.AlignTop)
 
         self.annotate_layer_create_groupbox = QGroupBox(self.verticalLayoutWidget_2)
         self.annotate_layer_create_groupbox.setObjectName(u"annotate_layer_create_groupbox")
@@ -401,18 +401,44 @@ class Ui_octron_widgetui(object):
 
         icon1 = QIcon()
         icon1.addFile(u"icons/noun-copywriting-7158879.svg", QSize(), QIcon.Normal, QIcon.Off)
-        self.toolBox.addItem(self.annotate_tab, icon1, u"Generate annotation data")
+        self.main_toolbox.addItem(self.annotate_tab, icon1, u"Generate annotation data")
         self.train_tab = QWidget()
         self.train_tab.setObjectName(u"train_tab")
-        self.train_tab.setGeometry(QRect(0, 0, 410, 414))
+        self.train_tab.setGeometry(QRect(0, 0, 410, 464))
         sizePolicy1.setHeightForWidth(self.train_tab.sizePolicy().hasHeightForWidth())
         self.train_tab.setSizePolicy(sizePolicy1)
         self.verticalLayoutWidget_4 = QWidget(self.train_tab)
         self.verticalLayoutWidget_4.setObjectName(u"verticalLayoutWidget_4")
-        self.verticalLayoutWidget_4.setGeometry(QRect(0, 0, 402, 371))
+        self.verticalLayoutWidget_4.setGeometry(QRect(0, 0, 402, 461))
         self.train_vertical_layout = QVBoxLayout(self.verticalLayoutWidget_4)
+        self.train_vertical_layout.setSpacing(20)
         self.train_vertical_layout.setObjectName(u"train_vertical_layout")
-        self.train_vertical_layout.setContentsMargins(0, 0, 0, 0)
+        self.train_vertical_layout.setContentsMargins(0, 0, 0, 10)
+        self.segmentation_bbox_decision_groupbox = QGroupBox(self.verticalLayoutWidget_4)
+        self.segmentation_bbox_decision_groupbox.setObjectName(u"segmentation_bbox_decision_groupbox")
+        self.segmentation_bbox_decision_groupbox.setMinimumSize(QSize(400, 65))
+        self.segmentation_bbox_decision_groupbox.setMaximumSize(QSize(400, 65))
+        self.segmentation_bbox_decision_groupbox.setBaseSize(QSize(400, 60))
+        self.layoutWidget2 = QWidget(self.segmentation_bbox_decision_groupbox)
+        self.layoutWidget2.setObjectName(u"layoutWidget2")
+        self.layoutWidget2.setGeometry(QRect(12, 30, 383, 21))
+        self.gridLayout = QGridLayout(self.layoutWidget2)
+        self.gridLayout.setObjectName(u"gridLayout")
+        self.gridLayout.setContentsMargins(0, 0, 0, 0)
+        self.segmentation_radiobutton = QRadioButton(self.layoutWidget2)
+        self.segmentation_radiobutton.setObjectName(u"segmentation_radiobutton")
+        self.segmentation_radiobutton.setChecked(True)
+
+        self.gridLayout.addWidget(self.segmentation_radiobutton, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft)
+
+        self.detection_radiobutton = QRadioButton(self.layoutWidget2)
+        self.detection_radiobutton.setObjectName(u"detection_radiobutton")
+
+        self.gridLayout.addWidget(self.detection_radiobutton, 0, 1, 1, 1, Qt.AlignmentFlag.AlignLeft)
+
+
+        self.train_vertical_layout.addWidget(self.segmentation_bbox_decision_groupbox, 0, Qt.AlignmentFlag.AlignTop)
+
         self.train_generate_groupbox = QGroupBox(self.verticalLayoutWidget_4)
         self.train_generate_groupbox.setObjectName(u"train_generate_groupbox")
         self.train_generate_groupbox.setEnabled(False)
@@ -421,13 +447,13 @@ class Ui_octron_widgetui(object):
         self.train_generate_groupbox.setMinimumSize(QSize(400, 160))
         self.train_generate_groupbox.setMaximumSize(QSize(400, 140))
         self.train_generate_groupbox.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
-        self.layoutWidget2 = QWidget(self.train_generate_groupbox)
-        self.layoutWidget2.setObjectName(u"layoutWidget2")
-        self.layoutWidget2.setGeometry(QRect(10, 30, 281, 29))
-        self.train_progress_A_horizontalLayout = QHBoxLayout(self.layoutWidget2)
+        self.layoutWidget_4 = QWidget(self.train_generate_groupbox)
+        self.layoutWidget_4.setObjectName(u"layoutWidget_4")
+        self.layoutWidget_4.setGeometry(QRect(10, 30, 281, 29))
+        self.train_progress_A_horizontalLayout = QHBoxLayout(self.layoutWidget_4)
         self.train_progress_A_horizontalLayout.setObjectName(u"train_progress_A_horizontalLayout")
         self.train_progress_A_horizontalLayout.setContentsMargins(0, 0, 0, 0)
-        self.train_polygons_overall_progressbar = QProgressBar(self.layoutWidget2)
+        self.train_polygons_overall_progressbar = QProgressBar(self.layoutWidget_4)
         self.train_polygons_overall_progressbar.setObjectName(u"train_polygons_overall_progressbar")
         self.train_polygons_overall_progressbar.setEnabled(False)
         sizePolicy4.setHeightForWidth(self.train_polygons_overall_progressbar.sizePolicy().hasHeightForWidth())
@@ -439,7 +465,7 @@ class Ui_octron_widgetui(object):
 
         self.train_progress_A_horizontalLayout.addWidget(self.train_polygons_overall_progressbar)
 
-        self.train_polygons_frames_progressbar = QProgressBar(self.layoutWidget2)
+        self.train_polygons_frames_progressbar = QProgressBar(self.layoutWidget_4)
         self.train_polygons_frames_progressbar.setObjectName(u"train_polygons_frames_progressbar")
         self.train_polygons_frames_progressbar.setEnabled(False)
         sizePolicy4.setHeightForWidth(self.train_polygons_frames_progressbar.sizePolicy().hasHeightForWidth())
@@ -451,7 +477,7 @@ class Ui_octron_widgetui(object):
 
         self.train_progress_A_horizontalLayout.addWidget(self.train_polygons_frames_progressbar)
 
-        self.train_polygons_label = QLabel(self.layoutWidget2)
+        self.train_polygons_label = QLabel(self.layoutWidget_4)
         self.train_polygons_label.setObjectName(u"train_polygons_label")
         self.train_polygons_label.setEnabled(False)
         self.train_polygons_label.setMinimumSize(QSize(0, 25))
@@ -459,13 +485,13 @@ class Ui_octron_widgetui(object):
 
         self.train_progress_A_horizontalLayout.addWidget(self.train_polygons_label)
 
-        self.layoutWidget3 = QWidget(self.train_generate_groupbox)
-        self.layoutWidget3.setObjectName(u"layoutWidget3")
-        self.layoutWidget3.setGeometry(QRect(10, 60, 281, 29))
-        self.train_progress_B_horizontalLayout = QHBoxLayout(self.layoutWidget3)
+        self.layoutWidget_5 = QWidget(self.train_generate_groupbox)
+        self.layoutWidget_5.setObjectName(u"layoutWidget_5")
+        self.layoutWidget_5.setGeometry(QRect(10, 60, 281, 29))
+        self.train_progress_B_horizontalLayout = QHBoxLayout(self.layoutWidget_5)
         self.train_progress_B_horizontalLayout.setObjectName(u"train_progress_B_horizontalLayout")
         self.train_progress_B_horizontalLayout.setContentsMargins(0, 0, 0, 0)
-        self.train_export_overall_progressbar = QProgressBar(self.layoutWidget3)
+        self.train_export_overall_progressbar = QProgressBar(self.layoutWidget_5)
         self.train_export_overall_progressbar.setObjectName(u"train_export_overall_progressbar")
         self.train_export_overall_progressbar.setEnabled(False)
         sizePolicy4.setHeightForWidth(self.train_export_overall_progressbar.sizePolicy().hasHeightForWidth())
@@ -477,7 +503,7 @@ class Ui_octron_widgetui(object):
 
         self.train_progress_B_horizontalLayout.addWidget(self.train_export_overall_progressbar)
 
-        self.train_export_frames_progressbar = QProgressBar(self.layoutWidget3)
+        self.train_export_frames_progressbar = QProgressBar(self.layoutWidget_5)
         self.train_export_frames_progressbar.setObjectName(u"train_export_frames_progressbar")
         self.train_export_frames_progressbar.setEnabled(False)
         sizePolicy4.setHeightForWidth(self.train_export_frames_progressbar.sizePolicy().hasHeightForWidth())
@@ -489,7 +515,7 @@ class Ui_octron_widgetui(object):
 
         self.train_progress_B_horizontalLayout.addWidget(self.train_export_frames_progressbar)
 
-        self.train_export_label = QLabel(self.layoutWidget3)
+        self.train_export_label = QLabel(self.layoutWidget_5)
         self.train_export_label.setObjectName(u"train_export_label")
         self.train_export_label.setEnabled(False)
         self.train_export_label.setMinimumSize(QSize(0, 25))
@@ -497,14 +523,14 @@ class Ui_octron_widgetui(object):
 
         self.train_progress_B_horizontalLayout.addWidget(self.train_export_label)
 
-        self.layoutWidget4 = QWidget(self.train_generate_groupbox)
-        self.layoutWidget4.setObjectName(u"layoutWidget4")
-        self.layoutWidget4.setGeometry(QRect(300, 30, 90, 81))
-        self.train_checkboxes_verticalLayout = QVBoxLayout(self.layoutWidget4)
+        self.layoutWidget_6 = QWidget(self.train_generate_groupbox)
+        self.layoutWidget_6.setObjectName(u"layoutWidget_6")
+        self.layoutWidget_6.setGeometry(QRect(300, 30, 90, 81))
+        self.train_checkboxes_verticalLayout = QVBoxLayout(self.layoutWidget_6)
         self.train_checkboxes_verticalLayout.setSpacing(10)
         self.train_checkboxes_verticalLayout.setObjectName(u"train_checkboxes_verticalLayout")
         self.train_checkboxes_verticalLayout.setContentsMargins(0, 0, 0, 0)
-        self.train_prune_checkBox = QCheckBox(self.layoutWidget4)
+        self.train_prune_checkBox = QCheckBox(self.layoutWidget_6)
         self.train_prune_checkBox.setObjectName(u"train_prune_checkBox")
         self.train_prune_checkBox.setEnabled(False)
         self.train_prune_checkBox.setMinimumSize(QSize(90, 25))
@@ -513,7 +539,7 @@ class Ui_octron_widgetui(object):
 
         self.train_checkboxes_verticalLayout.addWidget(self.train_prune_checkBox)
 
-        self.train_data_watershed_checkBox = QCheckBox(self.layoutWidget4)
+        self.train_data_watershed_checkBox = QCheckBox(self.layoutWidget_6)
         self.train_data_watershed_checkBox.setObjectName(u"train_data_watershed_checkBox")
         self.train_data_watershed_checkBox.setEnabled(False)
         self.train_data_watershed_checkBox.setMinimumSize(QSize(90, 25))
@@ -522,7 +548,7 @@ class Ui_octron_widgetui(object):
 
         self.train_checkboxes_verticalLayout.addWidget(self.train_data_watershed_checkBox)
 
-        self.train_data_overwrite_checkBox = QCheckBox(self.layoutWidget4)
+        self.train_data_overwrite_checkBox = QCheckBox(self.layoutWidget_6)
         self.train_data_overwrite_checkBox.setObjectName(u"train_data_overwrite_checkBox")
         self.train_data_overwrite_checkBox.setEnabled(False)
         self.train_data_overwrite_checkBox.setMinimumSize(QSize(90, 25))
@@ -531,13 +557,13 @@ class Ui_octron_widgetui(object):
 
         self.train_checkboxes_verticalLayout.addWidget(self.train_data_overwrite_checkBox)
 
-        self.layoutWidget5 = QWidget(self.train_generate_groupbox)
-        self.layoutWidget5.setObjectName(u"layoutWidget5")
-        self.layoutWidget5.setGeometry(QRect(10, 120, 381, 37))
-        self.train_folder_btn_horizontalLayout = QHBoxLayout(self.layoutWidget5)
+        self.layoutWidget_7 = QWidget(self.train_generate_groupbox)
+        self.layoutWidget_7.setObjectName(u"layoutWidget_7")
+        self.layoutWidget_7.setGeometry(QRect(10, 120, 381, 37))
+        self.train_folder_btn_horizontalLayout = QHBoxLayout(self.layoutWidget_7)
         self.train_folder_btn_horizontalLayout.setObjectName(u"train_folder_btn_horizontalLayout")
         self.train_folder_btn_horizontalLayout.setContentsMargins(0, 0, 0, 0)
-        self.training_data_folder_label = QLabel(self.layoutWidget5)
+        self.training_data_folder_label = QLabel(self.layoutWidget_7)
         self.training_data_folder_label.setObjectName(u"training_data_folder_label")
         self.training_data_folder_label.setEnabled(False)
         self.training_data_folder_label.setMinimumSize(QSize(275, 25))
@@ -545,7 +571,7 @@ class Ui_octron_widgetui(object):
 
         self.train_folder_btn_horizontalLayout.addWidget(self.training_data_folder_label)
 
-        self.generate_training_data_btn = QPushButton(self.layoutWidget5)
+        self.generate_training_data_btn = QPushButton(self.layoutWidget_7)
         self.generate_training_data_btn.setObjectName(u"generate_training_data_btn")
         sizePolicy5.setHeightForWidth(self.generate_training_data_btn.sizePolicy().hasHeightForWidth())
         self.generate_training_data_btn.setSizePolicy(sizePolicy5)
@@ -555,7 +581,7 @@ class Ui_octron_widgetui(object):
         self.train_folder_btn_horizontalLayout.addWidget(self.generate_training_data_btn, 0, Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
 
 
-        self.train_vertical_layout.addWidget(self.train_generate_groupbox, 0, Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignTop)
+        self.train_vertical_layout.addWidget(self.train_generate_groupbox, 0, Qt.AlignmentFlag.AlignTop)
 
         self.train_train_groupbox = QGroupBox(self.verticalLayoutWidget_4)
         self.train_train_groupbox.setObjectName(u"train_train_groupbox")
@@ -565,13 +591,13 @@ class Ui_octron_widgetui(object):
         self.train_train_groupbox.setMinimumSize(QSize(400, 185))
         self.train_train_groupbox.setMaximumSize(QSize(400, 185))
         self.train_train_groupbox.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
-        self.layoutWidget6 = QWidget(self.train_train_groupbox)
-        self.layoutWidget6.setObjectName(u"layoutWidget6")
-        self.layoutWidget6.setGeometry(QRect(10, 70, 201, 62))
-        self.train_grid_layout = QGridLayout(self.layoutWidget6)
+        self.layoutWidget3 = QWidget(self.train_train_groupbox)
+        self.layoutWidget3.setObjectName(u"layoutWidget3")
+        self.layoutWidget3.setGeometry(QRect(10, 70, 201, 62))
+        self.train_grid_layout = QGridLayout(self.layoutWidget3)
         self.train_grid_layout.setObjectName(u"train_grid_layout")
         self.train_grid_layout.setContentsMargins(0, 0, 10, 0)
-        self.num_epochs_label = QLabel(self.layoutWidget6)
+        self.num_epochs_label = QLabel(self.layoutWidget3)
         self.num_epochs_label.setObjectName(u"num_epochs_label")
         sizePolicy6 = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         sizePolicy6.setHorizontalStretch(0)
@@ -583,7 +609,7 @@ class Ui_octron_widgetui(object):
 
         self.train_grid_layout.addWidget(self.num_epochs_label, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.save_period_label = QLabel(self.layoutWidget6)
+        self.save_period_label = QLabel(self.layoutWidget3)
         self.save_period_label.setObjectName(u"save_period_label")
         sizePolicy6.setHeightForWidth(self.save_period_label.sizePolicy().hasHeightForWidth())
         self.save_period_label.setSizePolicy(sizePolicy6)
@@ -592,7 +618,7 @@ class Ui_octron_widgetui(object):
 
         self.train_grid_layout.addWidget(self.save_period_label, 1, 0, 1, 1, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.num_epochs_input = QSpinBox(self.layoutWidget6)
+        self.num_epochs_input = QSpinBox(self.layoutWidget3)
         self.num_epochs_input.setObjectName(u"num_epochs_input")
         sizePolicy5.setHeightForWidth(self.num_epochs_input.sizePolicy().hasHeightForWidth())
         self.num_epochs_input.setSizePolicy(sizePolicy5)
@@ -607,7 +633,7 @@ class Ui_octron_widgetui(object):
 
         self.train_grid_layout.addWidget(self.num_epochs_input, 0, 1, 1, 1, Qt.AlignmentFlag.AlignRight)
 
-        self.save_period_input = QSpinBox(self.layoutWidget6)
+        self.save_period_input = QSpinBox(self.layoutWidget3)
         self.save_period_input.setObjectName(u"save_period_input")
         sizePolicy5.setHeightForWidth(self.save_period_input.sizePolicy().hasHeightForWidth())
         self.save_period_input.setSizePolicy(sizePolicy5)
@@ -622,14 +648,14 @@ class Ui_octron_widgetui(object):
 
         self.train_grid_layout.addWidget(self.save_period_input, 1, 1, 1, 1, Qt.AlignmentFlag.AlignRight)
 
-        self.layoutWidget7 = QWidget(self.train_train_groupbox)
-        self.layoutWidget7.setObjectName(u"layoutWidget7")
-        self.layoutWidget7.setGeometry(QRect(300, 30, 90, 81))
-        self.train_verticalLayout = QVBoxLayout(self.layoutWidget7)
+        self.layoutWidget4 = QWidget(self.train_train_groupbox)
+        self.layoutWidget4.setObjectName(u"layoutWidget4")
+        self.layoutWidget4.setGeometry(QRect(300, 30, 90, 81))
+        self.train_verticalLayout = QVBoxLayout(self.layoutWidget4)
         self.train_verticalLayout.setSpacing(10)
         self.train_verticalLayout.setObjectName(u"train_verticalLayout")
         self.train_verticalLayout.setContentsMargins(0, 0, 0, 0)
-        self.train_resume_checkBox = QCheckBox(self.layoutWidget7)
+        self.train_resume_checkBox = QCheckBox(self.layoutWidget4)
         self.train_resume_checkBox.setObjectName(u"train_resume_checkBox")
         self.train_resume_checkBox.setEnabled(False)
         self.train_resume_checkBox.setMinimumSize(QSize(90, 25))
@@ -637,7 +663,7 @@ class Ui_octron_widgetui(object):
 
         self.train_verticalLayout.addWidget(self.train_resume_checkBox, 0, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop)
 
-        self.train_training_overwrite_checkBox = QCheckBox(self.layoutWidget7)
+        self.train_training_overwrite_checkBox = QCheckBox(self.layoutWidget4)
         self.train_training_overwrite_checkBox.setObjectName(u"train_training_overwrite_checkBox")
         self.train_training_overwrite_checkBox.setEnabled(False)
         self.train_training_overwrite_checkBox.setMinimumSize(QSize(90, 25))
@@ -646,7 +672,7 @@ class Ui_octron_widgetui(object):
 
         self.train_verticalLayout.addWidget(self.train_training_overwrite_checkBox, 0, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop)
 
-        self.launch_tensorboard_checkBox = QCheckBox(self.layoutWidget7)
+        self.launch_tensorboard_checkBox = QCheckBox(self.layoutWidget4)
         self.launch_tensorboard_checkBox.setObjectName(u"launch_tensorboard_checkBox")
         self.launch_tensorboard_checkBox.setEnabled(False)
         self.launch_tensorboard_checkBox.setMinimumSize(QSize(90, 25))
@@ -655,13 +681,13 @@ class Ui_octron_widgetui(object):
 
         self.train_verticalLayout.addWidget(self.launch_tensorboard_checkBox)
 
-        self.layoutWidget8 = QWidget(self.train_train_groupbox)
-        self.layoutWidget8.setObjectName(u"layoutWidget8")
-        self.layoutWidget8.setGeometry(QRect(10, 30, 281, 31))
-        self.model_choose_horizontalLayout = QHBoxLayout(self.layoutWidget8)
+        self.layoutWidget5 = QWidget(self.train_train_groupbox)
+        self.layoutWidget5.setObjectName(u"layoutWidget5")
+        self.layoutWidget5.setGeometry(QRect(10, 30, 281, 31))
+        self.model_choose_horizontalLayout = QHBoxLayout(self.layoutWidget5)
         self.model_choose_horizontalLayout.setObjectName(u"model_choose_horizontalLayout")
         self.model_choose_horizontalLayout.setContentsMargins(0, 0, 0, 0)
-        self.yolomodel_list = QComboBox(self.layoutWidget8)
+        self.yolomodel_list = QComboBox(self.layoutWidget5)
         self.yolomodel_list.addItem("")
         self.yolomodel_list.setObjectName(u"yolomodel_list")
         self.yolomodel_list.setMinimumSize(QSize(150, 25))
@@ -669,7 +695,7 @@ class Ui_octron_widgetui(object):
 
         self.model_choose_horizontalLayout.addWidget(self.yolomodel_list, 0, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.yoloimagesize_list = QComboBox(self.layoutWidget8)
+        self.yoloimagesize_list = QComboBox(self.layoutWidget5)
         self.yoloimagesize_list.addItem("")
         self.yoloimagesize_list.addItem("")
         self.yoloimagesize_list.addItem("")
@@ -680,13 +706,13 @@ class Ui_octron_widgetui(object):
 
         self.model_choose_horizontalLayout.addWidget(self.yoloimagesize_list, 0, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.layoutWidget9 = QWidget(self.train_train_groupbox)
-        self.layoutWidget9.setObjectName(u"layoutWidget9")
-        self.layoutWidget9.setGeometry(QRect(10, 140, 380, 37))
-        self.epochs_horizontalLayout = QHBoxLayout(self.layoutWidget9)
+        self.layoutWidget6 = QWidget(self.train_train_groupbox)
+        self.layoutWidget6.setObjectName(u"layoutWidget6")
+        self.layoutWidget6.setGeometry(QRect(10, 140, 380, 37))
+        self.epochs_horizontalLayout = QHBoxLayout(self.layoutWidget6)
         self.epochs_horizontalLayout.setObjectName(u"epochs_horizontalLayout")
         self.epochs_horizontalLayout.setContentsMargins(0, 0, 0, 0)
-        self.train_epochs_progressbar = QProgressBar(self.layoutWidget9)
+        self.train_epochs_progressbar = QProgressBar(self.layoutWidget6)
         self.train_epochs_progressbar.setObjectName(u"train_epochs_progressbar")
         self.train_epochs_progressbar.setEnabled(False)
         sizePolicy4.setHeightForWidth(self.train_epochs_progressbar.sizePolicy().hasHeightForWidth())
@@ -698,7 +724,7 @@ class Ui_octron_widgetui(object):
 
         self.epochs_horizontalLayout.addWidget(self.train_epochs_progressbar, 0, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.train_finishtime_label = QLabel(self.layoutWidget9)
+        self.train_finishtime_label = QLabel(self.layoutWidget6)
         self.train_finishtime_label.setObjectName(u"train_finishtime_label")
         self.train_finishtime_label.setEnabled(False)
         self.train_finishtime_label.setMinimumSize(QSize(150, 25))
@@ -706,7 +732,7 @@ class Ui_octron_widgetui(object):
 
         self.epochs_horizontalLayout.addWidget(self.train_finishtime_label, 0, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.start_stop_training_btn = QPushButton(self.layoutWidget9)
+        self.start_stop_training_btn = QPushButton(self.layoutWidget6)
         self.start_stop_training_btn.setObjectName(u"start_stop_training_btn")
         sizePolicy5.setHeightForWidth(self.start_stop_training_btn.sizePolicy().hasHeightForWidth())
         self.start_stop_training_btn.setSizePolicy(sizePolicy5)
@@ -716,14 +742,14 @@ class Ui_octron_widgetui(object):
         self.epochs_horizontalLayout.addWidget(self.start_stop_training_btn, 0, Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
 
 
-        self.train_vertical_layout.addWidget(self.train_train_groupbox)
+        self.train_vertical_layout.addWidget(self.train_train_groupbox, 0, Qt.AlignmentFlag.AlignTop)
 
         icon2 = QIcon()
         icon2.addFile(u"icons/noun-rocket-7158872.svg", QSize(), QIcon.Normal, QIcon.Off)
-        self.toolBox.addItem(self.train_tab, icon2, u"Train model")
+        self.main_toolbox.addItem(self.train_tab, icon2, u"Train model")
         self.predict_tab = QWidget()
         self.predict_tab.setObjectName(u"predict_tab")
-        self.predict_tab.setGeometry(QRect(0, 0, 410, 414))
+        self.predict_tab.setGeometry(QRect(0, 0, 410, 464))
         sizePolicy1.setHeightForWidth(self.predict_tab.sizePolicy().hasHeightForWidth())
         self.predict_tab.setSizePolicy(sizePolicy1)
         self.verticalLayoutWidget_5 = QWidget(self.predict_tab)
@@ -820,15 +846,15 @@ class Ui_octron_widgetui(object):
 
         self.predict_finish_time_layout.addWidget(self.predict_start_btn)
 
-        self.layoutWidget10 = QWidget(self.predict_video_predict_groupbox)
-        self.layoutWidget10.setObjectName(u"layoutWidget10")
-        self.layoutWidget10.setGeometry(QRect(10, 140, 381, 61))
-        self.predict_options_grid_layout = QGridLayout(self.layoutWidget10)
+        self.layoutWidget7 = QWidget(self.predict_video_predict_groupbox)
+        self.layoutWidget7.setObjectName(u"layoutWidget7")
+        self.layoutWidget7.setGeometry(QRect(10, 140, 381, 61))
+        self.predict_options_grid_layout = QGridLayout(self.layoutWidget7)
         self.predict_options_grid_layout.setObjectName(u"predict_options_grid_layout")
         self.predict_options_grid_layout.setHorizontalSpacing(5)
         self.predict_options_grid_layout.setVerticalSpacing(0)
         self.predict_options_grid_layout.setContentsMargins(0, 0, 0, 0)
-        self.prediction_mask_opening_label = QLabel(self.layoutWidget10)
+        self.prediction_mask_opening_label = QLabel(self.layoutWidget7)
         self.prediction_mask_opening_label.setObjectName(u"prediction_mask_opening_label")
         sizePolicy6.setHeightForWidth(self.prediction_mask_opening_label.sizePolicy().hasHeightForWidth())
         self.prediction_mask_opening_label.setSizePolicy(sizePolicy6)
@@ -837,7 +863,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_options_grid_layout.addWidget(self.prediction_mask_opening_label, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
-        self.predict_mask_opening_spinbox = QDoubleSpinBox(self.layoutWidget10)
+        self.predict_mask_opening_spinbox = QDoubleSpinBox(self.layoutWidget7)
         self.predict_mask_opening_spinbox.setObjectName(u"predict_mask_opening_spinbox")
         self.predict_mask_opening_spinbox.setMinimumSize(QSize(70, 25))
         self.predict_mask_opening_spinbox.setMaximumSize(QSize(70, 25))
@@ -848,7 +874,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_options_grid_layout.addWidget(self.predict_mask_opening_spinbox, 0, 1, 1, 1)
 
-        self.prediction_iou_label = QLabel(self.layoutWidget10)
+        self.prediction_iou_label = QLabel(self.layoutWidget7)
         self.prediction_iou_label.setObjectName(u"prediction_iou_label")
         sizePolicy6.setHeightForWidth(self.prediction_iou_label.sizePolicy().hasHeightForWidth())
         self.prediction_iou_label.setSizePolicy(sizePolicy6)
@@ -858,7 +884,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_options_grid_layout.addWidget(self.prediction_iou_label, 0, 2, 1, 1, Qt.AlignmentFlag.AlignRight)
 
-        self.predict_iou_thresh_spinbox = QDoubleSpinBox(self.layoutWidget10)
+        self.predict_iou_thresh_spinbox = QDoubleSpinBox(self.layoutWidget7)
         self.predict_iou_thresh_spinbox.setObjectName(u"predict_iou_thresh_spinbox")
         self.predict_iou_thresh_spinbox.setMinimumSize(QSize(70, 25))
         self.predict_iou_thresh_spinbox.setMaximumSize(QSize(70, 25))
@@ -868,7 +894,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_options_grid_layout.addWidget(self.predict_iou_thresh_spinbox, 0, 3, 1, 1)
 
-        self.prediction_conf_thresh_label = QLabel(self.layoutWidget10)
+        self.prediction_conf_thresh_label = QLabel(self.layoutWidget7)
         self.prediction_conf_thresh_label.setObjectName(u"prediction_conf_thresh_label")
         sizePolicy6.setHeightForWidth(self.prediction_conf_thresh_label.sizePolicy().hasHeightForWidth())
         self.prediction_conf_thresh_label.setSizePolicy(sizePolicy6)
@@ -877,7 +903,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_options_grid_layout.addWidget(self.prediction_conf_thresh_label, 1, 0, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
-        self.predict_conf_thresh_spinbox = QDoubleSpinBox(self.layoutWidget10)
+        self.predict_conf_thresh_spinbox = QDoubleSpinBox(self.layoutWidget7)
         self.predict_conf_thresh_spinbox.setObjectName(u"predict_conf_thresh_spinbox")
         self.predict_conf_thresh_spinbox.setMinimumSize(QSize(70, 25))
         self.predict_conf_thresh_spinbox.setMaximumSize(QSize(70, 25))
@@ -887,7 +913,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_options_grid_layout.addWidget(self.predict_conf_thresh_spinbox, 1, 1, 1, 1)
 
-        self.prediction_skip_label = QLabel(self.layoutWidget10)
+        self.prediction_skip_label = QLabel(self.layoutWidget7)
         self.prediction_skip_label.setObjectName(u"prediction_skip_label")
         sizePolicy6.setHeightForWidth(self.prediction_skip_label.sizePolicy().hasHeightForWidth())
         self.prediction_skip_label.setSizePolicy(sizePolicy6)
@@ -897,7 +923,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_options_grid_layout.addWidget(self.prediction_skip_label, 1, 2, 1, 1, Qt.AlignmentFlag.AlignRight)
 
-        self.skip_frames_analysis_spinBox = QSpinBox(self.layoutWidget10)
+        self.skip_frames_analysis_spinBox = QSpinBox(self.layoutWidget7)
         self.skip_frames_analysis_spinBox.setObjectName(u"skip_frames_analysis_spinBox")
         self.skip_frames_analysis_spinBox.setMinimumSize(QSize(70, 25))
         self.skip_frames_analysis_spinBox.setMaximumSize(QSize(70, 25))
@@ -905,15 +931,15 @@ class Ui_octron_widgetui(object):
 
         self.predict_options_grid_layout.addWidget(self.skip_frames_analysis_spinBox, 1, 3, 1, 1)
 
-        self.layoutWidget11 = QWidget(self.predict_video_predict_groupbox)
-        self.layoutWidget11.setObjectName(u"layoutWidget11")
-        self.layoutWidget11.setGeometry(QRect(10, 31, 381, 101))
-        self.predict_grid_layout = QGridLayout(self.layoutWidget11)
+        self.layoutWidget8 = QWidget(self.predict_video_predict_groupbox)
+        self.layoutWidget8.setObjectName(u"layoutWidget8")
+        self.layoutWidget8.setGeometry(QRect(10, 31, 381, 101))
+        self.predict_grid_layout = QGridLayout(self.layoutWidget8)
         self.predict_grid_layout.setObjectName(u"predict_grid_layout")
         self.predict_grid_layout.setHorizontalSpacing(5)
         self.predict_grid_layout.setVerticalSpacing(0)
         self.predict_grid_layout.setContentsMargins(0, 0, 0, 0)
-        self.detailed_extraction_checkBox = QCheckBox(self.layoutWidget11)
+        self.detailed_extraction_checkBox = QCheckBox(self.layoutWidget8)
         self.detailed_extraction_checkBox.setObjectName(u"detailed_extraction_checkBox")
         self.detailed_extraction_checkBox.setEnabled(True)
         self.detailed_extraction_checkBox.setMinimumSize(QSize(90, 25))
@@ -922,7 +948,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_grid_layout.addWidget(self.detailed_extraction_checkBox, 2, 3, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
-        self.tune_tracker_btn = QPushButton(self.layoutWidget11)
+        self.tune_tracker_btn = QPushButton(self.layoutWidget8)
         self.tune_tracker_btn.setObjectName(u"tune_tracker_btn")
         self.tune_tracker_btn.setEnabled(False)
         sizePolicy5.setHeightForWidth(self.tune_tracker_btn.sizePolicy().hasHeightForWidth())
@@ -933,7 +959,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_grid_layout.addWidget(self.tune_tracker_btn, 0, 2, 1, 1, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.yolomodel_tracker_list = QComboBox(self.layoutWidget11)
+        self.yolomodel_tracker_list = QComboBox(self.layoutWidget8)
         self.yolomodel_tracker_list.addItem("")
         self.yolomodel_tracker_list.setObjectName(u"yolomodel_tracker_list")
         self.yolomodel_tracker_list.setMinimumSize(QSize(110, 25))
@@ -944,7 +970,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_grid_layout.addWidget(self.yolomodel_tracker_list, 0, 1, 1, 1, Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
 
-        self.overwrite_prediction_checkBox = QCheckBox(self.layoutWidget11)
+        self.overwrite_prediction_checkBox = QCheckBox(self.layoutWidget8)
         self.overwrite_prediction_checkBox.setObjectName(u"overwrite_prediction_checkBox")
         self.overwrite_prediction_checkBox.setEnabled(True)
         self.overwrite_prediction_checkBox.setMinimumSize(QSize(90, 25))
@@ -953,7 +979,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_grid_layout.addWidget(self.overwrite_prediction_checkBox, 3, 3, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
-        self.open_when_finish_checkBox = QCheckBox(self.layoutWidget11)
+        self.open_when_finish_checkBox = QCheckBox(self.layoutWidget8)
         self.open_when_finish_checkBox.setObjectName(u"open_when_finish_checkBox")
         self.open_when_finish_checkBox.setMinimumSize(QSize(90, 25))
         self.open_when_finish_checkBox.setMaximumSize(QSize(100, 25))
@@ -961,7 +987,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_grid_layout.addWidget(self.open_when_finish_checkBox, 0, 3, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
-        self.videos_for_prediction_list = QComboBox(self.layoutWidget11)
+        self.videos_for_prediction_list = QComboBox(self.layoutWidget8)
         self.videos_for_prediction_list.addItem("")
         self.videos_for_prediction_list.addItem("")
         self.videos_for_prediction_list.setObjectName(u"videos_for_prediction_list")
@@ -976,7 +1002,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_grid_layout.addWidget(self.videos_for_prediction_list, 3, 0, 1, 3, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop)
 
-        self.yolomodel_trained_list = QComboBox(self.layoutWidget11)
+        self.yolomodel_trained_list = QComboBox(self.layoutWidget8)
         self.yolomodel_trained_list.addItem("")
         self.yolomodel_trained_list.setObjectName(u"yolomodel_trained_list")
         self.yolomodel_trained_list.setEnabled(True)
@@ -985,7 +1011,7 @@ class Ui_octron_widgetui(object):
 
         self.predict_grid_layout.addWidget(self.yolomodel_trained_list, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.single_subject_checkBox = QCheckBox(self.layoutWidget11)
+        self.single_subject_checkBox = QCheckBox(self.layoutWidget8)
         self.single_subject_checkBox.setObjectName(u"single_subject_checkBox")
         self.single_subject_checkBox.setEnabled(True)
         self.single_subject_checkBox.setMinimumSize(QSize(90, 25))
@@ -999,17 +1025,17 @@ class Ui_octron_widgetui(object):
 
         icon3 = QIcon()
         icon3.addFile(u"icons/noun-conversion-7158876.svg", QSize(), QIcon.Normal, QIcon.Off)
-        self.toolBox.addItem(self.predict_tab, icon3, u"Analyze (new) videos")
+        self.main_toolbox.addItem(self.predict_tab, icon3, u"Analyze (new) videos")
 
-        self.mainLayout.addWidget(self.toolBox)
+        self.mainLayout.addWidget(self.main_toolbox)
 
-        self.toolBox.raise_()
+        self.main_toolbox.raise_()
         self.octron_logo.raise_()
 
         self.retranslateUi(octron_widgetui)
 
-        self.toolBox.setCurrentIndex(0)
-        self.toolBox.layout().setSpacing(10)
+        self.main_toolbox.setCurrentIndex(0)
+        self.main_toolbox.layout().setSpacing(10)
 
 
         QMetaObject.connectSlotsByName(octron_widgetui)
@@ -1026,9 +1052,9 @@ class Ui_octron_widgetui(object):
         self.video_file_drop_widget.setToolTip(QCoreApplication.translate("octron_widgetui", u"Drag and drop one .mp4 file here", None))
 #endif // QT_CONFIG(tooltip)
         self.project_existing_data_groupbox.setTitle(QCoreApplication.translate("octron_widgetui", u"Existing data", None))
-        self.toolBox.setItemText(self.toolBox.indexOf(self.project_tab), QCoreApplication.translate("octron_widgetui", u"Manage project", None))
+        self.main_toolbox.setItemText(self.main_toolbox.indexOf(self.project_tab), QCoreApplication.translate("octron_widgetui", u"Manage project", None))
 #if QT_CONFIG(tooltip)
-        self.toolBox.setItemToolTip(self.toolBox.indexOf(self.project_tab), QCoreApplication.translate("octron_widgetui", u"Create new octron projects or load existing ones", None))
+        self.main_toolbox.setItemToolTip(self.main_toolbox.indexOf(self.project_tab), QCoreApplication.translate("octron_widgetui", u"Create new octron projects or load existing ones", None))
 #endif // QT_CONFIG(tooltip)
         self.model_select_groupbox.setTitle(QCoreApplication.translate("octron_widgetui", u"Model selection", None))
         self.load_sam_model_btn.setText(QCoreApplication.translate("octron_widgetui", u"Load model", None))
@@ -1078,7 +1104,9 @@ class Ui_octron_widgetui(object):
 #endif // QT_CONFIG(statustip)
         self.create_projection_layer_btn.setText(QCoreApplication.translate("octron_widgetui", u"Visualize all", None))
 #if QT_CONFIG(tooltip)
-        self.hard_reset_layer_btn.setToolTip(QCoreApplication.translate("octron_widgetui", u"Hard reset of the SAM predictor. Use this if prediction really did not go well for your data.", None))
+        self.hard_reset_layer_btn.setToolTip(QCoreApplication.translate("octron_widgetui", u"Hard reset of the predictor.\n"
+"Use this if prediction is not working well for you.\n"
+"This will delete the masks on the current frame but no other (already annotated) frame.", None))
 #endif // QT_CONFIG(tooltip)
         self.hard_reset_layer_btn.setText(QCoreApplication.translate("octron_widgetui", u"\u3004 Reset", None))
         self.annotate_layer_timeline_groupbox.setTitle(QCoreApplication.translate("octron_widgetui", u"Timeline control", None))
@@ -1109,10 +1137,21 @@ class Ui_octron_widgetui(object):
         self.predict_next_batch_btn.setToolTip(QCoreApplication.translate("octron_widgetui", u"Predict batch of next frames", None))
 #endif // QT_CONFIG(tooltip)
         self.predict_next_batch_btn.setText("")
-        self.toolBox.setItemText(self.toolBox.indexOf(self.annotate_tab), QCoreApplication.translate("octron_widgetui", u"Generate annotation data", None))
+        self.main_toolbox.setItemText(self.main_toolbox.indexOf(self.annotate_tab), QCoreApplication.translate("octron_widgetui", u"Generate annotation data", None))
 #if QT_CONFIG(tooltip)
-        self.toolBox.setItemToolTip(self.toolBox.indexOf(self.annotate_tab), QCoreApplication.translate("octron_widgetui", u"Create annotation data for training your custom models", None))
+        self.main_toolbox.setItemToolTip(self.main_toolbox.indexOf(self.annotate_tab), QCoreApplication.translate("octron_widgetui", u"Create annotation data for training your custom models", None))
 #endif // QT_CONFIG(tooltip)
+        self.segmentation_bbox_decision_groupbox.setTitle(QCoreApplication.translate("octron_widgetui", u"Segmentation or Detection?", None))
+#if QT_CONFIG(tooltip)
+        self.segmentation_radiobutton.setToolTip(QCoreApplication.translate("octron_widgetui", u"Click this, if you want to train full segmentation models\n"
+"that yield both masks and bounding boxes.", None))
+#endif // QT_CONFIG(tooltip)
+        self.segmentation_radiobutton.setText(QCoreApplication.translate("octron_widgetui", u"Masks and bboxes (Segmentation)", None))
+#if QT_CONFIG(tooltip)
+        self.detection_radiobutton.setToolTip(QCoreApplication.translate("octron_widgetui", u"Click this, if you want to train (lightweight) detection models only\n"
+"that yield bboxes, but NO masks.", None))
+#endif // QT_CONFIG(tooltip)
+        self.detection_radiobutton.setText(QCoreApplication.translate("octron_widgetui", u"Bboxes (Detection)", None))
         self.train_generate_groupbox.setTitle(QCoreApplication.translate("octron_widgetui", u"Generate training data", None))
 #if QT_CONFIG(tooltip)
         self.train_polygons_overall_progressbar.setToolTip(QCoreApplication.translate("octron_widgetui", u"<html><head/><body><p>Batch predict progress bar</p></body></html>", None))
@@ -1185,9 +1224,9 @@ class Ui_octron_widgetui(object):
 #endif // QT_CONFIG(tooltip)
         self.train_finishtime_label.setText(QCoreApplication.translate("octron_widgetui", u"Finish time", None))
         self.start_stop_training_btn.setText(QCoreApplication.translate("octron_widgetui", u"Start", None))
-        self.toolBox.setItemText(self.toolBox.indexOf(self.train_tab), QCoreApplication.translate("octron_widgetui", u"Train model", None))
+        self.main_toolbox.setItemText(self.main_toolbox.indexOf(self.train_tab), QCoreApplication.translate("octron_widgetui", u"Train model", None))
 #if QT_CONFIG(tooltip)
-        self.toolBox.setItemToolTip(self.toolBox.indexOf(self.train_tab), QCoreApplication.translate("octron_widgetui", u"Train a new or existing model with generated training data", None))
+        self.main_toolbox.setItemToolTip(self.main_toolbox.indexOf(self.train_tab), QCoreApplication.translate("octron_widgetui", u"Train a new or existing model with generated training data", None))
 #endif // QT_CONFIG(tooltip)
         self.predict_video_drop_groupbox.setTitle(QCoreApplication.translate("octron_widgetui", u"Add video files", None))
 #if QT_CONFIG(tooltip)
@@ -1271,9 +1310,9 @@ class Ui_octron_widgetui(object):
 "This prevents artificial splitting of tracks.", None))
 #endif // QT_CONFIG(tooltip)
         self.single_subject_checkBox.setText(QCoreApplication.translate("octron_widgetui", u"1 subject", None))
-        self.toolBox.setItemText(self.toolBox.indexOf(self.predict_tab), QCoreApplication.translate("octron_widgetui", u"Analyze (new) videos", None))
+        self.main_toolbox.setItemText(self.main_toolbox.indexOf(self.predict_tab), QCoreApplication.translate("octron_widgetui", u"Analyze (new) videos", None))
 #if QT_CONFIG(tooltip)
-        self.toolBox.setItemToolTip(self.toolBox.indexOf(self.predict_tab), QCoreApplication.translate("octron_widgetui", u"Use trained models to run predictions on new videos", None))
+        self.main_toolbox.setItemToolTip(self.main_toolbox.indexOf(self.predict_tab), QCoreApplication.translate("octron_widgetui", u"Use trained models to run predictions on new videos", None))
 #endif // QT_CONFIG(tooltip)
     # retranslateUi
 

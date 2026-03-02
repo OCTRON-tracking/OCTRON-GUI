@@ -32,6 +32,7 @@ from qtpy.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QHeaderView,
+    QLabel,
 )
 import napari
 from napari.utils.notifications import (
@@ -66,6 +67,7 @@ from octron.sam_octron.helpers.sam2_zarr import (
 from octron.yolo_octron.gui.yolo_handler import YoloHandler
 from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
 from octron.yolo_octron.yolo_octron import YOLO_octron
+from octron.yolo_octron.constants import TASK_COLORS
 
 # Tracker specific 
 from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
@@ -125,6 +127,7 @@ class octron_widget(QWidget):
         self.project_path_video = None # Video path that the user selects
         self.video_layer = None
         self.current_video_hash = None # Hashed video file
+        self.train_mode = 'segment'
         self.video_zarr = None
         self.all_zarrs = [] # Collect zarrs in list so they can be cleaned up upon closing
         self.prefetcher_worker = None
@@ -214,7 +217,7 @@ class octron_widget(QWidget):
         self._viewer.layers.events.removed.connect(self.on_layer_removed)
         
         # ToolBox tab changed callback
-        self.toolBox.currentChanged.connect(self.on_toolbox_tab_changed)
+        self.main_toolbox.currentChanged.connect(self.on_toolbox_tab_changed)
         
         # Main video drop area
         self.video_file_drop_widget.callback = self.on_mp4_file_dropped_area
@@ -236,13 +239,25 @@ class octron_widget(QWidget):
         self.generate_training_data_btn.setText('')
         self.start_stop_training_btn.setText('')
         self.predict_start_btn.setText('')
+        # Train mode radiobuttons — set initial titles and color indicators
+        self.train_generate_groupbox.setTitle('Generate training data (Mode: Segmentation)')
+        self.generate_mode_indicator = QLabel(self.train_generate_groupbox)
+        self.generate_mode_indicator.setFixedSize(14, 14)
+        self.generate_mode_indicator.move(380, 2)
+        self.train_train_groupbox.setTitle('Train (Mode: Segmentation)')
+        self.train_mode_indicator = QLabel(self.train_train_groupbox)
+        self.train_mode_indicator.setFixedSize(14, 14)
+        self.train_mode_indicator.move(380, 2)
+        self._update_train_mode_indicators(TASK_COLORS['segment'])
+        self.segmentation_radiobutton.toggled.connect(self.on_train_mode_changed)
+        
         # Lists
         self.label_list_combobox.currentIndexChanged.connect(self.on_label_change)
         # Upon start, disable some of the toolbox tabs and functionality for video drop 
         self.project_video_drop_groupbox.setEnabled(False)
-        self.toolBox.widget(1).setEnabled(False) # Annotation
-        self.toolBox.widget(2).setEnabled(False) # Training
-        self.toolBox.widget(3).setEnabled(False) # Prediction
+        self.main_toolbox.widget(1).setEnabled(False) # Annotation
+        self.main_toolbox.widget(2).setEnabled(False) # Training
+        self.main_toolbox.widget(3).setEnabled(False) # Prediction
         
         # Disable layer annotation until SAM2 model is loaded
         self.annotate_layer_create_groupbox.setEnabled(False)
@@ -251,16 +266,44 @@ class octron_widget(QWidget):
         self.sam3detect_thresh.setEnabled(False)
         self.threshold_label.setEnabled(False)
         
-        # And ... 
+        # And disable some more boxes
+        # Training
+        self.segmentation_bbox_decision_groupbox.setEnabled(False)
         self.train_generate_groupbox.setEnabled(False)
         self.train_train_groupbox.setEnabled(False)
-        # ... 
+        # Prediction
         self.predict_video_drop_groupbox.setEnabled(False)
         self.predict_video_predict_groupbox.setEnabled(False)
         
         # Connect to the Napari viewer close event
         self.app.lastWindowClosed.connect(self.closeEvent)
     
+    def _update_train_mode_indicators(self, color):
+        """
+        Update the colored square indicators on the generate and train groupboxes.
+        """
+        icon = create_color_icon(color, size=14)
+        pixmap = icon.pixmap(14, 14)
+        self.generate_mode_indicator.setPixmap(pixmap)
+        self.train_mode_indicator.setPixmap(pixmap)
+
+    def on_train_mode_changed(self, checked):
+        """
+        Callback triggered when the segmentation/detection radiobutton is toggled.
+        Updates self.train_mode, groupbox titles, and color indicators.
+        """
+        if checked:
+            self.train_mode = 'segment'
+            self.train_generate_groupbox.setTitle('Generate training data (Mode: Segmentation)')
+            self.train_train_groupbox.setTitle('Train (Mode: Segmentation)')
+            self._update_train_mode_indicators(TASK_COLORS['segment'])
+        else:
+            self.train_mode = 'detect'
+            self.train_generate_groupbox.setTitle('Generate training data (Mode: Detection)')
+            self.train_train_groupbox.setTitle('Train (Mode: Detection)')
+            self._update_train_mode_indicators(TASK_COLORS['detect'])
+        print(f'Train mode set to: {self.train_mode}')
+
     def on_toolbox_tab_changed(self, index):
         """
         Callback triggered when a different tab is selected in the toolBox.
@@ -674,9 +717,11 @@ class octron_widget(QWidget):
         # Enable training tab if data is available
         if label_dict and any(v for k, v in label_dict.items() if k != 'video' and k != 'video_file_path'):
             print("Data available, enabling training tab.")
-            self.toolBox.widget(2).setEnabled(True)  # Training
+            self.main_toolbox.widget(2).setEnabled(True)  # Training
+            self.segmentation_bbox_decision_groupbox.setEnabled(True)
             self.train_generate_groupbox.setEnabled(True)
-            self.train_train_groupbox.setEnabled(True)
+            # train_train_groupbox is enabled only after training data generation finishes
+            # (see _on_training_data_finished in yolo_handler.py)
             # Enable some buttons too 
             self.train_data_watershed_checkBox.setEnabled(True)
             self.train_data_overwrite_checkBox.setEnabled(True)
@@ -989,7 +1034,7 @@ class octron_widget(QWidget):
                 # Disable the layer annotation box until SAM2 is loaded 
                 self.annotate_layer_create_groupbox.setEnabled(False)
                 # Reset naming of annotation tab 
-                self.toolBox.setItemText(1, "Generate annotation data")
+                self.main_toolbox.setItemText(1, "Generate annotation data")
             # Reset the flag 
             self.remove_current_layer = False
     
@@ -1094,8 +1139,8 @@ class octron_widget(QWidget):
             self.init_zarr_prefetcher_threaded()
             
             print(f"VIDEO LAYER >>> {layer_name}")
-            self.toolBox.widget(1).setEnabled(True) 
-            self.toolBox.setItemText(1, f"Generate annotation data for: {self.current_video_hash}")
+            self.main_toolbox.widget(1).setEnabled(True) 
+            self.main_toolbox.setItemText(1, f"Generate annotation data for: {self.current_video_hash}")
 
         return
         

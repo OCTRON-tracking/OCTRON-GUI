@@ -10,19 +10,19 @@
     <x>0</x>
     <y>0</y>
     <width>410</width>
-    <height>700</height>
+    <height>750</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
     <width>410</width>
-    <height>700</height>
+    <height>750</height>
    </size>
   </property>
   <property name="maximumSize">
    <size>
     <width>410</width>
-    <height>700</height>
+    <height>750</height>
    </size>
   </property>
   <property name="cursor">
@@ -40,17 +40,17 @@
      <x>0</x>
      <y>0</y>
      <width>412</width>
-     <height>691</height>
+     <height>751</height>
     </rect>
    </property>
    <layout class="QVBoxLayout" name="mainLayout">
     <property name="spacing">
-     <number>10</number>
+     <number>20</number>
     </property>
     <property name="sizeConstraint">
      <enum>QLayout::SizeConstraint::SetNoConstraint</enum>
     </property>
-    <item alignment="Qt::AlignmentFlag::AlignHCenter|Qt::AlignmentFlag::AlignTop">
+    <item alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop">
      <widget class="QLabel" name="octron_logo">
       <property name="enabled">
        <bool>true</bool>
@@ -88,7 +88,7 @@
      </widget>
     </item>
     <item>
-     <widget class="QToolBox" name="toolBox">
+     <widget class="QToolBox" name="main_toolbox">
       <property name="enabled">
        <bool>true</bool>
       </property>
@@ -101,13 +101,13 @@
       <property name="minimumSize">
        <size>
         <width>410</width>
-        <height>550</height>
+        <height>600</height>
        </size>
       </property>
       <property name="maximumSize">
        <size>
         <width>410</width>
-        <height>550</height>
+        <height>600</height>
        </size>
       </property>
       <property name="cursor">
@@ -137,7 +137,7 @@
          <x>0</x>
          <y>0</y>
          <width>410</width>
-         <height>414</height>
+         <height>464</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -160,9 +160,9 @@
         <property name="geometry">
          <rect>
           <x>0</x>
-          <y>-1</y>
+          <y>0</y>
           <width>402</width>
-          <height>412</height>
+          <height>461</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="project_vertical_layout">
@@ -183,13 +183,13 @@
            <property name="minimumSize">
             <size>
              <width>400</width>
-             <height>80</height>
+             <height>95</height>
             </size>
            </property>
            <property name="maximumSize">
             <size>
              <width>400</width>
-             <height>90</height>
+             <height>95</height>
             </size>
            </property>
            <property name="title">
@@ -237,14 +237,14 @@
               </property>
               <property name="minimumSize">
                <size>
-                <width>250</width>
-                <height>50</height>
+                <width>255</width>
+                <height>53</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
-                <width>250</width>
-                <height>50</height>
+                <width>255</width>
+                <height>53</height>
                </size>
               </property>
               <property name="text">
@@ -339,13 +339,13 @@
            <property name="minimumSize">
             <size>
              <width>400</width>
-             <height>180</height>
+             <height>220</height>
             </size>
            </property>
            <property name="maximumSize">
             <size>
              <width>400</width>
-             <height>180</height>
+             <height>220</height>
             </size>
            </property>
            <property name="title">
@@ -367,18 +367,18 @@
             <property name="bottomMargin">
              <number>12</number>
             </property>
-            <item alignment="Qt::AlignmentFlag::AlignHCenter|Qt::AlignmentFlag::AlignVCenter">
+            <item alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop">
              <widget class="QTableView" name="existing_data_table">
               <property name="minimumSize">
                <size>
                 <width>380</width>
-                <height>140</height>
+                <height>180</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
                 <width>380</width>
-                <height>130</height>
+                <height>180</height>
                </size>
               </property>
               <property name="editTriggers">
@@ -446,7 +446,7 @@
          <x>0</x>
          <y>0</y>
          <width>405</width>
-         <height>414</height>
+         <height>464</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -487,7 +487,7 @@
          <property name="bottomMargin">
           <number>15</number>
          </property>
-         <item>
+         <item alignment="Qt::AlignmentFlag::AlignTop">
           <widget class="QGroupBox" name="model_select_groupbox">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Minimum">
@@ -514,9 +514,9 @@
             <property name="geometry">
              <rect>
               <x>10</x>
-              <y>34</y>
+              <y>30</y>
               <width>381</width>
-              <height>37</height>
+              <height>41</height>
              </rect>
             </property>
             <layout class="QGridLayout" name="model_select_grid_layout">
@@ -874,7 +874,9 @@ and octo and suffix 2 for the second octo </string>
                 </size>
                </property>
                <property name="toolTip">
-                <string>Hard reset of the SAM predictor. Use this if prediction really did not go well for your data.</string>
+                <string>Hard reset of the predictor.
+Use this if prediction is not working well for you.
+This will delete the masks on the current frame but no other (already annotated) frame.</string>
                </property>
                <property name="text">
                 <string>〄 Reset</string>
@@ -1175,7 +1177,7 @@ and octo and suffix 2 for the second octo </string>
          <x>0</x>
          <y>0</y>
          <width>410</width>
-         <height>414</height>
+         <height>464</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -1200,11 +1202,79 @@ and octo and suffix 2 for the second octo </string>
           <x>0</x>
           <y>0</y>
           <width>402</width>
-          <height>371</height>
+          <height>461</height>
          </rect>
         </property>
-        <layout class="QVBoxLayout" name="train_vertical_layout" stretch="0,0">
-         <item alignment="Qt::AlignmentFlag::AlignHCenter|Qt::AlignmentFlag::AlignTop">
+        <layout class="QVBoxLayout" name="train_vertical_layout" stretch="0,0,0">
+         <property name="spacing">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>10</number>
+         </property>
+         <item alignment="Qt::AlignmentFlag::AlignTop">
+          <widget class="QGroupBox" name="segmentation_bbox_decision_groupbox">
+           <property name="minimumSize">
+            <size>
+             <width>400</width>
+             <height>65</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>400</width>
+             <height>65</height>
+            </size>
+           </property>
+           <property name="baseSize">
+            <size>
+             <width>400</width>
+             <height>60</height>
+            </size>
+           </property>
+           <property name="title">
+            <string>Segmentation or Detection?</string>
+           </property>
+           <widget class="QWidget" name="layoutWidget">
+            <property name="geometry">
+             <rect>
+              <x>12</x>
+              <y>30</y>
+              <width>383</width>
+              <height>21</height>
+             </rect>
+            </property>
+            <layout class="QGridLayout" name="gridLayout">
+             <item row="0" column="0" alignment="Qt::AlignmentFlag::AlignLeft">
+              <widget class="QRadioButton" name="segmentation_radiobutton">
+               <property name="toolTip">
+                <string>Click this, if you want to train full segmentation models
+that yield both masks and bounding boxes.</string>
+               </property>
+               <property name="text">
+                <string>Masks and bboxes (Segmentation)</string>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1" alignment="Qt::AlignmentFlag::AlignLeft">
+              <widget class="QRadioButton" name="detection_radiobutton">
+               <property name="toolTip">
+                <string>Click this, if you want to train (lightweight) detection models only
+that yield bboxes, but NO masks.</string>
+               </property>
+               <property name="text">
+                <string>Bboxes (Detection)</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+         <item alignment="Qt::AlignmentFlag::AlignTop">
           <widget class="QGroupBox" name="train_generate_groupbox">
            <property name="enabled">
             <bool>false</bool>
@@ -1233,7 +1303,7 @@ and octo and suffix 2 for the second octo </string>
            <property name="alignment">
             <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
            </property>
-           <widget class="QWidget" name="layoutWidget">
+           <widget class="QWidget" name="layoutWidget_4">
             <property name="geometry">
              <rect>
               <x>10</x>
@@ -1341,7 +1411,7 @@ and octo and suffix 2 for the second octo </string>
              </item>
             </layout>
            </widget>
-           <widget class="QWidget" name="layoutWidget">
+           <widget class="QWidget" name="layoutWidget_5">
             <property name="geometry">
              <rect>
               <x>10</x>
@@ -1449,7 +1519,7 @@ and octo and suffix 2 for the second octo </string>
              </item>
             </layout>
            </widget>
-           <widget class="QWidget" name="layoutWidget">
+           <widget class="QWidget" name="layoutWidget_6">
             <property name="geometry">
              <rect>
               <x>300</x>
@@ -1548,7 +1618,7 @@ but should be separate entities in the training data.</string>
              </item>
             </layout>
            </widget>
-           <widget class="QWidget" name="layoutWidget">
+           <widget class="QWidget" name="layoutWidget_7">
             <property name="geometry">
              <rect>
               <x>10</x>
@@ -1609,7 +1679,7 @@ but should be separate entities in the training data.</string>
            </widget>
           </widget>
          </item>
-         <item>
+         <item alignment="Qt::AlignmentFlag::AlignTop">
           <widget class="QGroupBox" name="train_train_groupbox">
            <property name="enabled">
             <bool>false</bool>
@@ -2068,7 +2138,7 @@ Recommended are at least ~50.</string>
          <x>0</x>
          <y>0</y>
          <width>410</width>
-         <height>414</height>
+         <height>464</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -2890,7 +2960,7 @@ This prevents artificial splitting of tracks.</string>
      </widget>
     </item>
    </layout>
-   <zorder>toolBox</zorder>
+   <zorder>main_toolbox</zorder>
    <zorder>octron_logo</zorder>
   </widget>
  </widget>
