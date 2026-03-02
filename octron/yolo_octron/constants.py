@@ -36,12 +36,7 @@ ALL_REGION_PROPERTIES = {
     ),
 }
 
-# Default region properties extracted from segmentation masks via regionprops.
-# These are passed to skimage.measure.regionprops_table.
 # This set is updated by the Region Properties configuration dialog.
 DEFAULT_REGION_PROPERTIES = (
     'area',
-    'eccentricity',
-    'orientation',
-    'solidity',
 )
