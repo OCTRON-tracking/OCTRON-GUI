@@ -40,7 +40,9 @@ from octron.yolo_octron.helpers.yolo_zarr import (create_prediction_store,
                                                   create_prediction_zarr
 )
 from octron.tracking.helpers.tracker_checks import (load_boxmot_trackers, 
-                                                    load_boxmot_tracker_config
+                                                    load_boxmot_tracker_config,
+                                                    resolve_tracker,
+                                                    list_available_trackers,
 )
 from octron.yolo_octron.helpers.training import (
     pick_random_frames,
@@ -1646,8 +1648,9 @@ class YOLO_octron:
                   videos,
                   model_path,
                   device,
-                  tracker_name,
+                  tracker_name=None,
                   tracker_cfg_path=None,
+                  tracker_params=None,
                   skip_frames=0,
                   one_object_per_label=False,
                   region_details=False,
@@ -1672,11 +1675,21 @@ class YOLO_octron:
             Path to the YOLO model to use for prediction.
         device : str
             Device to run prediction on ('cpu', 'cuda', etc.)
-        tracker_name : str
-            Name of the tracker to use ('bytetrack' or 'botsort')
-        tracker_cfg_path : str or Path
-            Path to the boxmot tracker config yaml file. Those are normally saved under 
-            octron/tracking/configs/
+        tracker_name : str, optional
+            Name of the tracker to use (e.g. 'ByteTrack', 'bytetrack', 'BotSort').
+            The name is resolved flexibly: exact key match, case-insensitive key match,
+            or match on the display name field. If the name cannot be resolved, a 
+            ValueError is raised listing all available trackers.
+            Either tracker_name or tracker_cfg_path must be provided.
+        tracker_cfg_path : str or Path, optional
+            Path to a boxmot tracker config YAML file. Use this to supply a custom
+            or manually edited tracker configuration. When provided, this takes 
+            priority over tracker_name.
+        tracker_params : dict, optional
+            Dictionary of tracker parameter overrides. These are applied on top of the
+            resolved tracker configuration, updating only the 'current_value' of matching
+            parameters. For example: {'det_thresh': 0.5, 'max_age': 100}.
+            Unknown parameter names are ignored with a warning.
         skip_frames : int
             Number of frames to skip between predictions.
         one_object_per_label : bool
@@ -1736,22 +1749,45 @@ class YOLO_octron:
             # Already in dict format (GUI usage)
             videos_dict = videos
         
-        # Check Boxmot tracker configuration
-        # A tracker can either be directly linked via the config file (tracker_cfg_path)
-        # or selected via name. If the latter it is then looked up via the boxmot_trackers.yaml 
-        if tracker_cfg_path is not None: 
+        # Resolve Boxmot tracker configuration
+        # Priority: tracker_cfg_path (custom YAML) > tracker_name (name-based lookup)
+        if tracker_cfg_path is not None:
+            # User supplied a custom tracker config YAML directly
             tracker_cfg_path = Path(tracker_cfg_path)
-            assert tracker_cfg_path.exists, f'Tracker .yaml not found under {tracker_cfg_path}'
-        else:
-            # Load all available trackers from scratch
+            if not tracker_cfg_path.exists():
+                raise FileNotFoundError(f'Tracker config YAML not found: {tracker_cfg_path}')
+            tracker_config = load_boxmot_tracker_config(tracker_cfg_path)
+            # Extract tracker_id from the top-level key of the config YAML
+            tracker_id = next(iter(tracker_config))
+            print(f"Using custom tracker config: {tracker_cfg_path} (tracker: {tracker_id})")
+        elif tracker_name is not None:
+            # Resolve tracker name via flexible lookup in boxmot_trackers.yaml
             trackers_yaml_path = octron_base_path / 'tracking/boxmot_trackers.yaml'
             trackers_dict = load_boxmot_trackers(trackers_yaml_path)
-            tracker_id = tracker_name.strip()
-            assert tracker_id in trackers_dict, f'Tracker with name {tracker_id} not available.'
-            tracker_cfg_path = octron_base_path / trackers_dict[tracker_id]['config_path']
-    
-        tracker_config = load_boxmot_tracker_config(tracker_cfg_path)
-        assert tracker_config, f'Tracker config could not be loaded for tracker {tracker_id}'                                                 
+            tracker_id, tracker_info = resolve_tracker(tracker_name, trackers_dict)
+            tracker_cfg_path = octron_base_path / tracker_info['config_path']
+            tracker_config = load_boxmot_tracker_config(tracker_cfg_path)
+            print(f"Resolved tracker '{tracker_name}' -> {tracker_id}")
+        else:
+            raise ValueError(
+                "Either 'tracker_name' or 'tracker_cfg_path' must be provided. "
+                "Use tracker_name for name-based lookup (e.g. 'ByteTrack') or "
+                "tracker_cfg_path for a custom tracker config YAML."
+            )
+        
+        if not tracker_config:
+            raise ValueError(f'Tracker config could not be loaded for tracker {tracker_id}')
+        
+        # Apply user-provided parameter overrides (tracker_params)
+        if tracker_params:
+            config_parameters = tracker_config[tracker_id].get('parameters', {})
+            for param_name, param_value in tracker_params.items():
+                if param_name in config_parameters:
+                    tracker_config[tracker_id]['parameters'][param_name]['current_value'] = param_value
+                    print(f"  Tracker param override: {param_name} = {param_value}")
+                else:
+                    print(f"  ⚠ Unknown tracker parameter '{param_name}' — ignored. "
+                          f"Available: {list(config_parameters.keys())}")
 
         # Check YOLO configuration
         model_path = Path(model_path)

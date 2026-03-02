@@ -62,4 +62,89 @@ def load_boxmot_tracker_config(config_yaml_path):
         config_dict = yaml.safe_load(file)
     return config_dict
 
+
+def list_available_trackers(trackers_dict):
+    """
+    List all available trackers from a loaded boxmot_trackers dictionary.
     
+    Parameters
+    ----------
+    trackers_dict : dict
+        Dictionary loaded from boxmot_trackers.yaml via load_boxmot_trackers()
+
+    Returns
+    -------
+    available : dict
+        Dictionary of {tracker_id: display_name} for all trackers with available: true
+        For example: {'ByteTrack': 'ByteTrack', 'OcSort': 'OcSort', ...}
+    """
+    available = {}
+    for tracker_id, info in trackers_dict.items():
+        if info.get('available', False):
+            available[tracker_id] = info.get('name', tracker_id)
+    return available
+
+
+def resolve_tracker(tracker_name, trackers_dict):
+    """
+    Resolve a user-provided tracker name to its tracker ID and info dictionary.
+    
+    This performs a flexible lookup in the following order:
+    1. Exact key match (e.g. "ByteTrack")
+    2. Case-insensitive key match (e.g. "bytetrack" -> "ByteTrack")
+    3. Match on the 'name' field (e.g. "D-OcSort")
+    
+    Only trackers with ``available: true`` are considered.
+    
+    Parameters
+    ----------
+    tracker_name : str
+        Name of the tracker to resolve. Can be the YAML key, or the display 
+        name, case-insensitive.
+    trackers_dict : dict
+        Dictionary loaded from boxmot_trackers.yaml via load_boxmot_trackers()
+
+    Returns
+    -------
+    tracker_id : str
+        The canonical key in boxmot_trackers.yaml (e.g. "ByteTrack")
+    tracker_info : dict
+        The info dictionary for that tracker (contains 'name', 'config_path', etc.)
+
+    Raises
+    ------
+    ValueError
+        If the tracker cannot be resolved. The error message lists all 
+        available trackers.
+    """
+    name = tracker_name.strip()
+    
+    # Build lookup of available trackers only
+    available = {tid: info for tid, info in trackers_dict.items()
+                 if info.get('available', False)}
+    
+    if not available:
+        raise ValueError("No trackers are marked as available in the tracker configuration.")
+    
+    # 1. Exact key match
+    if name in available:
+        return name, available[name]
+    
+    # 2. Case-insensitive key match
+    name_lower = name.lower()
+    for tid, info in available.items():
+        if tid.lower() == name_lower:
+            return tid, info
+    
+    # 3. Match on the 'name' field (case-insensitive)
+    for tid, info in available.items():
+        if info.get('name', '').lower() == name_lower:
+            return tid, info
+    
+    # Not found — build a helpful error message
+    available_list = "\n".join(
+        f"  - {tid}  ({info.get('name', tid)})" for tid, info in available.items()
+    )
+    raise ValueError(
+        f"Tracker '{tracker_name}' not found. Available trackers:\n{available_list}"
+    )
