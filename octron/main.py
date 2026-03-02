@@ -33,6 +33,7 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QHeaderView,
     QLabel,
+    QMenu,
 )
 import napari
 from napari.utils.notifications import (
@@ -704,6 +705,9 @@ class octron_widget(QWidget):
             header.setStretchLastSection(True)
             # Connect double-click event on table rows 
             self.existing_data_table.doubleClicked.connect(self.on_label_table_double_clicked)
+            # Enable right-click context menu
+            self.existing_data_table.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.existing_data_table.customContextMenuRequested.connect(self.on_label_table_context_menu)
         
         # Update the table with new data
         self.label_table_model.update_data(label_dict, delete_old=delete_old)
@@ -726,6 +730,53 @@ class octron_widget(QWidget):
             self.train_data_watershed_checkBox.setEnabled(True)
             self.train_data_overwrite_checkBox.setEnabled(True)
             self.train_prune_checkBox.setEnabled(True)
+
+    def on_label_table_context_menu(self, pos):
+        """
+        Handle right-click context menu on the existing data table.
+        Offers a 'Delete' action that removes annotations from disk.
+        """
+        index = self.existing_data_table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        menu = QMenu(self)
+        delete_action = menu.addAction("Delete")
+        action = menu.exec_(self.existing_data_table.viewport().mapToGlobal(pos))
+
+        if action == delete_action:
+            folder_path = self.label_table_model.get_folder_path(index)
+            if not folder_path:
+                return
+
+            folder = Path(folder_path)
+            video_file_path = self.label_table_model.label_dict[folder_path].get('video_file_path', '')
+            reply = QMessageBox.warning(
+                self,
+                "Delete annotations",
+                f"This will permanently delete all annotations for this video from disk:\n\n"
+                f"{folder.name}\nFull path: {folder.as_posix()}\n\n"
+                f"Associated video: '{Path(video_file_path).name}' (will not be deleted!)\n\n"
+                f"This action cannot be undone. Continue?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+
+            if reply == QMessageBox.Yes:
+                # If the video being deleted is currently loaded, remove its layers first
+                if (self.video_layer is not None
+                        and self.project_path_video is not None
+                        and folder.resolve() == self.project_path_video.resolve()):
+                    self._viewer.layers.remove(self.video_layer)
+
+                # Delete folder from disk
+                if folder.exists() and folder.is_dir():
+                    shutil.rmtree(folder)
+                    show_info(f"Deleted: {folder.name}")
+                # Remove row from table model
+                self.label_table_model.remove_row(index.row())
+                # Refresh the table from disk
+                self.refresh_label_table_list(delete_old=True)
 
     def on_label_table_double_clicked(self, index):
         """

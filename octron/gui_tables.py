@@ -127,6 +127,18 @@ class ExistingDataTable(QAbstractTableModel):
             return self.headers[section]
         return None
     
+    def remove_row(self, row):
+        """Remove a row from the model and its corresponding entry from label_dict"""
+        if not (0 <= row < len(self._data)):
+            return None
+        self.beginResetModel()
+        folder_path = self._data[row][4]
+        del self._data[row]
+        if folder_path in self.label_dict:
+            del self.label_dict[folder_path]
+        self.endResetModel()
+        return folder_path
+
     def get_folder_path(self, index):
         """Return the full folder path for the given index"""
         if not index.isValid() or not (0 <= index.row() < len(self._data)):
