@@ -2235,6 +2235,7 @@ class YOLO_octron:
             
             yield {
                     'stage': 'video_complete',
+                    'video_name': video_name,
                     'save_dir': save_dir,
                 }
             
@@ -2405,7 +2406,7 @@ class YOLO_octron:
                                   colormap='hsv',
                             )
                 viewer.layers[f'{label} - id {track_id}'].tail_width = 3
-                viewer.layers[f'{label} - id {track_id}'].tail_length = yolo_results.num_frames
+                viewer.layers[f'{label} - id {track_id}'].tail_length = min(yolo_results.num_frames, 200)
                 viewer.layers[f'{label} - id {track_id}'].color_by = 'frame_idx'
                 # Add masks (segmentation results only)
                 if masks is not None:
