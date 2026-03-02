@@ -753,6 +753,23 @@ class YoloHandler(QObject):
             self.w.train_finishtime_label.setEnabled(False)
             # Refresh the trained model list and enable the prediction tab
             self.refresh_trained_model_list()
+            # Re-enable annotation tab (was disabled during training)
+            self.w.main_toolbox.widget(1).setEnabled(True)
+            # Re-enable training data generation section
+            # (matches the 'training data tab enabled' state from refresh_label_table_list)
+            # The train groupbox stays disabled until the user goes through data generation again.
+            self.w.segmentation_bbox_decision_groupbox.setEnabled(True)
+            self.w.train_generate_groupbox.setEnabled(True)
+            self.w.generate_training_data_btn.setStyleSheet('')
+            self.w.generate_training_data_btn.setText(f'▷ Generate')
+            self.w.generate_training_data_btn.setEnabled(True)
+            self.w.train_data_watershed_checkBox.setEnabled(True)
+            self.w.train_data_overwrite_checkBox.setEnabled(True)
+            self.w.train_prune_checkBox.setEnabled(True)
+            # Reset pipeline flags so data generation can be re-entered
+            self.bbox_or_polygon_generated = False
+            self.training_data_generated = False
+            self.training_finished = False
             
 
     #######################################################################################################
