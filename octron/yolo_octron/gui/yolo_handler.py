@@ -1060,11 +1060,21 @@ class YoloHandler(QObject):
             self.w.predict_current_video_progressbar.setValue(frame)
             
         elif stage == 'video_complete':
+            # Mark video as complete with checkmark in list
+            video_name = progress_info.get('video_name', '')
+            if video_name:
+                lst = self.w.videos_for_prediction_list
+                # Find the video in the list and add checkmark
+                for i in range(lst.count()):
+                    if lst.itemText(i) == video_name:
+                        lst.setItemText(i, f"{video_name} ✓")
+                        break
+            
             # Show results? 
             save_dir = progress_info.get('save_dir', '')
             if self.view_prediction_results: 
                 for label, track_id, _, _, _, _  in self.yolo.load_predictions(save_dir=save_dir):
-                    print(f"Adding tracking result to viewer | Label: {label}, Track ID: {track_id}")     
+                    print(f"Adding tracking result to viewer | Label: {label}, Track ID: {track_id}")
             
         elif stage == 'complete':
             self.yolo_prediction_worker.quit()
