@@ -902,6 +902,8 @@ class YoloHandler(QObject):
                     # No items selected, reset and return
                     lst.setCurrentIndex(0)
                     return
+                # Block signals to prevent recursive currentIndexChanged calls
+                lst.blockSignals(True)
                 # Remove all selected videos
                 for item in selected_items:
                     video_name = item.text()
@@ -911,6 +913,9 @@ class YoloHandler(QObject):
                 # Refresh header count
                 n = len(self.videos_to_predict)
                 lst.setItemText(0, f"Videos (n={n})" if n else "List of videos to be analyzed ...")
+                lst.setCurrentIndex(0)
+                lst.blockSignals(False)
+                return
             lst.setCurrentIndex(0)
         else:
             lst.setCurrentIndex(0)
