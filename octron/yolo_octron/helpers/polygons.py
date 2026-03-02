@@ -81,6 +81,19 @@ def find_objects_in_mask(mask, min_area=10, properties=None,
         for prop in props:
             props[prop] = props[prop][valid_indices]
     
+    # Collect all table keys that are NOT internal ('label', 'centroid-*').
+    # regionprops_table may expand multi-valued / multichannel properties into
+    # suffixed columns (e.g. intensity_mean-0, moments_hu-3).  We simply pass
+    # through every key the table produced.
+    # Note: 'area' is only used internally for min_area filtering but is
+    # included in the output if the user explicitly requested it.
+    _internal_prefixes = ('label', 'centroid')
+    _user_requested = set(properties) | set(extra_prop_names)
+    output_keys = [k for k in props
+                   if not k.startswith(_internal_prefixes)
+                   and (k.split('-')[0] in _user_requested
+                        or k in _user_requested)]
+
     num_regions = len(props['label'])
     regions_list = []
     
@@ -89,14 +102,8 @@ def find_objects_in_mask(mask, min_area=10, properties=None,
             'label': props['label'][i],
             'centroid': (props['centroid-0'][i], props['centroid-1'][i]),
         }
-        # Add all requested built-in properties dynamically
-        for prop_name in properties:
-            if prop_name in ('label', 'centroid'):
-                continue  # Already handled above
-            region_dict[prop_name] = props[prop_name][i]
-        # Add extra properties (custom functions)
-        for prop_name in extra_prop_names:
-            region_dict[prop_name] = props[prop_name][i]
+        for key in output_keys:
+            region_dict[key] = props[key][i]
         regions_list.append(region_dict)
     
     return labels, regions_list

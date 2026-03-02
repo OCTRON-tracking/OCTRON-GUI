@@ -1,4 +1,5 @@
 import json
+import ast
 from pathlib import Path
 from natsort import natsorted
 import zarr
@@ -436,7 +437,10 @@ class YOLO_results:
                             "pos_x",
                             "pos_y",
                            ]
-        FEATURE_COLUMNS = ["frame_idx",
+        # Base feature columns that are always expected.
+        # Additional region property columns (e.g. intensity_mean-0,
+        # moments_hu-3) are discovered dynamically from the CSV.
+        BASE_FEATURE_COLUMNS = ["frame_idx",
                            "confidence",
                            "bbox_x_min",
                            "bbox_x_max",
@@ -444,11 +448,8 @@ class YOLO_results:
                            "bbox_y_max",
                            "bbox_area",
                            "bbox_aspect_ratio",
-                           "area",
-                           "eccentricity",
-                           "solidity",
-                           "orientation",
         ]
+        NON_FEATURE_COLUMNS = set(EXPECTED_CSV_COLUMNS) | {"frame_counter", "track_id"}
         INTEGER_COLUMNS = ["frame_idx",
                            "track_id",
         ]
@@ -460,6 +461,36 @@ class YOLO_results:
         if self.csvs is None:
             raise ValueError("No CSV files found, cannot extract tracking data.")
         
+        def _resolve_tuples(series, col_name, csv_name):
+            """Parse tuple-string cells and average them into scalars.
+            Cells that are already numeric are left unchanged.
+            Tuple strings like '(120.5, 85.3)' are parsed and averaged.
+
+            NOTE: Averaging is a simplification. For circular properties
+            like 'orientation' a proper circular mean would be needed.
+            The raw per-region values are preserved in the CSV.
+            """
+            tuple_count = 0
+            def _parse(val):
+                nonlocal tuple_count
+                if isinstance(val, (int, float, np.integer, np.floating)):
+                    return float(val)
+                if isinstance(val, str) and val.startswith('('):
+                    try:
+                        parsed = ast.literal_eval(val)
+                        if isinstance(parsed, tuple):
+                            tuple_count += 1
+                            return float(np.mean(parsed))
+                    except (ValueError, SyntaxError):
+                        pass
+                return val  # NaN or unrecognised — leave as-is
+            result = series.map(_parse)
+            if tuple_count > 0 and self.verbose:
+                print(f" ⚠ '{col_name}' in {csv_name}: {tuple_count} rows contain "
+                      f"multi-region tuples (averaged for display). "
+                      f"Raw per-region values are preserved in the CSV.")
+            return result
+
         tracking_data = {}
         for csv_file in self.csvs:
             try:
@@ -467,9 +498,12 @@ class YOLO_results:
                 assert set(EXPECTED_CSV_COLUMNS).issubset(df.columns), \
                     f"CSV file {csv_file.name} does not contain all expected columns: {EXPECTED_CSV_COLUMNS}"
                 
-                # Prune FEATURE_COLUMNS based on what is actually present in the CSV
-                # This is to guard against older formats or changes in the CSV structure
-                FEATURE_COLUMNS = [col for col in FEATURE_COLUMNS if col in df.columns]
+                # Build FEATURE_COLUMNS dynamically: base columns that exist,
+                # plus any extra columns from the CSV (region properties).
+                FEATURE_COLUMNS = [c for c in BASE_FEATURE_COLUMNS if c in df.columns]
+                for col in df.columns:
+                    if col not in NON_FEATURE_COLUMNS and col not in FEATURE_COLUMNS:
+                        FEATURE_COLUMNS.append(col)
                 
                 track_id = int(df.iloc[0].track_id) # Get the scalar track_id for this file
                 label = df.iloc[0].label
@@ -478,17 +512,19 @@ class YOLO_results:
                 df_position = df[POSITION_COLUMNS].copy() 
                 df_features = df[FEATURE_COLUMNS].copy() 
                 
-                # Initial type conversion
+                # Resolve tuple-valued cells (multi-region results) into
+                # scalar averages for display, then convert to numeric types.
+                csv_name = csv_file.name
                 for col in POSITION_COLUMNS:
                     if col in INTEGER_COLUMNS:
                         df_position[col] = df_position[col].astype(int)
                     else:
-                        df_position[col] = df_position[col].astype(float)
+                        df_position[col] = _resolve_tuples(df_position[col], col, csv_name).astype(float)
                 for col in FEATURE_COLUMNS:
                     if col in INTEGER_COLUMNS:
                         df_features[col] = df_features[col].astype(int)
                     else:
-                        df_features[col] = df_features[col].astype(float)
+                        df_features[col] = _resolve_tuples(df_features[col], col, csv_name).astype(float)
                 
                 # Interpolate?
                 if interpolate and not is_continuous:

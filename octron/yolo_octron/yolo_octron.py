@@ -52,7 +52,6 @@ from octron.yolo_octron.helpers.training import (
 
 from .helpers.yolo_results import YOLO_results
 
-                     
 
 class YOLO_octron:
     """
@@ -2227,29 +2226,31 @@ class YOLO_octron:
                             # Skip if no regions were found
                             continue
                         
-                        # Handle multiple regions
-                        num_regions = len(regions_props)
-                        # Accumulate centroid for pos_x/pos_y (always available)
-                        pos_x_sum, pos_y_sum = 0, 0
-                        # Collect all property names to accumulate (built-in + extra)
-                        all_prop_names = list(region_properties or []) + extra_prop_names
-                        # Initialize accumulators for all properties
-                        prop_sums = {prop: 0 for prop in all_prop_names}
-                        # Loop over all regions and accumulate properties
-                        for region_prop in regions_props:
-                            centroid = region_prop['centroid']
-                            pos_x_sum += centroid[1]  # x coordinate
-                            pos_y_sum += centroid[0]  # y coordinate
-                            for prop in all_prop_names:
-                                if prop in region_prop:
-                                    prop_sums[prop] += region_prop[prop]
-                    
-                        # Store averages in DataFrame with flat column names
-                        # pos_x and pos_y are being overwritten from the previous (cruder) bbox estimates
-                        tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_x'] = pos_x_sum / num_regions
-                        tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_y'] = pos_y_sum / num_regions
-                        for prop in all_prop_names:
-                            tracking_df.loc[(frame_no, frame_idx, track_id), prop] = prop_sums[prop] / num_regions
+                        # Collect property keys (expanded names from regionprops_table)
+                        _skip = {'label', 'centroid'}
+                        all_prop_keys = [k for k in regions_props[0] if k not in _skip]
+                        
+                        if len(regions_props) == 1:
+                            # Single region — store scalars directly
+                            region = regions_props[0]
+                            centroid = region['centroid']
+                            tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_x'] = centroid[1]
+                            tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_y'] = centroid[0]
+                            for k in all_prop_keys:
+                                tracking_df.loc[(frame_no, frame_idx, track_id), k] = region[k]
+                        else:
+                            # Multiple disconnected regions in one detection mask.
+                            # Store a tuple of per-region values as a string so no
+                            # information is lost.  Stored as e.g. "(120.5, 85.3)".
+                            # This avoids pandas dtype conflicts (float columns
+                            # cannot hold tuple objects) and is parsed back by
+                            # _resolve_tuples() during results loading.
+                            idx = (frame_no, frame_idx, track_id)
+                            centroids = [r['centroid'] for r in regions_props]
+                            tracking_df.loc[idx, 'pos_x'] = str(tuple(float(c[1]) for c in centroids))
+                            tracking_df.loc[idx, 'pos_y'] = str(tuple(float(c[0]) for c in centroids))
+                            for k in all_prop_keys:
+                                tracking_df.loc[idx, k] = str(tuple(float(r[k]) for r in regions_props))
 
                 # A FRAME IS COMPLETE
             
@@ -2338,6 +2339,7 @@ class YOLO_octron:
                     "height": video_dict['height'],
                     "width": video_dict['width'],
                     "fps_original": video_dict.get('fps', 'unknown'),
+                    "channel_order": "rgb",  # FastVideoReader uses read_format='rgb24'; intensity columns -0, -1, -2 map to R, G, B
                 },
                 "prediction_parameters": {
                     "model_path": meta_model_path_str,
@@ -2421,11 +2423,12 @@ class YOLO_octron:
                 'bbox_y_min',
                 'bbox_y_max',
                 ]
-        # Append region property columns if requested
-        if region_properties:
-            for prop in region_properties:
-                if prop not in columns:
-                    columns.append(prop)
+        # Region property columns are NOT pre-created here.
+        # regionprops_table may expand a single property into multiple columns
+        # (e.g. intensity_mean -> intensity_mean-0, -1, -2 for RGB;
+        #        moments_hu    -> moments_hu-0 .. moments_hu-6).
+        # The actual expanded column names are discovered at runtime from the
+        # regionprops output and added to the DataFrame dynamically via .loc.
         # Append extra property columns (from custom functions)
         if extra_properties:
             for fn in extra_properties:

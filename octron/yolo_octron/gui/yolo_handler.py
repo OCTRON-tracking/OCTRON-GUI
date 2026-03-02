@@ -15,6 +15,9 @@ from octron.gui_dialog_elements import remove_video_dialog
 from octron.tracking.helpers.tracker_checks import load_boxmot_tracker_config
 from octron.tracking.tracker_config_ui import open_boxmot_tracker_config_dialog
 
+# Region properties dialog
+from octron.yolo_octron.gui.region_props_dialog import open_region_properties_dialog
+
 import yaml
 import torch
 from octron.tracking.helpers.tracker_vis import create_color_icon
@@ -45,6 +48,7 @@ class YoloHandler(QObject):
         self.training_finished = False # YOLO training
         self.trained_models = {}
         self.videos_to_predict = {}
+        self.selected_region_properties = None  # Set by region properties dialog
         
     def connect_signals(self):
         # Wire buttons/spinboxes to handler entrypoints 
@@ -58,6 +62,7 @@ class YoloHandler(QObject):
         self.w.yolomodel_tracker_list.currentIndexChanged.connect(self.on_tracker_selection_change)
         self.w.tune_tracker_btn.clicked.connect(self.on_tune_tracker_clicked)
         self.w.single_subject_checkBox.clicked.connect(self.on_one_object_per_label_clicked)
+        self.w.detailed_extraction_checkBox.clicked.connect(self.on_detailed_extraction_clicked)
         self.w.train_resume_checkBox.toggled.connect(self.on_resume_toggled)
         self.w.yolomodel_trained_list.currentIndexChanged.connect(self.on_trained_model_changed)
         
@@ -872,6 +877,26 @@ class YoloHandler(QObject):
             if updated_config:
                 print(f"Configuration for {tracker_name} updated and saved")
                 
+    def on_detailed_extraction_clicked(self):
+        """
+        When the user clicks on the 'Detailed' checkbox, open the
+        region properties configuration dialog.
+        If the user cancels, uncheck the box.
+        """
+        if self.w.detailed_extraction_checkBox.isChecked():
+            # Open dialog with current defaults (reloaded from constants)
+            from octron.yolo_octron.constants import DEFAULT_REGION_PROPERTIES
+            selected = open_region_properties_dialog(self.w, DEFAULT_REGION_PROPERTIES)
+            if selected is not None:
+                self.selected_region_properties = selected
+                print(f"Region properties updated: {selected}")
+            else:
+                # User cancelled — uncheck the box
+                self.w.detailed_extraction_checkBox.setChecked(False)
+        else:
+            # Unchecked — clear the stored selection
+            self.selected_region_properties = None
+
     def on_one_object_per_label_clicked(self):
         """
         When the user clicks on one_object_per_label ("1 Subject") in the GUI: 
@@ -1016,7 +1041,7 @@ class YoloHandler(QObject):
         self.yolo_tracker_name = self.w.yolomodel_tracker_list.currentText().strip()                            
         self.view_prediction_results = self.w.open_when_finish_checkBox.isChecked()   
         self.one_object_per_label = self.w.single_subject_checkBox.isChecked()
-        self.region_properties = list(DEFAULT_REGION_PROPERTIES) if self.w.detailed_extraction_checkBox.isChecked() else None
+        self.region_properties = list(self.selected_region_properties) if self.w.detailed_extraction_checkBox.isChecked() and self.selected_region_properties else None
         self.overwrite_predictions = self.w.overwrite_prediction_checkBox.isChecked()    
         # ... floating point selectors 
         self.mask_opening = int(round(self.w.predict_mask_opening_spinbox.value()))
