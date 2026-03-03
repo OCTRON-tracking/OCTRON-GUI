@@ -1033,7 +1033,12 @@ class SAM3_octron:
         self.inference_state["temp_output_dict_per_obj"].clear()
         # Release backbone feature cache to free GPU memory
         self.inference_state["cached_features"].clear()
+        # Force GC before clearing the GPU cache so that Python
+        # actually releases the tensor objects first.
+        import gc
+        gc.collect()
         if self.device.type == "mps":
+            torch.mps.synchronize()
             torch.mps.empty_cache()
         elif self.device.type == "cuda":
             torch.cuda.empty_cache()
@@ -1289,6 +1294,17 @@ class SAM3_semantic_octron:
         # the tracker state is small and doesn't need clearing.
         if self.tracker.inference_state.get("tracking_has_started", False):
             self.tracker.reset_state()
+            # Force Python to actually release the tensors BEFORE clearing
+            # the GPU cache.  Without gc.collect(), MPS may hang because
+            # empty_cache() can't reclaim blocks still referenced by
+            # Python objects waiting for garbage collection.
+            import gc
+            gc.collect()
+            if self.device.type == "mps":
+                torch.mps.synchronize()
+                torch.mps.empty_cache()
+            elif self.device.type == "cuda":
+                torch.cuda.empty_cache()
         
         # Get preprocessed image from OctoZarr (same as tracker uses)
         image = self.tracker.images[frame_idx]

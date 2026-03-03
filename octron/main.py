@@ -426,6 +426,7 @@ class octron_widget(QWidget):
         assert model_found, f"Model '{model_name}' not found in SAM2 models dictionary."
         
         print(f"Loading SAM2 model {model_id}")
+        self._cleanup_predictor()
         model = self.sam2models_dict[model_id]
         config_path = Path(model['config_path'])
         checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
@@ -459,6 +460,7 @@ class octron_widget(QWidget):
         assert model_found, f"Model '{model_name}' not found in SAM3 models dictionary."
         
         print(f"Loading SAM3 model {model_id}")
+        self._cleanup_predictor()
         model = self.sam3models_dict[model_id]
         checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
         semantic = model.get('semantic', False)
@@ -508,6 +510,49 @@ class octron_widget(QWidget):
         self.annotate_layer_create_groupbox.setEnabled(True)
         
         
+    def _cleanup_predictor(self):
+        """
+        Fully release the current predictor and free GPU memory.
+        
+        Called before loading a new model or removing the video layer
+        so that the old model's weights, inference state, and cached
+        backbone features don't linger on the GPU.
+        """
+        import gc
+        if self.predictor is None:
+            return
+        
+        try:
+            if getattr(self.predictor, 'is_initialized', False):
+                self.predictor.reset_state()
+        except Exception as e:
+            print(f"Warning: reset_state during cleanup failed: {e}")
+        
+        # For SAM3_semantic_octron, also release the detector model
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+        if isinstance(self.predictor, SAM3_semantic_octron):
+            del self.predictor.detector
+            del self.predictor.tracker.model
+        # For SAM3_octron (plain tracker), release the wrapped model
+        from octron.sam_octron.helpers.sam3_octron import SAM3_octron
+        if isinstance(self.predictor, SAM3_octron):
+            del self.predictor.model
+        
+        device = getattr(self, 'device', None)
+        del self.predictor
+        self.predictor = None
+        
+        gc.collect()
+        
+        import torch
+        if device is not None and device.type == "mps":
+            torch.mps.synchronize()
+            torch.mps.empty_cache()
+        elif device is not None and device.type == "cuda":
+            torch.cuda.empty_cache()
+        
+        print("🧹 Predictor cleaned up, GPU memory freed.")
+    
     def reset_predictor(self):
         """
         Reset the predictor and all layers, including clearing masks on current frame.
@@ -1152,7 +1197,7 @@ class octron_widget(QWidget):
                 self.prefetcher_worker = None
                 self.all_zarrs = []
                 # SAM2 
-                self.predictor = None
+                self._cleanup_predictor()
                 self.loaded_model_name = None
                 self.sam_model_list.setCurrentIndex(0)
                 self.sam_model_list.setEnabled(True)
