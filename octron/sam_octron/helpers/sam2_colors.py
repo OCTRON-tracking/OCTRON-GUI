@@ -38,16 +38,53 @@ def create_label_colors(cmap='cmr.tropical',
     return all_label_submaps
 
 
-def create_semantic_colormap(n_objects):
+def get_semantic_cmap_range(label_id, slice_width=0.25):
+    """
+    Compute a colormap slice for a label using golden-ratio spacing.
+
+    Each label gets a ~20% band of the neon colormap so that objects
+    within a label share a colour family while being clearly distinct
+    from objects in other labels.
+
+    Parameters
+    ----------
+    label_id : int or None
+        Stable label index from the object organizer.  If None the
+        full usable range is returned (backward compat).
+    slice_width : float
+        Fraction of the [0, 1] colormap range each label occupies.
+
+    Returns
+    -------
+    (start, end) : tuple[float, float]
+    """
+    if label_id is None:
+        return (0.0, 1.0)
+    GOLDEN_RATIO_CONJ = 0.6180339887498949
+    usable_start = 0.0
+    max_start = 1.0 - slice_width  # highest allowed start
+    position = (label_id * GOLDEN_RATIO_CONJ) % 1.0
+    start = usable_start + position * (max_start - usable_start)
+    end = start + slice_width
+    return (round(start, 4), round(end, 4))
+
+
+def create_semantic_colormap(n_objects, label_id=None):
     """
     Create a DirectLabelColormap for multi-ID semantic masks.
     Uses cmr.neon with maximally-different reordering so each
     object ID is visually distinct.
 
+    When *label_id* is given the colours are drawn from a narrow
+    slice of the colourmap (see ``get_semantic_cmap_range``) so
+    that different labels occupy distinct colour families.
+
     Parameters
     ----------
     n_objects : int
         Number of object IDs (1-based) to map.
+    label_id : int or None
+        Stable label index used to pick the colourmap slice.
 
     Returns
     -------
@@ -55,8 +92,9 @@ def create_semantic_colormap(n_objects):
     """
     from napari.utils import DirectLabelColormap
 
+    cmap_range = get_semantic_cmap_range(label_id)
     obj_colors = cmr.take_cmap_colors(
-        'cmr.neon', N=max(n_objects, 2), cmap_range=(0.05, 0.95), return_fmt='float'
+        'cmr.neon', N=max(n_objects, 2), cmap_range=cmap_range, return_fmt='float'
     )
     reorder = sample_maximally_different(list(range(len(obj_colors))))
     color_dict = {None: [0, 0, 0, 0]}  # unmapped labels -> transparent

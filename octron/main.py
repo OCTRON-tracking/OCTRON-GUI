@@ -529,13 +529,12 @@ class octron_widget(QWidget):
             print(f"Warning: reset_state during cleanup failed: {e}")
         
         # For SAM3_semantic_octron, also release the detector model
-        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron, SAM3_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
             del self.predictor.detector
             del self.predictor.tracker.model
         # For SAM3_octron (plain tracker), release the wrapped model
-        from octron.sam_octron.helpers.sam3_octron import SAM3_octron
-        if isinstance(self.predictor, SAM3_octron):
+        elif isinstance(self.predictor, SAM3_octron):
             del self.predictor.model
         
         device = getattr(self, 'device', None)
@@ -695,41 +694,78 @@ class octron_widget(QWidget):
             # register.  On repeated propagation clicks (no new annotations) the
             # tracker still holds the objects from the previous run, so the
             # existing map must be preserved.
-            has_new_masks = any(
-                hasattr(e, '_semantic_accumulated_masks') and e._semantic_accumulated_masks
-                for e in self.object_organizer.entries.values()
+            # Rebuild the tracker when it has been reset (e.g. by a
+            # new detection on any label) but accumulated masks exist.
+            # We intentionally keep _semantic_accumulated_masks alive
+            # across propagation runs so that ALL labels are re-registered
+            # when the tracker is rebuilt — not just the label that
+            # triggered the new detection.
+            tracker_needs_rebuild = (
+                not self.predictor.inference_state.get('tracking_has_started', False)
+                and any(
+                    hasattr(e, '_semantic_accumulated_masks') and e._semantic_accumulated_masks
+                    for e in self.object_organizer.entries.values()
+                )
             )
-            if has_new_masks:
-                # The tracker forbids adding new objects after propagation
-                # has started.  Reset it so the new detection becomes the
-                # fresh conditioning frame.  detect() already resets the
-                # tracker after propagation, but if the user somehow
-                # reaches here with tracking still active, reset again.
-                if self.predictor.inference_state.get('tracking_has_started', False):
-                    self.predictor.tracker.reset_state()
+            if tracker_needs_rebuild:
                 # Always start object IDs from 0 when rebuilding from
-                # accumulated masks, regardless of whether detect()
-                # already reset the tracker.
+                # accumulated masks.
                 self.predictor._next_obj_id = 0
                 self._semantic_obj_id_map = {}  # tracker_obj_id → (organizer_obj_id, mask_id)
+
+                # Collect entries that have accumulated masks.
+                entries_with_masks = []
+                all_cond_frames = set()
                 for obj_id, entry in self.object_organizer.entries.items():
-                    if hasattr(entry, '_semantic_accumulated_masks'):
-                        for frame_idx, id_mask in entry._semantic_accumulated_masks.items():
-                            # Split ID-encoded mask into per-object binary masks
-                            unique_ids = np.unique(id_mask)
-                            unique_ids = unique_ids[unique_ids > 0]  # Exclude background and fill_value
-                            for mask_id in unique_ids:
-                                tracker_obj_id = self.predictor._next_obj_id
-                                self.predictor._next_obj_id += 1
-                                binary_mask = (id_mask == mask_id)
-                                self.predictor.tracker.add_new_mask(
-                                    frame_idx=frame_idx,
-                                    obj_id=tracker_obj_id,
-                                    mask=binary_mask,
-                                )
-                                self._semantic_obj_id_map[tracker_obj_id] = (obj_id, int(mask_id))
-                        # Clear accumulated masks after finalizing
-                        entry._semantic_accumulated_masks = {}
+                    if hasattr(entry, '_semantic_accumulated_masks') and entry._semantic_accumulated_masks:
+                        entries_with_masks.append((obj_id, entry))
+                        all_cond_frames.update(entry._semantic_accumulated_masks.keys())
+
+                # When labels were detected on different frames (common after
+                # re-detection on one label), align ALL labels to the most
+                # recent frame so that every object shares a single
+                # conditioning frame.  For labels without a fresh detection
+                # at that frame, read the propagated masks from their zarr
+                # layer.  This avoids "ghost" memory entries (objects with
+                # NO_OBJ_SCORE at frames they weren't detected on) that
+                # corrupt memory attention and degrade prediction quality.
+                target_frame = max(all_cond_frames) if all_cond_frames else None
+
+                for obj_id, entry in entries_with_masks:
+                    id_mask = entry._semantic_accumulated_masks.get(target_frame)
+                    cond_frame = target_frame
+
+                    if id_mask is None and target_frame is not None:
+                        # Label wasn't re-detected at target_frame.
+                        # Read its propagated masks from the zarr layer.
+                        prediction_layer = entry.prediction_layer
+                        if prediction_layer is not None:
+                            zarr_data = np.array(prediction_layer.data[target_frame, :, :])
+                            if zarr_data.max() > 0:
+                                id_mask = zarr_data
+                                # Keep accumulated masks in sync so the
+                                # next rebuild uses the correct frame.
+                                entry._semantic_accumulated_masks = {target_frame: id_mask}
+
+                    if id_mask is None:
+                        # No zarr data either (before first propagation);
+                        # fall back to the label's own detection frame.
+                        cond_frame = next(iter(entry._semantic_accumulated_masks))
+                        id_mask = entry._semantic_accumulated_masks[cond_frame]
+
+                    # Split ID-encoded mask into per-object binary masks
+                    unique_ids = np.unique(id_mask)
+                    unique_ids = unique_ids[unique_ids > 0]  # Exclude background
+                    for mask_id in unique_ids:
+                        tracker_obj_id = self.predictor._next_obj_id
+                        self.predictor._next_obj_id += 1
+                        binary_mask = (id_mask == mask_id)
+                        self.predictor.tracker.add_new_mask(
+                            frame_idx=cond_frame,
+                            obj_id=tracker_obj_id,
+                            mask=binary_mask,
+                        )
+                        self._semantic_obj_id_map[tracker_obj_id] = (obj_id, int(mask_id))
         
         # Before doing anything, make sure, some input has been provided
         valid = False
@@ -1686,6 +1722,7 @@ class octron_widget(QWidget):
                                                                  project_path=self.project_path_video,
                                                                  color=mask_colors,
                                                                  video_hash_abrrev=self.current_video_hash,
+                                                                 label_id=organizer_entry.label_id,
                                                                  )
             # Add zarr store to list for cleanup upon closing
             self.all_zarrs.append(zarr_data)

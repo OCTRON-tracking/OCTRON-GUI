@@ -534,12 +534,23 @@ class SAM3_octron:
             dtype=mem_dtype, device=self.device, non_blocking=True
         ), maskmem_pos_enc_out
     
-    def _add_output_per_object(self, frame_idx, current_out, storage_key):
-        """Split multi-object output into per-object slices (sharing tensor memory)."""
+    def _add_output_per_object(self, frame_idx, current_out, storage_key, valid_obj_indices=None):
+        """Split multi-object output into per-object slices (sharing tensor memory).
+        
+        Parameters
+        ----------
+        valid_obj_indices : set[int] or None
+            If provided, only store results for these object indices.
+            Objects not in this set are skipped to avoid creating ghost
+            conditioning entries with NO_OBJ_SCORE masks and garbage
+            obj_ptr that would corrupt memory attention.
+        """
         maskmem_features = current_out["maskmem_features"]
         maskmem_pos_enc = current_out["maskmem_pos_enc"]
         
         for obj_idx, obj_output_dict in self.inference_state["output_dict_per_obj"].items():
+            if valid_obj_indices is not None and obj_idx not in valid_obj_indices:
+                continue
             obj_slice = slice(obj_idx, obj_idx + 1)
             obj_out = {
                 "maskmem_features": None,
@@ -590,6 +601,10 @@ class SAM3_octron:
         # in Phase 2.  Frames stored directly by the propagation loop
         # already have valid per-object memory and must NOT be re-encoded.
         new_temp_frames = {"cond_frame_outputs": set(), "non_cond_frame_outputs": set()}
+        # Track which objects actually have real outputs at each temp frame
+        # so that Phase 2 can skip "ghost" entries for objects that were
+        # never conditioned at a given frame.
+        _real_objs_per_frame = {}  # frame_idx → set[obj_idx]
         for obj_idx in range(batch_size):
             obj_output_dict = self.inference_state["output_dict_per_obj"][obj_idx]
             obj_temp_output_dict = self.inference_state["temp_output_dict_per_obj"][obj_idx]
@@ -598,6 +613,7 @@ class SAM3_octron:
                 for frame_idx, out in obj_temp_output_dict[storage_key].items():
                     new_temp_frames[storage_key].add(frame_idx)
                     obj_output_dict[storage_key][frame_idx] = out
+                    _real_objs_per_frame.setdefault(frame_idx, set()).add(obj_idx)
                 obj_temp_output_dict[storage_key].clear()
             
             # If a frame is in cond, remove from non_cond (per-object)
@@ -617,7 +633,14 @@ class SAM3_octron:
                 )
                 output_dict[storage_key][frame_idx] = consolidated_out
                 consolidated_frame_inds[storage_key].add(frame_idx)
-                self._add_output_per_object(frame_idx, consolidated_out, storage_key)
+                # Only split back to objects that actually have data at
+                # this frame.  Objects without data would receive ghost
+                # entries (NO_OBJ_SCORE + garbage obj_ptr) that corrupt
+                # memory attention during propagation.
+                self._add_output_per_object(
+                    frame_idx, consolidated_out, storage_key,
+                    valid_obj_indices=_real_objs_per_frame.get(frame_idx),
+                )
         
         # Cleanup: if a frame is in cond, remove from non_cond (global)
         for frame_idx in output_dict["cond_frame_outputs"]:

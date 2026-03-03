@@ -322,7 +322,7 @@ class sam2_octron_callbacks():
         prediction_layer.data[frame_idx] = id_mask
         
         # Assign distinct colors so each object ID is visually separable
-        prediction_layer.colormap = create_semantic_colormap(n_objects)
+        prediction_layer.colormap = create_semantic_colormap(n_objects, label_id=organizer_entry.label_id)
         prediction_layer.refresh()
         
         # Persist max object ID in zarr metadata so the colormap
@@ -333,10 +333,12 @@ class sam2_octron_callbacks():
         
         # DO NOT call add_new_mask here - it corrupts detector state!
         # The tracker will be updated later when needed (before propagation)
-        # Store the accumulated ID-encoded mask for later
-        if not hasattr(organizer_entry, '_semantic_accumulated_masks'):
-            organizer_entry._semantic_accumulated_masks = {}
-        organizer_entry._semantic_accumulated_masks[frame_idx] = id_mask
+        # Store the ID-encoded mask for later.  Replace the entire dict so
+        # each label only keeps its most recent detection frame.  Without
+        # this, old detections (e.g. frame 5) accumulate alongside new ones
+        # (e.g. frame 25), causing the same physical objects to be
+        # registered twice with different tracker IDs.
+        organizer_entry._semantic_accumulated_masks = {frame_idx: id_mask}
         
         return id_mask
     

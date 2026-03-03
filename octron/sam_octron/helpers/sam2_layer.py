@@ -13,6 +13,7 @@ def add_sam2_mask_layer(viewer,
                         project_path,
                         color,
                         video_hash_abrrev=None,
+                        label_id=None,
                         ):
     """
     Generic mask layer for napari and SAM2.
@@ -92,7 +93,7 @@ def add_sam2_mask_layer(viewer,
         max_obj_id = layer_data.attrs.get('max_object_id', 0)
         if max_obj_id > 1:
             from octron.sam_octron.helpers.sam2_colors import create_semantic_colormap
-            colormap_to_use = create_semantic_colormap(int(max_obj_id))
+            colormap_to_use = create_semantic_colormap(int(max_obj_id), label_id=label_id)
     
     # Add the labels layer to the viewer
     labels_layer = viewer.add_labels(
