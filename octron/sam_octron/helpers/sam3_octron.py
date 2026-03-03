@@ -313,6 +313,12 @@ class SAM3_octron:
             feat_sizes,
         ) = self._get_image_feature(self.inference_state, frame_idx, batch_size)
         
+        # The backbone may output bfloat16 on CUDA (from internal autocast)
+        # while model weights are float16 (from .half()).  Cast to match.
+        model_dtype = next(self.model.parameters()).dtype
+        current_vision_feats = [x.to(model_dtype) for x in current_vision_feats]
+        current_vision_pos_embeds = [x.to(model_dtype) for x in current_vision_pos_embeds]
+        
         assert point_inputs is None or mask_inputs is None
         current_out = self.model.track_step(
             frame_idx=frame_idx,
@@ -509,10 +515,12 @@ class SAM3_octron:
         """Run memory encoder on predicted masks to create memory features for a given frame."""
         (_, _, current_vision_feats, _, feat_sizes) = \
             self._get_image_feature(self.inference_state, frame_idx=frame_idx, batch_size=batch_size)
-        # Match the model's dtype (float16 when .half() was called in __init__).
-        # Vision feats are already in model dtype from the backbone;
-        # masks and scores come from consolidated tensors which may be float32.
+        # Match the model's weight dtype (float16 on CUDA after .half(),
+        # float32 on MPS/CPU).  The backbone may output bfloat16 on CUDA
+        # (from internal autocast) while the memory encoder conv layers
+        # are float16, causing a dtype mismatch.  Explicit cast fixes this.
         model_dtype = next(self.model.parameters()).dtype
+        current_vision_feats = [x.to(model_dtype) for x in current_vision_feats]
         maskmem_features, maskmem_pos_enc = self.model._encode_new_memory(
             current_vision_feats=current_vision_feats,
             feat_sizes=feat_sizes,
