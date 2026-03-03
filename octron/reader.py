@@ -82,7 +82,7 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
     
     # Case D 
     # Check if the folder has any kind of video or mj2 files 
-    video_formats = [".avi", ".mov", ".mj2", ".mpg", ".mpeg", ".mjpeg", ".mjpg", ".wmv", ".mp4", ".mkv"]
+    video_formats = [".avi", ".mov", ".mj2", ".mpg", ".mpeg", ".mjpeg", ".mjpg", ".wmv", ".mp4", ".mkv", ".mts"]
     video_formats.extend([fmt.upper() for fmt in video_formats])
     
     # Find all video files in the folder
