@@ -63,6 +63,8 @@ import zarr
 from octron.sam_octron.helpers.sam2_zarr import (
     create_image_zarr,
     load_image_zarr,
+    get_annotated_frames,
+    mark_frames_annotated,
 )
 # YOLO specific 
 from octron.yolo_octron.gui.yolo_handler import YoloHandler
@@ -648,6 +650,12 @@ class octron_widget(QWidget):
             # Also write to layer immediately so the viewer shows the
             # masks while the current frame is still on screen.
             prediction_layer.data[frame_idx, :, :] = current
+            # Track annotated frames (batched flush in _on_prediction_finished)
+            pending = getattr(self, '_pending_annotated_frames', {})
+            key = id(prediction_layer.data)
+            pending.setdefault(key, (prediction_layer.data, set()))
+            pending[key][1].add(int(frame_idx))
+            self._pending_annotated_frames = pending
             prediction_layer.refresh()
         else:
             # Flush any pending semantic buffer before handling non-semantic object
@@ -656,6 +664,12 @@ class octron_widget(QWidget):
             organizer_entry = self.object_organizer.get_entry(obj_id)
             prediction_layer = organizer_entry.prediction_layer
             prediction_layer.data[frame_idx,:,:] = mask
+            # Track annotated frames (batched flush in _on_prediction_finished)
+            pending = getattr(self, '_pending_annotated_frames', {})
+            key = id(prediction_layer.data)
+            pending.setdefault(key, (prediction_layer.data, set()))
+            pending[key][1].add(int(frame_idx))
+            self._pending_annotated_frames = pending
             prediction_layer.refresh()
         
         if self._viewer.dims.current_step[0] != frame_idx and not last_run:
@@ -670,6 +684,11 @@ class octron_widget(QWidget):
         """
         # Flush the last semantic frame buffer (propagation ended)
         self._flush_semantic_frame_buffer()
+        
+        # Batch-flush all pending annotated frame attrs accumulated during propagation
+        for zarr_array, frame_set in getattr(self, '_pending_annotated_frames', {}).values():
+            mark_frames_annotated(zarr_array, frame_set)
+        self._pending_annotated_frames = {}
         
         # Enable the predcition button again
         self.predict_next_batch_btn.setEnabled(True)
@@ -1837,7 +1856,7 @@ class octron_widget(QWidget):
         indices = []
         for layer in prediction_layers:
             data = layer.data
-            annotated_indices = np.where(data[:,0,0] >= 0)[0]
+            annotated_indices = get_annotated_frames(data)
             # Get the next index after the current one
             next_idx = np.where(annotated_indices > current_timeline_idx)[0]
             if next_idx.size > 0:
@@ -1865,7 +1884,7 @@ class octron_widget(QWidget):
         indices = []
         for layer in prediction_layers:
             data = layer.data
-            annotated_indices = np.where(data[:,0,0] >= 0)[0]
+            annotated_indices = get_annotated_frames(data)
             # Get the next index after the current one
             prev_idx = np.where(annotated_indices < current_timeline_idx)[0]
             if prev_idx.size > 0:

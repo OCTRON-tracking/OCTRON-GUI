@@ -12,6 +12,7 @@ from napari.utils import DirectLabelColormap
 from scipy.ndimage import gaussian_filter1d
 from skimage.morphology import remove_small_holes, binary_closing, disk
 from tqdm import tqdm
+from octron.sam_octron.helpers.sam2_zarr import get_annotated_frames
 
 class YOLO_results:
     def __init__(self, results_dir, verbose=True, **kwargs):
@@ -729,9 +730,7 @@ class YOLO_results:
                         assert width == self.width, \
                             f"Width in mask data ({width}) does not match width in video ({self.width})."
                     # Find out which indices have data
-                    frame_indices = np.where(
-                        (masks[:,0,0] != -1) # -1 indicates no data for the frame
-                    )[0]
+                    frame_indices = get_annotated_frames(masks)
                     if len(frame_indices) == 0 and self.verbose: 
                         print(f"Warning: No valid frames found for track ID '{track_id}' (label '{label}') in mask data.")
                     if len(frame_indices) and close_holes: 

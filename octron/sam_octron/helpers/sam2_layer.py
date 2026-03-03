@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from napari.utils import Colormap
 from napari.utils.notifications import show_info, show_error
-from octron.sam_octron.helpers.sam2_zarr import create_image_zarr, load_image_zarr
+from octron.sam_octron.helpers.sam2_zarr import create_image_zarr, load_image_zarr, get_annotated_frames
 import warnings 
 warnings.simplefilter("ignore")
 
@@ -269,8 +269,8 @@ def add_annotation_projection(
         colors = label_colors[indices_max_diff_labels[entry.label_id % object_organizer.n_labels_max]]
         colors.insert(0, [0.,0.,0.,0.]) # Add transparent color for background
         cm = Colormap(colors, name=label, display_name=label)
-        # Filter by prediction indices. The fill value is -1, so we can filter by >= 0
-        predicted_indices = np.where(prediction_layer_data[:,0,0] >= 0)[0]
+        # Filter by prediction indices (fast path via zarr attribute)
+        predicted_indices = get_annotated_frames(prediction_layer_data)
         if len(predicted_indices):
             prediction_layer_data = prediction_layer_data[predicted_indices]
             collected_mask_data.append(prediction_layer_data)
