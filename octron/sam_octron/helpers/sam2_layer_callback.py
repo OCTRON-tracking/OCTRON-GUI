@@ -205,55 +205,12 @@ class sam2_octron_callbacks():
             float(bottom_right[0]),# y2
         ]
         
-        # Helper function to calculate IoU (Intersection over Union) between two boxes
-        def calculate_iou(box1, box2):
-            """Calculate IoU between two boxes in [x1, y1, x2, y2] format."""
-            x1_inter = max(box1[0], box2[0])
-            y1_inter = max(box1[1], box2[1])
-            x2_inter = min(box1[2], box2[2])
-            y2_inter = min(box1[3], box2[3])
-            
-            if x2_inter < x1_inter or y2_inter < y1_inter:
-                return 0.0
-            
-            inter_area = (x2_inter - x1_inter) * (y2_inter - y1_inter)
-            box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-            box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-            union_area = box1_area + box2_area - inter_area
-            
-            return inter_area / union_area if union_area > 0 else 0.0
-        
         # Buffer box prompts - accumulate all boxes for this frame/object
         if not hasattr(organizer_entry, '_semantic_box_prompts'):
             organizer_entry._semantic_box_prompts = {}
         if frame_idx not in organizer_entry._semantic_box_prompts:
             organizer_entry._semantic_box_prompts[frame_idx] = []
         
-        # Check if new box overlaps significantly with existing boxes (IoU > 0.5)
-        existing_boxes = organizer_entry._semantic_box_prompts[frame_idx]
-        is_redundant = False
-        iou_threshold = 0.5
-        
-        for existing_box in existing_boxes:
-            iou = calculate_iou(box_xyxy, existing_box)
-            if iou > iou_threshold:
-                is_redundant = True
-                show_warning(
-                    f'SAM3 Mode B: New box overlaps {iou:.2f} with existing box. '
-                    f'Skipping to avoid redundancy. Draw boxes around DIFFERENT objects.'
-                )
-                break
-        
-        if is_redundant:
-            # Don't add the box, just return current mask without re-detecting
-            current_mask = prediction_layer.data[frame_idx]
-            return current_mask if current_mask is not None else np.zeros(
-                (self.octron.video_layer.metadata['height'], 
-                 self.octron.video_layer.metadata['width']),
-                dtype=np.uint8
-            )
-        
-        # Add the new box to the buffer
         organizer_entry._semantic_box_prompts[frame_idx].append(box_xyxy)
         all_boxes = organizer_entry._semantic_box_prompts[frame_idx]
         
