@@ -74,6 +74,31 @@ class SAM3_octron:
         self.clear_non_cond_mem_around_input = True
         self.add_all_frames_to_correct_as_cond = True
         self.perform_morphological_operations = False
+        
+        # Backbone feature cache: keep up to N frames of pre-computed backbone
+        # features to avoid redundant forward_image calls during propagation.
+        # Set to 0 to fall back to single-frame cache (original behaviour).
+        self._max_cached_backbone_frames = 16
+        
+        # Run the model in float16 on CUDA for maximum throughput.
+        # SAM2/SAM3 are trained with AMP so the weights are fp16-safe.
+        # MPS is excluded: its matrix-multiply kernel requires matching
+        # accumulator dtypes and crashes with pure fp16, and several ops
+        # fall back to CPU making fp16 *slower* than fp32 on Apple Silicon.
+        if device.type == "cuda":
+            self.model = self.model.half()
+        
+        # How many non-conditioning frames to keep in memory per object.
+        # Smaller = faster attention (fewer memory tokens) but less context.
+        self._max_memory_frames = 2
+        
+        # Memory encoder stride: only run the memory encoder every N-th
+        # propagated frame.  Frames without encoding still produce masks
+        # but are NOT stored in the output dict, so they won't contribute
+        # to future frames' memory attention.  This saves the full
+        # _encode_new_memory cost on skipped frames (~30-40 ms / object)
+        # AND reduces the number of memory tokens for attention.
+        self._mem_encode_stride = 3
     
     
     @torch.inference_mode()
@@ -121,7 +146,7 @@ class SAM3_octron:
         inference_state["point_inputs_per_obj"] = {}
         inference_state["mask_inputs_per_obj"] = {}
         # Visual feature cache
-        inference_state["cached_features"] = {}
+        inference_state["cached_features"] = OrderedDict()
         # Constants (shared across frames)
         inference_state["constants"] = {}
         # Object ID ↔ index mappings
@@ -143,7 +168,7 @@ class SAM3_octron:
             "non_cond_frame_outputs": set(),
         }
         # Tracking metadata
-        inference_state["frames_already_tracked"] = []
+        inference_state["frames_already_tracked"] = set()
         inference_state["tracking_has_started"] = False
         
         # OCTRON-specific: centroid & area tracking
@@ -163,22 +188,38 @@ class SAM3_octron:
     
     # ── Image feature extraction ──────────────────────────────────────────────
     
+    @torch.inference_mode()
     def _get_image_feature(self, inference_state, frame_idx, batch_size):
         """
         Get backbone features for a frame, using OctoZarr for image loading.
-        Caches features for recently visited frames.
+        Caches features in an LRU cache keyed by frame index.
         """
-        image, backbone_out = inference_state["cached_features"].get(
-            frame_idx, (None, None)
-        )
-        if backbone_out is None:
+        cached = inference_state["cached_features"]
+        result = cached.get(frame_idx)
+        if result is not None:
+            image, backbone_out = result
+            # Move to end (most-recently-used) for LRU eviction
+            cached.move_to_end(frame_idx)
+        else:
             # Load preprocessed image from OctoZarr
             image = inference_state["images"][frame_idx]
             if image.dim() == 3:
                 image = image.unsqueeze(0)  # add batch dim: (1, C, H, W)
-            image = image.to(self.device).float()
+            # Match the model's dtype (float16 if converted in __init__)
+            model_dtype = next(self.model.parameters()).dtype
+            image = image.to(device=self.device, dtype=model_dtype)
             backbone_out = self.model.forward_image(image)
-            inference_state["cached_features"] = {frame_idx: (image, backbone_out)}
+            cached[frame_idx] = (image, backbone_out)
+            # LRU eviction: drop oldest entries beyond the limit
+            max_cached = self._max_cached_backbone_frames
+            if max_cached > 0:
+                while len(cached) > max_cached:
+                    cached.popitem(last=False)
+            else:
+                # Legacy single-frame behaviour
+                if len(cached) > 1:
+                    oldest = next(k for k in cached if k != frame_idx)
+                    del cached[oldest]
         
         # Expand features if batch_size > 1 (multi-object)
         expanded_image = image.expand(batch_size, -1, -1, -1)
@@ -190,6 +231,59 @@ class SAM3_octron:
             self.model._prepare_backbone_features(expanded_backbone_out, batch=batch_size)
         
         return image, expanded_backbone_out, vis_feats, vis_pos_embed, feat_sizes
+    
+    @torch.inference_mode()
+    def _prefetch_backbone_batch(self, frame_indices, batch_size=4):
+        """
+        Batch-compute backbone features for multiple frames at once.
+        
+        Processes *batch_size* frames per forward_image call, which
+        reduces per-frame GPU dispatch overhead and improves utilisation.
+        Already-cached frames are skipped automatically.
+        """
+        cached = self.inference_state["cached_features"]
+        uncached = [idx for idx in frame_indices if idx not in cached]
+        if not uncached:
+            return
+        
+        model_dtype = next(self.model.parameters()).dtype
+        max_cached = self._max_cached_backbone_frames
+        
+        for start in range(0, len(uncached), batch_size):
+            batch_indices = uncached[start : start + batch_size]
+            
+            # Load images from OctoZarr and stack into a single tensor
+            images = []
+            for idx in batch_indices:
+                img = self.inference_state["images"][idx]
+                if img.dim() == 3:
+                    img = img.unsqueeze(0)
+                images.append(img)
+            batch_tensor = torch.cat(images, dim=0).to(
+                device=self.device, dtype=model_dtype
+            )
+            
+            # Single batched backbone call
+            backbone_out = self.model.forward_image(batch_tensor)
+            
+            # Split per-frame and store in the LRU cache.
+            # .clone() makes each slice independent so the batch
+            # tensor can be freed after the loop iteration.
+            for i, idx in enumerate(batch_indices):
+                frame_backbone_out = {
+                    "backbone_fpn": [
+                        feat[i : i + 1].clone()
+                        for feat in backbone_out["backbone_fpn"]
+                    ],
+                    "vision_pos_enc": [
+                        pos[i : i + 1].clone()
+                        for pos in backbone_out["vision_pos_enc"]
+                    ],
+                }
+                cached[idx] = (batch_tensor[i : i + 1].clone(), frame_backbone_out)
+                if max_cached > 0:
+                    while len(cached) > max_cached:
+                        cached.popitem(last=False)
     
     
     # ── Single frame inference ────────────────────────────────────────────────
@@ -219,6 +313,12 @@ class SAM3_octron:
             feat_sizes,
         ) = self._get_image_feature(self.inference_state, frame_idx, batch_size)
         
+        # The backbone may output bfloat16 on CUDA (from internal autocast)
+        # while model weights are float16 (from .half()).  Cast to match.
+        model_dtype = next(self.model.parameters()).dtype
+        current_vision_feats = [x.to(model_dtype) for x in current_vision_feats]
+        current_vision_pos_embeds = [x.to(model_dtype) for x in current_vision_pos_embeds]
+        
         assert point_inputs is None or mask_inputs is None
         current_out = self.model.track_step(
             frame_idx=frame_idx,
@@ -238,7 +338,9 @@ class SAM3_octron:
         storage_device = self.inference_state["storage_device"]
         maskmem_features = current_out["maskmem_features"]
         if maskmem_features is not None:
-            mem_dtype = torch.float32 if storage_device.type == "mps" else torch.bfloat16
+            # MPS: store as float32 for accumulation stability.
+            # CUDA: store as float16 to match model weights (from .half()).
+            mem_dtype = torch.float32 if storage_device.type == "mps" else torch.float16
             maskmem_features = maskmem_features.to(mem_dtype)
             maskmem_features = maskmem_features.to(storage_device, non_blocking=True)
         
@@ -332,25 +434,30 @@ class SAM3_octron:
         batch_size = self._get_obj_num()
         storage_key = "cond_frame_outputs" if is_cond else "non_cond_frame_outputs"
         
+        # Use the model's dtype so that consolidated tensors match the
+        # weights (float16 on CUDA after .half(), float32 on MPS/CPU).
+        # This avoids mixed-dtype tensors when they're stored per-object
+        # and later read back by track_step's memory attention.
+        fill_dtype = next(self.model.parameters()).dtype
         consolidated_out = {
             "maskmem_features": None,
             "maskmem_pos_enc": None,
             "pred_masks": torch.full(
                 size=(batch_size, 1, *self._pred_mask_res),
                 fill_value=NO_OBJ_SCORE,
-                dtype=torch.float32,
+                dtype=fill_dtype,
                 device=self.device,
             ),
             "obj_ptr": torch.full(
                 size=(batch_size, self.model.hidden_dim),
                 fill_value=NO_OBJ_SCORE,
-                dtype=torch.float32,
+                dtype=fill_dtype,
                 device=self.device,
             ),
             "object_score_logits": torch.full(
                 size=(batch_size, 1),
                 fill_value=10.0,
-                dtype=torch.float32,
+                dtype=fill_dtype,
                 device=self.device,
             ),
         }
@@ -408,15 +515,18 @@ class SAM3_octron:
         """Run memory encoder on predicted masks to create memory features for a given frame."""
         (_, _, current_vision_feats, _, feat_sizes) = \
             self._get_image_feature(self.inference_state, frame_idx=frame_idx, batch_size=batch_size)
-        # Cast everything to float32 to match the memory encoder's Conv2d weight dtype,
-        # since backbone features may be in bfloat16 under CUDA autocast.
-        current_vision_feats_f32 = [x.float() for x in current_vision_feats]
+        # Match the model's weight dtype (float16 on CUDA after .half(),
+        # float32 on MPS/CPU).  The backbone may output bfloat16 on CUDA
+        # (from internal autocast) while the memory encoder conv layers
+        # are float16, causing a dtype mismatch.  Explicit cast fixes this.
+        model_dtype = next(self.model.parameters()).dtype
+        current_vision_feats = [x.to(model_dtype) for x in current_vision_feats]
         maskmem_features, maskmem_pos_enc = self.model._encode_new_memory(
-            current_vision_feats=current_vision_feats_f32,
+            current_vision_feats=current_vision_feats,
             feat_sizes=feat_sizes,
-            pred_masks_high_res=high_res_masks.float(),
+            pred_masks_high_res=high_res_masks.to(model_dtype),
             is_mask_from_pts=is_mask_from_pts,
-            object_score_logits=object_score_logits.float(),
+            object_score_logits=object_score_logits.to(model_dtype),
         )
         maskmem_pos_enc_out = self._get_maskmem_pos_enc({"maskmem_pos_enc": maskmem_pos_enc})
         mem_dtype = torch.float32 if self.device.type == "mps" else torch.float16
@@ -424,12 +534,23 @@ class SAM3_octron:
             dtype=mem_dtype, device=self.device, non_blocking=True
         ), maskmem_pos_enc_out
     
-    def _add_output_per_object(self, frame_idx, current_out, storage_key):
-        """Split multi-object output into per-object slices (sharing tensor memory)."""
+    def _add_output_per_object(self, frame_idx, current_out, storage_key, valid_obj_indices=None):
+        """Split multi-object output into per-object slices (sharing tensor memory).
+        
+        Parameters
+        ----------
+        valid_obj_indices : set[int] or None
+            If provided, only store results for these object indices.
+            Objects not in this set are skipped to avoid creating ghost
+            conditioning entries with NO_OBJ_SCORE masks and garbage
+            obj_ptr that would corrupt memory attention.
+        """
         maskmem_features = current_out["maskmem_features"]
         maskmem_pos_enc = current_out["maskmem_pos_enc"]
         
         for obj_idx, obj_output_dict in self.inference_state["output_dict_per_obj"].items():
+            if valid_obj_indices is not None and obj_idx not in valid_obj_indices:
+                continue
             obj_slice = slice(obj_idx, obj_idx + 1)
             obj_out = {
                 "maskmem_features": None,
@@ -474,63 +595,52 @@ class SAM3_octron:
         self.inference_state["tracking_has_started"] = True
         batch_size = self._get_obj_num()
         
-        # Phase 1: Per-object memory encoding
-        # For each object, encode memory features on temporary outputs
-        # (these are frames that received user clicks/masks)
+        # Phase 1: Move temporary per-object outputs → permanent dicts,
+        # collecting which frame indices are genuinely new (from user
+        # interactions).  Only those need consolidation + memory encoding
+        # in Phase 2.  Frames stored directly by the propagation loop
+        # already have valid per-object memory and must NOT be re-encoded.
+        new_temp_frames = {"cond_frame_outputs": set(), "non_cond_frame_outputs": set()}
+        # Track which objects actually have real outputs at each temp frame
+        # so that Phase 2 can skip "ghost" entries for objects that were
+        # never conditioned at a given frame.
+        _real_objs_per_frame = {}  # frame_idx → set[obj_idx]
         for obj_idx in range(batch_size):
             obj_output_dict = self.inference_state["output_dict_per_obj"][obj_idx]
             obj_temp_output_dict = self.inference_state["temp_output_dict_per_obj"][obj_idx]
             for is_cond in [False, True]:
                 storage_key = "cond_frame_outputs" if is_cond else "non_cond_frame_outputs"
                 for frame_idx, out in obj_temp_output_dict[storage_key].items():
-                    # Run memory encoder if memory features are missing
-                    if out["maskmem_features"] is None:
-                        high_res_masks = F.interpolate(
-                            out["pred_masks"].to(self.device),
-                            size=(self.image_size, self.image_size),
-                            mode="bilinear",
-                            align_corners=False,
-                        )
-                        maskmem_features, maskmem_pos_enc = self._run_memory_encoder(
-                            frame_idx=frame_idx,
-                            batch_size=1,
-                            high_res_masks=high_res_masks,
-                            is_mask_from_pts=True,
-                            object_score_logits=out.get("object_score_logits",
-                                torch.full((1, 1), 10.0, device=self.device)),
-                        )
-                        out["maskmem_features"] = maskmem_features
-                        out["maskmem_pos_enc"] = maskmem_pos_enc
-                    
-                    # Move from temp to permanent output dict
+                    new_temp_frames[storage_key].add(frame_idx)
                     obj_output_dict[storage_key][frame_idx] = out
-                
-                # Clear temporary outputs
+                    _real_objs_per_frame.setdefault(frame_idx, set()).add(obj_idx)
                 obj_temp_output_dict[storage_key].clear()
             
             # If a frame is in cond, remove from non_cond (per-object)
             for frame_idx in obj_output_dict["cond_frame_outputs"]:
                 obj_output_dict["non_cond_frame_outputs"].pop(frame_idx, None)
         
-        # Phase 2: Build consolidated (batched) output dict from per-object dicts
-        # This is used by the propagation loop for multi-object tracking
+        # Phase 2: Consolidate + encode memory ONLY for frames that were
+        # just moved from temp (i.e. new user-provided conditioning).
         output_dict = self.inference_state["output_dict"]
         consolidated_frame_inds = self.inference_state["consolidated_frame_inds"]
         
         for is_cond in [False, True]:
             storage_key = "cond_frame_outputs" if is_cond else "non_cond_frame_outputs"
-            all_frame_inds = set()
-            for obj_idx in range(batch_size):
-                all_frame_inds.update(
-                    self.inference_state["output_dict_per_obj"][obj_idx][storage_key].keys()
-                )
-            consolidated_frame_inds[storage_key].update(all_frame_inds)
-            
-            for frame_idx in all_frame_inds:
+            for frame_idx in new_temp_frames[storage_key]:
                 consolidated_out = self._consolidate_temp_output_across_obj(
-                    frame_idx, is_cond=is_cond, run_mem_encoder=False,
+                    frame_idx, is_cond=is_cond, run_mem_encoder=True,
                 )
                 output_dict[storage_key][frame_idx] = consolidated_out
+                consolidated_frame_inds[storage_key].add(frame_idx)
+                # Only split back to objects that actually have data at
+                # this frame.  Objects without data would receive ghost
+                # entries (NO_OBJ_SCORE + garbage obj_ptr) that corrupt
+                # memory attention during propagation.
+                self._add_output_per_object(
+                    frame_idx, consolidated_out, storage_key,
+                    valid_obj_indices=_real_objs_per_frame.get(frame_idx),
+                )
         
         # Cleanup: if a frame is in cond, remove from non_cond (global)
         for frame_idx in output_dict["cond_frame_outputs"]:
@@ -776,8 +886,18 @@ class SAM3_octron:
     ):
         """
         Propagate tracking results through the video.
+        
+        Uses **per-object** inference (batch_size=1 per object) rather than
+        batched multi-object inference.  On MPS the batched approach creates
+        enormous intermediate tensors in the memory-attention layer (N objects
+        × M memory frames × spatial tokens) which is orders of magnitude
+        slower than processing each object independently.
+        
         Yields (frame_idx, obj_ids, video_res_masks) per frame.
         """
+        import time as _time
+        
+        t_preflight_start = _time.perf_counter()
         try:
             self.propagate_in_video_preflight()
         except Exception as e:
@@ -785,12 +905,11 @@ class SAM3_octron:
             print(f"❌ SAM3 propagate_in_video_preflight failed: {e}")
             traceback.print_exc()
             return
+        t_preflight_end = _time.perf_counter()
         
         obj_ids = self.inference_state["obj_ids"]
         num_frames = self.inference_state["num_frames"]
         batch_size = self._get_obj_num()
-        output_dict = self.inference_state["output_dict"]
-        consolidated_frame_inds = self.inference_state["consolidated_frame_inds"]
         
         if processing_order is None:
             if start_frame_idx is None:
@@ -813,20 +932,61 @@ class SAM3_octron:
                 )
                 processing_order = range(start_frame_idx, end_frame_idx + 1)
         
+        encode_stride = self._mem_encode_stride
+        # Pruning window: keep exactly max_memory encoded frames.
+        # With stride S and max M, the window is (M-1)*S positions.
+        oldest_allowed_offset = max(1, (self._max_memory_frames - 1) * encode_stride)
+        
+        # ── Prune stale frames from previous batches ──────────────
+        # When jumping to a distant position (e.g. frame 0 → 1042),
+        # old non-cond frames are irrelevant and slow down memory
+        # attention.  Remove any that fall outside the pruning window
+        # relative to the first frame we're about to process.
+        first_frame = processing_order[0] if processing_order else None
+        if first_frame is not None:
+            stale_cutoff = first_frame - oldest_allowed_offset
+            for obj_idx in range(batch_size):
+                obj_d = self.inference_state["output_dict_per_obj"][obj_idx]
+                stale_keys = [k for k in obj_d["non_cond_frame_outputs"]
+                              if k < stale_cutoff]
+                for k in stale_keys:
+                    obj_d["non_cond_frame_outputs"].pop(k)
+            # Also clean global output_dict
+            global_nc = self.inference_state["output_dict"]["non_cond_frame_outputs"]
+            for k in [k for k in global_nc if k < stale_cutoff]:
+                global_nc.pop(k)
+        
+        print(f"🚀 SAM3 propagation: {batch_size} objects (per-object), "
+              f"preflight {t_preflight_end - t_preflight_start:.2f}s, "
+              f"backbone cache {len(self.inference_state['cached_features'])} frames, "
+              f"memory bank {self._max_memory_frames} frames, "
+              f"encode stride {encode_stride}")
+        
+        frame_count = 0
+        total_inference_ms = 0.0
+        t_loop_start = _time.perf_counter()
+        
         try:
             for frame_idx in processing_order:
                 pred_masks_per_obj = [None] * batch_size
                 
+                # Decide whether to run the memory encoder on this frame.
+                # Skipped frames still produce masks but are NOT stored,
+                # so the model's memory attention sees fewer (sparser) frames.
+                encode_mem = (frame_count % encode_stride == 0)
+                
+                t_frame_start = _time.perf_counter()
                 for obj_idx in range(batch_size):
                     obj_output_dict = self.inference_state["output_dict_per_obj"][obj_idx]
                     
                     if frame_idx in obj_output_dict["cond_frame_outputs"]:
-                        storage_key = "cond_frame_outputs"
-                        current_out = obj_output_dict[storage_key][frame_idx]
+                        # Conditioning frame — use preflight result
+                        current_out = obj_output_dict["cond_frame_outputs"][frame_idx]
                         pred_masks = current_out["pred_masks"].to(
                             self.device, non_blocking=True
                         )
                     else:
+                        # Non-conditioning frame — per-object forward (batch_size=1)
                         storage_key = "non_cond_frame_outputs"
                         current_out, pred_masks = self._run_single_frame_inference(
                             output_dict=obj_output_dict,
@@ -836,34 +996,49 @@ class SAM3_octron:
                             point_inputs=None,
                             mask_inputs=None,
                             reverse=reverse,
-                            run_mem_encoder=True,
+                            run_mem_encoder=encode_mem,
                         )
-                        obj_output_dict[storage_key][frame_idx] = current_out
+                        # Only persist frames that carry memory features;
+                        # the model gracefully skips missing frame indices.
+                        if encode_mem:
+                            obj_output_dict[storage_key][frame_idx] = current_out
                         
-                        # Prune old non-cond frames (keep last 16)
-                        oldest_allowed_idx = frame_idx - 16
-                        all_frame_idxs = list(obj_output_dict[storage_key].keys())
-                        old_frame_idxs = [idx for idx in all_frame_idxs if idx < oldest_allowed_idx]
-                        for old_idx in old_frame_idxs:
+                        # Prune old non-cond frames for this object
+                        oldest_allowed = frame_idx - oldest_allowed_offset
+                        for old_idx in [k for k in list(obj_output_dict[storage_key].keys())
+                                        if k < oldest_allowed]:
                             obj_output_dict[storage_key].pop(old_idx)
-                            for objid in self.inference_state['output_dict_per_obj'].keys():
-                                if old_idx in self.inference_state['output_dict_per_obj'][objid][storage_key]:
-                                    self.inference_state['output_dict_per_obj'][objid][storage_key].pop(old_idx)
                     
-                    self.inference_state["frames_already_tracked"].append(frame_idx)
                     pred_masks_per_obj[obj_idx] = pred_masks
+                t_frame_end = _time.perf_counter()
+                total_inference_ms += (t_frame_end - t_frame_start) * 1000
                 
-                if len(pred_masks_per_obj) > 1:
-                    all_pred_masks = torch.cat(pred_masks_per_obj, dim=0)
-                else:
-                    all_pred_masks = pred_masks_per_obj[0]
-                
+                # Combine per-object masks → (N, 1, H, W)
+                all_pred_masks = torch.cat(pred_masks_per_obj, dim=0)
+                self.inference_state["frames_already_tracked"].add(frame_idx)
                 _, video_res_masks = self._get_orig_video_res_output(all_pred_masks)
+                frame_count += 1
                 yield frame_idx, obj_ids, video_res_masks
         except Exception as e:
             import traceback
             print(f"❌ SAM3 propagate_in_video error at frame {frame_idx}: {e}")
             traceback.print_exc()
+        
+        t_loop_end = _time.perf_counter()
+        if frame_count > 0:
+            avg_total = (t_loop_end - t_loop_start) / frame_count * 1000
+            avg_inf = total_inference_ms / frame_count
+            print(f"📊 SAM3 propagation done: {frame_count} frames, "
+                  f"avg {avg_total:.0f}ms/frame "
+                  f"(inference {avg_inf:.0f}ms, "
+                  f"{avg_inf / batch_size:.0f}ms/object)")
+        
+        # Free GPU memory between batches to reduce fragmentation.
+        if self.device.type == "mps":
+            torch.mps.synchronize()
+            torch.mps.empty_cache()
+        elif self.device.type == "cuda":
+            torch.cuda.empty_cache()
     
     
     # ── State management ──────────────────────────────────────────────────────
@@ -879,6 +1054,17 @@ class SAM3_octron:
         self.inference_state["mask_inputs_per_obj"].clear()
         self.inference_state["output_dict_per_obj"].clear()
         self.inference_state["temp_output_dict_per_obj"].clear()
+        # Release backbone feature cache to free GPU memory
+        self.inference_state["cached_features"].clear()
+        # Force GC before clearing the GPU cache so that Python
+        # actually releases the tensor objects first.
+        import gc
+        gc.collect()
+        if self.device.type == "mps":
+            torch.mps.synchronize()
+            torch.mps.empty_cache()
+        elif self.device.type == "cuda":
+            torch.cuda.empty_cache()
     
     def _reset_tracking_results(self):
         """Reset all tracking inputs and results."""
@@ -1119,6 +1305,29 @@ class SAM3_semantic_octron:
         
         assert text is not None or bboxes is not None, \
             "At least one of text or bboxes must be provided"
+        
+        # Free GPU memory occupied by the tracker to avoid OOM / hangs
+        # during detection.  After propagation the tracker holds backbone
+        # cache, output dicts (maskmem_features × objects × frames), and
+        # other tensors that consume significant GPU memory.
+        #
+        # It is safe to fully reset because the tracker is always rebuilt
+        # from _semantic_accumulated_masks before the next propagation
+        # (see init_prediction_threaded).  Before the first propagation
+        # the tracker state is small and doesn't need clearing.
+        if self.tracker.inference_state.get("tracking_has_started", False):
+            self.tracker.reset_state()
+            # Force Python to actually release the tensors BEFORE clearing
+            # the GPU cache.  Without gc.collect(), MPS may hang because
+            # empty_cache() can't reclaim blocks still referenced by
+            # Python objects waiting for garbage collection.
+            import gc
+            gc.collect()
+            if self.device.type == "mps":
+                torch.mps.synchronize()
+                torch.mps.empty_cache()
+            elif self.device.type == "cuda":
+                torch.cuda.empty_cache()
         
         # Get preprocessed image from OctoZarr (same as tracker uses)
         image = self.tracker.images[frame_idx]

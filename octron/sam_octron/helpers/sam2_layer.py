@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from napari.utils import Colormap
 from napari.utils.notifications import show_info, show_error
-from octron.sam_octron.helpers.sam2_zarr import create_image_zarr, load_image_zarr
+from octron.sam_octron.helpers.sam2_zarr import create_image_zarr, load_image_zarr, get_annotated_frames
 import warnings 
 warnings.simplefilter("ignore")
 
@@ -13,6 +13,7 @@ def add_sam2_mask_layer(viewer,
                         project_path,
                         color,
                         video_hash_abrrev=None,
+                        label_id=None,
                         ):
     """
     Generic mask layer for napari and SAM2.
@@ -77,12 +78,22 @@ def add_sam2_mask_layer(viewer,
                                         image_width=width, 
                                         chunk_size=20,
                                         fill_value=-1,
-                                        dtype='int8',
+                                        dtype='int16',
                                         video_hash_abbrev=video_hash_abrrev,
                                         )
     else:
         show_error("Video layer metadata incomplete; dummy mask not created.")
         return None, None, None
+    
+    # If the loaded zarr contains multi-ID semantic masks (from a previous
+    # session), restore the per-ID colormap so objects are shown in distinct
+    # colours instead of a single colour.
+    colormap_to_use = color
+    if status and hasattr(layer_data, 'attrs'):
+        max_obj_id = layer_data.attrs.get('max_object_id', 0)
+        if max_obj_id > 1:
+            from octron.sam_octron.helpers.sam2_colors import create_semantic_colormap
+            colormap_to_use = create_semantic_colormap(int(max_obj_id), label_id=label_id)
     
     # Add the labels layer to the viewer
     labels_layer = viewer.add_labels(
@@ -90,7 +101,7 @@ def add_sam2_mask_layer(viewer,
         name=name,  
         opacity=0.4,  
         blending='additive',  
-        colormap=color, 
+        colormap=colormap_to_use, 
     )
 
     # Hide buttons that you don't want the user to access
@@ -258,8 +269,8 @@ def add_annotation_projection(
         colors = label_colors[indices_max_diff_labels[entry.label_id % object_organizer.n_labels_max]]
         colors.insert(0, [0.,0.,0.,0.]) # Add transparent color for background
         cm = Colormap(colors, name=label, display_name=label)
-        # Filter by prediction indices. The fill value is -1, so we can filter by >= 0
-        predicted_indices = np.where(prediction_layer_data[:,0,0] >= 0)[0]
+        # Filter by prediction indices (fast path via zarr attribute)
+        predicted_indices = get_annotated_frames(prediction_layer_data)
         if len(predicted_indices):
             prediction_layer_data = prediction_layer_data[predicted_indices]
             collected_mask_data.append(prediction_layer_data)

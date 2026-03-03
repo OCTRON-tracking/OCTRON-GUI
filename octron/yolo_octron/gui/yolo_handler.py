@@ -199,11 +199,10 @@ class YoloHandler(QObject):
         It kicks off the pipeline by calling the polygon generation function.
         
         """
-        # Whenever the button "Generate" is clicked, 
+        # Whenever the button "Generate" is clicked,
         # the training data generation pipeline is started anew.
-        if not hasattr(self, 'polygon_worker') and not hasattr(self, 'bbox_worker') and not hasattr(self, 'training_data_worker'):   
-            self.bbox_or_polygon_generated = False
-            self.training_data_generated = False   
+        self.bbox_or_polygon_generated = False
+        self.training_data_generated = False
         # Sanity check 
         if not self.w.project_path:
             show_warning("Please select a project directory first.")
@@ -591,12 +590,6 @@ class YoloHandler(QObject):
         else:
             show_info("Training data generation finished.")
             self.training_data_generated = True
-            self.w.generate_training_data_btn.setText(f'✓ Done.')
-            self.w.generate_training_data_btn.setEnabled(False)   
-            self.w.train_data_overwrite_checkBox.setEnabled(False)
-            self.w.train_prune_checkBox.setEnabled(False)
-            self.w.train_data_watershed_checkBox.setEnabled(False)
-            self.w.segmentation_bbox_decision_groupbox.setEnabled(False)
             # Write the YOLO config file
             self.yolo.write_yolo_config(train_mode=self.w.train_mode)
             # Enable next part (YOLO training) of the pipeline 
