@@ -41,6 +41,7 @@ dependencies = [
     "cmasher>=1.9.2",
     "imantics",
     "ultralytics>=8.4.19",
+    "setuptools",
     "tensorboard>=2.19.0",
     "lap>=0.5.12",
     "opencv-python>=4.11.0",       
