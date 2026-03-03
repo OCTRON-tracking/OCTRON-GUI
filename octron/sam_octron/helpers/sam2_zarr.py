@@ -18,6 +18,91 @@ MIN_ZARR_CHUNK_SIZE = 50 # Setting minimum chunk size for zarr arrays
                          # to avoid excessive chunking for small arrays
 
 
+
+
+def get_annotated_frames(zarr_array):
+    """
+    Return a sorted numpy array of frame indices that have been annotated.
+    
+    Reads the 'annotated_frames' zarr attribute if present; otherwise
+    falls back to scanning zarr_array[:,0,0] >= 0 (for old zarr files
+    created before this attribute existed) and attempts to migrate the
+    attribute for future fast access.
+    
+    Comment Horst: 
+    # These replace the old pattern of scanning zarr_array[:,0,0] >= 0 to find
+    # which frames have been annotated.  The frame indices are now stored in a
+    # small JSON attribute ('annotated_frames') on each zarr array, which is
+    # essentially instant to read.
+    
+    Parameters
+    ----------
+    zarr_array : zarr.core.Array
+        The zarr array (mask / prediction data).
+        
+    Returns
+    -------
+    annotated : np.ndarray
+        Sorted 1-D int array of annotated frame indices.
+    """
+    if hasattr(zarr_array, 'attrs'):
+        frames = zarr_array.attrs.get('annotated_frames', None)
+        if frames is not None:
+            return np.array(frames, dtype=int)
+    # Fallback: scan data (old zarr without the attribute)
+    annotated = np.where(zarr_array[:, 0, 0] >= 0)[0]
+    # Attempt one-time migration
+    try:
+        if hasattr(zarr_array, 'attrs'):
+            zarr_array.attrs['annotated_frames'] = annotated.tolist()
+    except Exception:
+        pass  # read-only store — skip silently
+    return annotated
+
+
+def mark_frames_annotated(zarr_array, frame_indices):
+    """
+    Add one or more frame indices to the 'annotated_frames' attribute.
+    
+    Parameters
+    ----------
+    zarr_array : zarr.core.Array
+        The zarr array whose attribute should be updated.
+    frame_indices : int, np.integer, or iterable of int
+        Frame index or indices to mark as annotated.
+    """
+    if not hasattr(zarr_array, 'attrs'):
+        return
+    existing = set(zarr_array.attrs.get('annotated_frames', []))
+    if isinstance(frame_indices, (int, np.integer)):
+        existing.add(int(frame_indices))
+    else:
+        existing.update(int(f) for f in frame_indices)
+    zarr_array.attrs['annotated_frames'] = sorted(existing)
+
+
+def unmark_frames_annotated(zarr_array, frame_indices):
+    """
+    Remove one or more frame indices from the 'annotated_frames' attribute.
+    
+    Parameters
+    ----------
+    zarr_array : zarr.core.Array
+        The zarr array whose attribute should be updated.
+    frame_indices : int, np.integer, or iterable of int
+        Frame index or indices to remove.
+    """
+    if not hasattr(zarr_array, 'attrs'):
+        return
+    existing = set(zarr_array.attrs.get('annotated_frames', []))
+    if isinstance(frame_indices, (int, np.integer)):
+        existing.discard(int(frame_indices))
+    else:
+        for f in frame_indices:
+            existing.discard(int(f))
+    zarr_array.attrs['annotated_frames'] = sorted(existing)
+
+
 def create_image_zarr(zarr_path, 
                       num_frames, 
                       image_height,
@@ -103,6 +188,7 @@ def create_image_zarr(zarr_path,
                                     )
     image_zarr.attrs['created_at'] = str(datetime.now())
     image_zarr.attrs['video_hash'] = video_hash_abbrev
+    image_zarr.attrs['annotated_frames'] = []
     if verbose:
         print('Zarr store info:')
         print(image_zarr.info)
@@ -195,6 +281,13 @@ def load_image_zarr(zarr_path,
         elif verbose:
             print(f"🔒 Video hash verified: {video_hash_abrrev}")
     
+    # One-time migration: populate annotated_frames attr for old zarr files
+    if image_zarr.attrs.get('annotated_frames', None) is None:
+        migrated = np.where(image_zarr[:, 0, 0] >= 0)[0]
+        image_zarr.attrs['annotated_frames'] = migrated.tolist()
+        if verbose:
+            print(f"Migrated annotated_frames attribute ({len(migrated)} frames)")
+
     if verbose:
         print('Zarr store info:')
         print(image_zarr.info) 

@@ -3,6 +3,7 @@ from shutil import rmtree
 import json
 import datetime
 import numpy as np
+from octron.sam_octron.helpers.sam2_zarr import get_annotated_frames
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Union, Dict, List, Any
 
@@ -287,7 +288,7 @@ class ObjectOrganizer(BaseModel):
             if obj.prediction_layer is not None:
                 prediction_layer_data = obj.prediction_layer.data
                 prediction_layer_meta = obj.prediction_layer.metadata
-                predicted_indices = np.where(prediction_layer_data[:,0,0] >= 0)[0]
+                predicted_indices = get_annotated_frames(prediction_layer_data)
                 if len(predicted_indices):
                     num_predicted_indices = len(predicted_indices)
                 else:

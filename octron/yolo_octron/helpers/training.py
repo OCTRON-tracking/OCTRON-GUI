@@ -184,7 +184,7 @@ def collect_labels(project_path,
     # Hiding some imports here to reduce initial loading time
     from napari_pyav._reader import FastVideoReader
     from octron.sam_octron.helpers.video_loader import get_vfile_hash
-    from octron.sam_octron.helpers.sam2_zarr import load_image_zarr   
+    from octron.sam_octron.helpers.sam2_zarr import load_image_zarr, get_annotated_frames
 
     project_path = Path(project_path)
     assert project_path.exists(), f'Project path not found at {project_path.as_posix()}'
@@ -263,9 +263,8 @@ def collect_labels(project_path,
             assert image_height == loaded_masks.shape[1]
             assert image_width  == loaded_masks.shape[2]
             labels[label_id]['masks'].append(loaded_masks) # This is the zarr array
-            # Extract annotated frame indices
-            # The fill value of the zarr array is -1, so we can use this to find annotated frames
-            annotated_indices = np.where(loaded_masks[:,0,0] >= 0)[0]
+            # Extract annotated frame indices from zarr attribute (fast path)
+            annotated_indices = get_annotated_frames(loaded_masks)
             if verbose:
                 print(f'Found {len(annotated_indices)} annotated frames for label {label} in {object_organizer.parent.name}')
             # if prune_empty_labels:

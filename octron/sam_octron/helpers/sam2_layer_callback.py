@@ -8,6 +8,7 @@ from octron.sam_octron.helpers.sam2_octron import (
     run_new_pred,
 )
 from octron.sam_octron.helpers.sam2_colors import sample_maximally_different, create_semantic_colormap
+from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
 from napari.utils.notifications import (
     show_warning,
     show_info,
@@ -150,6 +151,7 @@ class sam2_octron_callbacks():
                 # for the SAM2-HQ model. See comments in 
                 # sam2hq_octron.add_new_mask / add_new_points_or_box
                 prediction_layer.data[frame_idx] = mask
+                mark_frames_annotated(prediction_layer.data, frame_idx)
                 prediction_layer.refresh()
   
         else:
@@ -277,6 +279,7 @@ class sam2_octron_callbacks():
         
         # Update visual layer
         prediction_layer.data[frame_idx] = id_mask
+        mark_frames_annotated(prediction_layer.data, frame_idx)
         
         # Assign distinct colors so each object ID is visually separable
         prediction_layer.colormap = create_semantic_colormap(n_objects, label_id=organizer_entry.label_id)
@@ -390,6 +393,7 @@ class sam2_octron_callbacks():
                     # for the SAM2-HQ model. See comments in 
                     # sam2hq_octron.add_new_mask / add_new_points_or_box
                     prediction_layer.data[frame_idx,:,:] = mask
+                    mark_frames_annotated(prediction_layer.data, frame_idx)
             prediction_layer.refresh()  
         else:
             # Catching all above with ['added','removed','changed']
