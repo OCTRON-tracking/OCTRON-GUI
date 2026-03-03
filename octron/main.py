@@ -542,9 +542,21 @@ class octron_widget(QWidget):
             if hasattr(entry, '_semantic_accumulated_masks'):
                 entry._semantic_accumulated_masks.pop(current_frame, None)
         
+        # Clear semantic object ID mapping
+        self._semantic_obj_id_map = {}
+        
         show_info("SAM predictor was reset.")
         
     
+    def _flush_semantic_frame_buffer(self):
+        """Write any pending semantic frame buffer to zarr and refresh."""
+        buf = getattr(self, '_semantic_frame_buffer', None)
+        if buf is not None:
+            layer, fidx, data = buf
+            layer.data[fidx, :, :] = data
+            layer.refresh()
+            self._semantic_frame_buffer = None
+
     def _batch_predict_yielded(self, value):
         """
         prediction_worker()
@@ -552,11 +564,52 @@ class octron_widget(QWidget):
         Updates the progress bar and the mask layer with the predicted mask.
         """
         progress, frame_idx, obj_id, mask, last_run = value
-        organizer_entry = self.object_organizer.get_entry(obj_id)
-        # Extract current mask layer
-        prediction_layer = organizer_entry.prediction_layer
-        prediction_layer.data[frame_idx,:,:] = mask
-        prediction_layer.refresh()  
+        
+        # Check if this is a semantic tracker obj_id mapped to a parent entry
+        semantic_map = getattr(self, '_semantic_obj_id_map', {})
+        if obj_id in semantic_map:
+            parent_obj_id, mask_id = semantic_map[obj_id]
+            organizer_entry = self.object_organizer.get_entry(parent_obj_id)
+            prediction_layer = organizer_entry.prediction_layer
+
+            # Buffer all semantic object writes for the same frame so we
+            # only do one zarr read + one zarr write + one napari refresh
+            # per frame instead of N (one per detected object).
+            buf = getattr(self, '_semantic_frame_buffer', None)
+            if buf is not None and (buf[0] is not prediction_layer or buf[1] != frame_idx):
+                # Frame (or layer) changed — flush the previous buffer
+                self._flush_semantic_frame_buffer()
+                buf = None
+
+            if buf is None:
+                current = np.array(prediction_layer.data[frame_idx])
+                # Convert fill-value (-1) to proper background (0) so
+                # propagated frames are recognised as annotated downstream.
+                current[current < 0] = 0
+            else:
+                current = buf[2]
+
+            # Clear old pixels that had this mask_id (object may have moved)
+            current[current == mask_id] = 0
+            # Stamp new mask pixels with mask_id
+            current[mask > 0] = mask_id
+
+            # Keep buffer for efficient in-memory accumulation (avoids
+            # re-reading zarr on the next object for the same frame).
+            self._semantic_frame_buffer = (prediction_layer, frame_idx, current)
+            # Also write to layer immediately so the viewer shows the
+            # masks while the current frame is still on screen.
+            prediction_layer.data[frame_idx, :, :] = current
+            prediction_layer.refresh()
+        else:
+            # Flush any pending semantic buffer before handling non-semantic object
+            self._flush_semantic_frame_buffer()
+
+            organizer_entry = self.object_organizer.get_entry(obj_id)
+            prediction_layer = organizer_entry.prediction_layer
+            prediction_layer.data[frame_idx,:,:] = mask
+            prediction_layer.refresh()
+        
         if self._viewer.dims.current_step[0] != frame_idx and not last_run:
             self._viewer.dims.set_point(0, frame_idx)
         self.batch_predict_progressbar.setValue(progress)
@@ -567,6 +620,9 @@ class octron_widget(QWidget):
         Callback for when worker within init_prediction_threaded() 
         has finished executing. 
         """
+        # Flush the last semantic frame buffer (propagation ended)
+        self._flush_semantic_frame_buffer()
+        
         # Enable the predcition button again
         self.predict_next_batch_btn.setEnabled(True)
         self.predict_next_oneframe_btn.setEnabled(True)
@@ -590,17 +646,45 @@ class octron_widget(QWidget):
         # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
-            for obj_id, entry in self.object_organizer.entries.items():
-                if hasattr(entry, '_semantic_accumulated_masks'):
-                    for frame_idx, mask in entry._semantic_accumulated_masks.items():
-                        # Finalize the accumulated mask to the tracker
-                        self.predictor.tracker.add_new_mask(
-                            frame_idx=frame_idx,
-                            obj_id=obj_id,
-                            mask=mask.astype(bool),
-                        )
-                    # Clear accumulated masks after finalizing
-                    entry._semantic_accumulated_masks = {}
+            # Only rebuild the mapping when there are NEW accumulated masks to
+            # register.  On repeated propagation clicks (no new annotations) the
+            # tracker still holds the objects from the previous run, so the
+            # existing map must be preserved.
+            has_new_masks = any(
+                hasattr(e, '_semantic_accumulated_masks') and e._semantic_accumulated_masks
+                for e in self.object_organizer.entries.values()
+            )
+            if has_new_masks:
+                # The tracker forbids adding new objects after propagation
+                # has started.  Reset it so the new detection becomes the
+                # fresh conditioning frame.  detect() already resets the
+                # tracker after propagation, but if the user somehow
+                # reaches here with tracking still active, reset again.
+                if self.predictor.inference_state.get('tracking_has_started', False):
+                    self.predictor.tracker.reset_state()
+                # Always start object IDs from 0 when rebuilding from
+                # accumulated masks, regardless of whether detect()
+                # already reset the tracker.
+                self.predictor._next_obj_id = 0
+                self._semantic_obj_id_map = {}  # tracker_obj_id → (organizer_obj_id, mask_id)
+                for obj_id, entry in self.object_organizer.entries.items():
+                    if hasattr(entry, '_semantic_accumulated_masks'):
+                        for frame_idx, id_mask in entry._semantic_accumulated_masks.items():
+                            # Split ID-encoded mask into per-object binary masks
+                            unique_ids = np.unique(id_mask)
+                            unique_ids = unique_ids[unique_ids > 0]  # Exclude background and fill_value
+                            for mask_id in unique_ids:
+                                tracker_obj_id = self.predictor._next_obj_id
+                                self.predictor._next_obj_id += 1
+                                binary_mask = (id_mask == mask_id)
+                                self.predictor.tracker.add_new_mask(
+                                    frame_idx=frame_idx,
+                                    obj_id=tracker_obj_id,
+                                    mask=binary_mask,
+                                )
+                                self._semantic_obj_id_map[tracker_obj_id] = (obj_id, int(mask_id))
+                        # Clear accumulated masks after finalizing
+                        entry._semantic_accumulated_masks = {}
         
         # Before doing anything, make sure, some input has been provided
         valid = False

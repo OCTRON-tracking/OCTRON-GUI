@@ -371,78 +371,74 @@ class YOLO_octron:
                             ):    
                     mask_polys = [] # List of polygons for the current frame
                     for mask_array in mask_arrays:
-                        mask_current_array = mask_array[f]
+                        mask_raw = mask_array[f]
                         # Determine area threshold 
-                        min_area = MIN_SIZE_RATIO_OBJECT_FRAME*mask_current_array.shape[0]*mask_current_array.shape[1]
-                        if self.enable_watershed:
-                            # Watershed
-                            try:
-                                _, water_masks = watershed_mask(mask_current_array,
-                                                                footprint_diameter=median_obj_diameter,
-                                                                min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,  
-                                                                plot=False
-                                                            )
-                            except AssertionError:
-                                # The mask is empty at this frame or the object spans the whole frame
-                                continue
-                            # Loop over watershedded masks
-                            for mask in water_masks:
-                                try:
-                                    mask_polys.append(get_polygons(mask)) 
-                                except AssertionError:
-                                    # The mask is empty at this frame.
-                                    # This happens if there is more than one mask 
-                                    # zarr array (because there are multiple instances of a label), 
-                                    # and the current label is not present in the current mask array.
-                                    pass    
+                        min_area = MIN_SIZE_RATIO_OBJECT_FRAME*mask_raw.shape[0]*mask_raw.shape[1]
+                        # Split ID-encoded multi-object masks into per-ID binary sub-masks.
+                        # ID-encoded masks have values > 1 (each unique positive int = one object).
+                        # Legacy binary masks (0/1) pass through unchanged.
+                        positive_ids = np.unique(mask_raw)
+                        positive_ids = positive_ids[positive_ids > 0]
+                        if len(positive_ids) > 1 or np.any(positive_ids > 1):
+                            sub_masks = [(mask_raw == oid).astype(np.uint8) for oid in positive_ids]
                         else:
-                            # No watershedding
-                            mask_labeled = np.asarray(measure.label(mask_current_array))
-                            unique_labels = np.unique(mask_labeled)
-                            assert len(unique_labels) >= 1, f"Labeling failed for {label} in frame {f_no}"
-                            # Get new region props to filter out small-ish regions
-                            props = measure.regionprops_table(
-                                    mask_labeled,
-                                    properties=('area','label')
-                                    )
-                            if not len(props['area']): 
-                                continue
-                            # Filter out small objects by setting them to 0
-                            # and those that are smaller than a certain size ratio 
-                            # smaller than the max object size
-                            max_area = np.percentile(props['area'], 99.)
-                            for i, area in enumerate(props['area']):
-                                if area < min_area:
-                                    mask_labeled[mask_labeled == props['label'][i]] = 0          
-                                if area < MIN_SIZE_RATIO_OBJECT_MAX*max_area:
-                                    mask_labeled[mask_labeled == props['label'][i]] = 0                              
-                            if np.sum(mask_labeled) == 0:
-                                # No objects found after filtering
-                                continue
-                            unique_labels = np.unique(mask_labeled)
-                            for l in unique_labels:
-                                if l == 0:
-                                    # Background 
+                            sub_masks = [np.clip(mask_raw, 0, 1).astype(np.uint8)]
+                        for mask_current_array in sub_masks:
+                            if self.enable_watershed:
+                                # Watershed
+                                try:
+                                    _, water_masks = watershed_mask(mask_current_array,
+                                                                    footprint_diameter=median_obj_diameter,
+                                                                    min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,  
+                                                                    plot=False
+                                                                )
+                                except AssertionError:
+                                    # The mask is empty at this frame or the object spans the whole frame
                                     continue
-                                else:
-                                    # Re-initialize the mask
-                                    mask_current_array = np.zeros_like(mask_current_array)
-                                    mask_current_array[mask_labeled == l] = 1
-                                    mask_polys.append(get_polygons(mask_current_array))
-                                    # # visualize 
-                                    # from matplotlib import pyplot as plt
-                                    # figure = plt.figure(figsize=(10,5))
-                                    # p = get_polygons(mask_current_array)
-                                    # print(f'Found {len(p)} polys')
-                                    # ax = figure.add_subplot(111)
-                                    # poly_mask = polygon_to_mask(np.zeros_like(mask_current_array), 
-                                    #                             p, 
-                                    #                             smooth_sigma=0., 
-                                    #                             opening_radius=0,
-                                    #                             model_imgsz=1920
-                                    #                             )
-                                    # ax.imshow(poly_mask)
-                                    # plt.show()
+                                # Loop over watershedded masks
+                                for mask in water_masks:
+                                    try:
+                                        mask_polys.append(get_polygons(mask)) 
+                                    except AssertionError:
+                                        # The mask is empty at this frame.
+                                        # This happens if there is more than one mask 
+                                        # zarr array (because there are multiple instances of a label), 
+                                        # and the current label is not present in the current mask array.
+                                        pass    
+                            else:
+                                # No watershedding
+                                mask_labeled = np.asarray(measure.label(mask_current_array))
+                                unique_labels = np.unique(mask_labeled)
+                                assert len(unique_labels) >= 1, f"Labeling failed for {label} in frame {f_no}"
+                                # Get new region props to filter out small-ish regions
+                                props = measure.regionprops_table(
+                                        mask_labeled,
+                                        properties=('area','label')
+                                        )
+                                if not len(props['area']): 
+                                    continue
+                                # Filter out small objects by setting them to 0
+                                # and those that are smaller than a certain size ratio 
+                                # smaller than the max object size
+                                max_area = np.percentile(props['area'], 99.)
+                                for i, area in enumerate(props['area']):
+                                    if area < min_area:
+                                        mask_labeled[mask_labeled == props['label'][i]] = 0          
+                                    if area < MIN_SIZE_RATIO_OBJECT_MAX*max_area:
+                                        mask_labeled[mask_labeled == props['label'][i]] = 0                              
+                                if np.sum(mask_labeled) == 0:
+                                    # No objects found after filtering
+                                    continue
+                                unique_labels = np.unique(mask_labeled)
+                                for l in unique_labels:
+                                    if l == 0:
+                                        # Background 
+                                        continue
+                                    else:
+                                        # Re-initialize the mask
+                                        mask_current_array = np.zeros_like(mask_current_array)
+                                        mask_current_array[mask_labeled == l] = 1
+                                        mask_polys.append(get_polygons(mask_current_array))
                                     
                             
                     polys[f] = mask_polys
@@ -531,23 +527,50 @@ class YOLO_octron:
                                     leave=True):
                     frame_bboxes = []
                     for mask_array in mask_arrays:
-                        mask_current = mask_array[f]
-                        h, w = mask_current.shape
+                        mask_raw = mask_array[f]
+                        h, w = mask_raw.shape
                         min_area = MIN_SIZE_RATIO_OBJECT_FRAME * h * w
-
-                        if self.enable_watershed:
-                            try:
-                                _, water_masks = watershed_mask(mask_current,
-                                                                footprint_diameter=median_obj_diameter,
-                                                                min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,
-                                                                plot=False)
-                            except AssertionError:
-                                continue
-                            for mask in water_masks:
-                                mask_labeled = np.asarray(measure.label(mask))
+                        # Split ID-encoded multi-object masks into per-ID binary sub-masks.
+                        positive_ids = np.unique(mask_raw)
+                        positive_ids = positive_ids[positive_ids > 0]
+                        if len(positive_ids) > 1 or np.any(positive_ids > 1):
+                            sub_masks = [(mask_raw == oid).astype(np.uint8) for oid in positive_ids]
+                        else:
+                            sub_masks = [np.clip(mask_raw, 0, 1).astype(np.uint8)]
+                        for mask_current in sub_masks:
+                            if self.enable_watershed:
+                                try:
+                                    _, water_masks = watershed_mask(mask_current,
+                                                                    footprint_diameter=median_obj_diameter,
+                                                                    min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,
+                                                                    plot=False)
+                                except AssertionError:
+                                    continue
+                                for mask in water_masks:
+                                    mask_labeled = np.asarray(measure.label(mask))
+                                    props = measure.regionprops(mask_labeled)
+                                    for region in props:
+                                        if region.area < min_area:
+                                            continue
+                                        min_row, min_col, max_row, max_col = region.bbox
+                                        bbox_w = (max_col - min_col) / w
+                                        bbox_h = (max_row - min_row) / h
+                                        x_center = (min_col + max_col) / 2.0 / w
+                                        y_center = (min_row + max_row) / 2.0 / h
+                                        frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
+                            else:
+                                mask_labeled = np.asarray(measure.label(mask_current))
                                 props = measure.regionprops(mask_labeled)
+                                if not props:
+                                    continue
+
+                                areas = [r.area for r in props]
+                                max_area = np.percentile(areas, 99.)
+
                                 for region in props:
                                     if region.area < min_area:
+                                        continue
+                                    if region.area < MIN_SIZE_RATIO_OBJECT_MAX * max_area:
                                         continue
                                     min_row, min_col, max_row, max_col = region.bbox
                                     bbox_w = (max_col - min_col) / w
@@ -555,26 +578,6 @@ class YOLO_octron:
                                     x_center = (min_col + max_col) / 2.0 / w
                                     y_center = (min_row + max_row) / 2.0 / h
                                     frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
-                        else:
-                            mask_labeled = np.asarray(measure.label(mask_current))
-                            props = measure.regionprops(mask_labeled)
-                            if not props:
-                                continue
-
-                            areas = [r.area for r in props]
-                            max_area = np.percentile(areas, 99.)
-
-                            for region in props:
-                                if region.area < min_area:
-                                    continue
-                                if region.area < MIN_SIZE_RATIO_OBJECT_MAX * max_area:
-                                    continue
-                                min_row, min_col, max_row, max_col = region.bbox
-                                bbox_w = (max_col - min_col) / w
-                                bbox_h = (max_row - min_row) / h
-                                x_center = (min_col + max_col) / 2.0 / w
-                                y_center = (min_row + max_row) / 2.0 / h
-                                frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
 
                     bboxes_dict[f] = frame_bboxes
                     yield (no_entry, len(self.label_dict), label, f_no, len(frames))

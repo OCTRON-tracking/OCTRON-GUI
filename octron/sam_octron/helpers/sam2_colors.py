@@ -38,6 +38,34 @@ def create_label_colors(cmap='cmr.tropical',
     return all_label_submaps
 
 
+def create_semantic_colormap(n_objects):
+    """
+    Create a DirectLabelColormap for multi-ID semantic masks.
+    Uses cmr.neon with maximally-different reordering so each
+    object ID is visually distinct.
+
+    Parameters
+    ----------
+    n_objects : int
+        Number of object IDs (1-based) to map.
+
+    Returns
+    -------
+    DirectLabelColormap
+    """
+    from napari.utils import DirectLabelColormap
+
+    obj_colors = cmr.take_cmap_colors(
+        'cmr.neon', N=max(n_objects, 2), cmap_range=(0.05, 0.95), return_fmt='float'
+    )
+    reorder = sample_maximally_different(list(range(len(obj_colors))))
+    color_dict = {None: [0, 0, 0, 0]}  # unmapped labels -> transparent
+    for oid in range(1, n_objects + 1):
+        r, g, b = obj_colors[reorder[oid - 1]]
+        color_dict[oid] = [float(r), float(g), float(b), 1.0]
+    return DirectLabelColormap(color_dict=color_dict)
+
+
 def sample_maximally_different(seq):
     """
     Given an ascending list of numbers, return a new ordering

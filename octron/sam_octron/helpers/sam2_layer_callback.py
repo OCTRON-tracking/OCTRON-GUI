@@ -1,10 +1,13 @@
 # OCTRON SAM2 related callbacks
 import time
 import numpy as np
+import cmasher as cmr
+from napari.utils import DirectLabelColormap
 from octron.sam_octron.helpers.sam2_octron import (
     SAM2_octron,
     run_new_pred,
 )
+from octron.sam_octron.helpers.sam2_colors import sample_maximally_different, create_semantic_colormap
 from napari.utils.notifications import (
     show_warning,
     show_info,
@@ -292,33 +295,50 @@ class sam2_octron_callbacks():
         
         n_detections = pred_masks.shape[0]
         
-        # Merge all detected masks into a single combined mask
-        combined_mask = np.zeros_like(
-            pred_masks[0].cpu().numpy(), dtype=np.uint8
+        # Sort detections by confidence (descending) so highest confidence gets priority
+        sorted_indices = pred_scores.argsort(descending=True)
+        
+        # Encode each detected mask with a unique 1-based object ID
+        # (0 = background). Higher-confidence masks get priority for overlapping pixels:
+        # stamp highest-confidence first, only fill pixels still at 0.
+        id_mask = np.zeros_like(
+            pred_masks[0].cpu().numpy(), dtype=np.int16
         )
-        for i in range(n_detections):
-            combined_mask |= (pred_masks[i] > 0).cpu().numpy().astype(np.uint8)
+        for rank, idx in enumerate(sorted_indices):
+            mask_id = rank + 1  # 1-based IDs
+            binary = (pred_masks[idx] > 0).cpu().numpy()
+            id_mask[(binary) & (id_mask == 0)] = mask_id
         
         # Get number of box prompts used
         n_boxes = len(organizer_entry._semantic_box_prompts.get(frame_idx, []))
         max_score = pred_scores.max().item() if pred_scores is not None and pred_scores.numel() > 0 else 0.0
+        n_objects = len(np.unique(id_mask)) - 1  # Exclude background
         print(
-            f'SAM3 Mode B: Detected {n_detections} objects using {n_boxes} box prompt(s). '
-            f'Max score: {max_score:.3f}'
+            f'SAM3 Mode B: Detected {n_detections} objects ({n_objects} encoded) '
+            f'using {n_boxes} box prompt(s). Max score: {max_score:.3f}'
         )
         
         # Update visual layer
-        prediction_layer.data[frame_idx] = combined_mask
+        prediction_layer.data[frame_idx] = id_mask
+        
+        # Assign distinct colors so each object ID is visually separable
+        prediction_layer.colormap = create_semantic_colormap(n_objects)
         prediction_layer.refresh()
+        
+        # Persist max object ID in zarr metadata so the colormap
+        # can be restored when the project is reloaded later.
+        if hasattr(prediction_layer.data, 'attrs'):
+            prev_max = prediction_layer.data.attrs.get('max_object_id', 0)
+            prediction_layer.data.attrs['max_object_id'] = max(int(n_objects), int(prev_max))
         
         # DO NOT call add_new_mask here - it corrupts detector state!
         # The tracker will be updated later when needed (before propagation)
-        # Store the accumulated mask for later
+        # Store the accumulated ID-encoded mask for later
         if not hasattr(organizer_entry, '_semantic_accumulated_masks'):
             organizer_entry._semantic_accumulated_masks = {}
-        organizer_entry._semantic_accumulated_masks[frame_idx] = combined_mask
+        organizer_entry._semantic_accumulated_masks[frame_idx] = id_mask
         
-        return combined_mask
+        return id_mask
     
     
     def on_points_changed(self, event):
@@ -447,6 +467,23 @@ class sam2_octron_callbacks():
         
         print(f'⚡️ Prefetching {len(image_indices)} images, skipping {skip_frames} frames | start: {current_frame}')
         _ = predictor.images[image_indices]
+        
+        # Pre-compute backbone features so propagation only needs track_step.
+        # Limit to the cache capacity to avoid OOM.
+        tracker = getattr(predictor, 'tracker', predictor)
+        max_bb = getattr(tracker, '_max_cached_backbone_frames', 0)
+        if (max_bb > 0
+                and hasattr(tracker, '_get_image_feature')
+                and hasattr(tracker, 'inference_state')
+                and tracker.inference_state):
+            prefetch_indices = image_indices[:max_bb]
+            t0 = time.perf_counter()
+            import torch
+            with torch.inference_mode():
+                for idx in prefetch_indices:
+                    tracker._get_image_feature(tracker.inference_state, idx, batch_size=1)
+            t1 = time.perf_counter()
+            print(f'⚡️ Pre-computed backbone features for {len(prefetch_indices)} frames in {t1-t0:.2f}s')
 
     
     def next_predict(self):
@@ -486,9 +523,10 @@ class sam2_octron_callbacks():
                 last_run = True
             else:
                 last_run = False
+            # Single GPU→CPU transfer for all objects instead of N separate ones
+            all_masks = (out_mask_logits > 0).cpu().numpy().astype(np.uint8)
             for i, out_obj_id in enumerate(out_obj_ids):
-                mask = (out_mask_logits[i] > 0).cpu().numpy().astype(np.uint8)
-                yield counter, out_frame_idx, out_obj_id, mask.squeeze(), last_run
+                yield counter, out_frame_idx, out_obj_id, all_masks[i].squeeze(), last_run
 
             counter += 1
             
@@ -532,9 +570,10 @@ class sam2_octron_callbacks():
             else:
                 last_run = False
             try:
+                # Single GPU→CPU transfer for all objects instead of N separate ones
+                all_masks = (out_mask_logits > 0).cpu().numpy().astype(np.uint8)
                 for i, out_obj_id in enumerate(out_obj_ids):
-                    mask = (out_mask_logits[i] > 0).cpu().numpy().astype(np.uint8)
-                    yield counter, out_frame_idx, out_obj_id, mask.squeeze(), last_run
+                    yield counter, out_frame_idx, out_obj_id, all_masks[i].squeeze(), last_run
             except Exception as e:
                 # Trying again for sam hq 
                 for i, out_obj_id in enumerate(out_obj_ids):

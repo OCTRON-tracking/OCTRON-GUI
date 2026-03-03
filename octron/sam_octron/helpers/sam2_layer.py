@@ -77,12 +77,22 @@ def add_sam2_mask_layer(viewer,
                                         image_width=width, 
                                         chunk_size=20,
                                         fill_value=-1,
-                                        dtype='int8',
+                                        dtype='int16',
                                         video_hash_abbrev=video_hash_abrrev,
                                         )
     else:
         show_error("Video layer metadata incomplete; dummy mask not created.")
         return None, None, None
+    
+    # If the loaded zarr contains multi-ID semantic masks (from a previous
+    # session), restore the per-ID colormap so objects are shown in distinct
+    # colours instead of a single colour.
+    colormap_to_use = color
+    if status and hasattr(layer_data, 'attrs'):
+        max_obj_id = layer_data.attrs.get('max_object_id', 0)
+        if max_obj_id > 1:
+            from octron.sam_octron.helpers.sam2_colors import create_semantic_colormap
+            colormap_to_use = create_semantic_colormap(int(max_obj_id))
     
     # Add the labels layer to the viewer
     labels_layer = viewer.add_labels(
@@ -90,7 +100,7 @@ def add_sam2_mask_layer(viewer,
         name=name,  
         opacity=0.4,  
         blending='additive',  
-        colormap=color, 
+        colormap=colormap_to_use, 
     )
 
     # Hide buttons that you don't want the user to access
