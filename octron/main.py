@@ -369,8 +369,8 @@ class octron_widget(QWidget):
         new_family = "SAM3" if is_sam3 else "SAM2"
         show_error(
             f"Model incompatibility: existing annotations were created with "
-            f"{existing_family} ({existing_image_size}×{existing_image_size}). "
-            f"Cannot load {new_family} model ({new_image_size}×{new_image_size}). "
+            f"{existing_family} ({existing_image_size}x{existing_image_size}). "
+            f"Cannot load {new_family} model ({new_image_size}x{new_image_size}). "
             f"SAM2 and SAM3 use different image resolutions and are not interchangeable."
         )
         return False
@@ -1194,7 +1194,7 @@ class octron_widget(QWidget):
                 
         total_deleted = len(mask_layers) + len(other_layers)
         if total_deleted:
-            print(f"💀 Auto-deleted {total_deleted} layers")
+            print(f"🗑️ Auto-deleted {total_deleted} layers")
 
 
     def on_layer_removed(self, event):
@@ -1365,7 +1365,7 @@ class octron_widget(QWidget):
                 if l._basename() == 'Image' and 'VIDEO' in l.name:
                     video_layers.append(l)
             except Exception as e:
-                show_error(f"💀 Error when checking layer: {e}")
+                show_error(f"Error when checking layer: {e}")
 
         if len(video_layers) > 1:
             # This should never happen
