@@ -2528,6 +2528,8 @@ class YOLO_octron:
                 else:
                     raise ValueError("Could not load video or mask metadata for viewer")
         
+        # Collect results per track for ordered layer addition
+        results_per_track = []
         for track_id, label in track_id_label.items():
             if track_id not in tracking_data:
                 print(f"Warning: No tracking data for track_id {track_id} (label '{label}'), skipping.")
@@ -2536,27 +2538,32 @@ class YOLO_octron:
             tracking_df = tracking_data[track_id]['data']
             features_df = tracking_data[track_id]['features']
             masks = mask_data[track_id]['data'] if track_id in mask_data else None
-            
-            if open_viewer:
-                viewer.add_tracks(tracking_df.values, 
-                                  features=features_df.to_dict(orient='list'),
-                                  blending='translucent', 
-                                  name=f'{label} - id {track_id}', 
-                                  colormap='hsv',
-                            )
-                viewer.layers[f'{label} - id {track_id}'].tail_width = 3
-                viewer.layers[f'{label} - id {track_id}'].tail_length = min(yolo_results.num_frames, 200)
-                viewer.layers[f'{label} - id {track_id}'].color_by = 'frame_idx'
-                # Add masks (segmentation results only)
+            results_per_track.append((track_id, label, color, napari_colormap, tracking_df, features_df, masks))
+
+        if open_viewer:
+            # Add mask layers first (bottom)
+            for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
                 if masks is not None:
-                    _ = viewer.add_labels(
+                    viewer.add_labels(
                         masks,
-                        name=f'{label} - MASKS - id {track_id}',  
+                        name=f'{label} - MASKS - id {track_id}',
                         opacity=0.5,
-                        blending='translucent',  
+                        blending='translucent',
                         colormap=napari_colormap,
                         visible=True,
                     )
-                viewer.dims.set_point(0,0)
-                
+            # Add track layers second (on top)
+            for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
+                viewer.add_tracks(tracking_df.values,
+                                  features=features_df.to_dict(orient='list'),
+                                  blending='translucent',
+                                  name=f'{label} - id {track_id}',
+                                  colormap='hsv',
+                            )
+                viewer.layers[f'{label} - id {track_id}'].tail_width = 3
+                viewer.layers[f'{label} - id {track_id}'].tail_length = min(yolo_results.num_frames, 250)
+                viewer.layers[f'{label} - id {track_id}'].color_by = 'frame_idx'
+            viewer.dims.set_point(0, 0)
+
+        for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
             yield label, track_id, color, tracking_df, features_df, masks
