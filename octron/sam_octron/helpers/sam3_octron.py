@@ -1014,6 +1014,18 @@ class SAM3_octron:
                 total_inference_ms += (t_frame_end - t_frame_start) * 1000
                 
                 # Combine per-object masks → (N, 1, H, W)
+                # Conditioning-frame masks can come from consolidated storage at
+                # self._pred_mask_res while live inference may return a different
+                # decoder resolution (e.g. 288x288). Normalize before cat.
+                target_hw = self._pred_mask_res
+                for i, m in enumerate(pred_masks_per_obj):
+                    if m.shape[-2:] != target_hw:
+                        pred_masks_per_obj[i] = F.interpolate(
+                            m,
+                            size=target_hw,
+                            mode="bilinear",
+                            align_corners=False,
+                        )
                 all_pred_masks = torch.cat(pred_masks_per_obj, dim=0)
                 self.inference_state["frames_already_tracked"].add(frame_idx)
                 _, video_res_masks = self._get_orig_video_res_output(all_pred_masks)
