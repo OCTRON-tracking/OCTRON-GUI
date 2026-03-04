@@ -842,35 +842,87 @@ class SAM3_octron:
         else:
             mask_inputs = mask_inputs_orig
         
-        mask_inputs_per_frame[frame_idx] = mask_inputs
-        point_inputs_per_frame.pop(frame_idx, None)
+        # SAM3's TwoWayTransformer decoder treats mask-only prompts too
+        # literally — it follows the polygon shape instead of using visual
+        # features to discriminate object vs background within the region.
+        # Strategy: derive a bounding box from the polygon as the primary
+        # prompt (SAM handles boxes well) and pass the polygon mask as a
+        # soft prior via prev_sam_mask_logits.  The box forces the decoder
+        # to rely on visual features while the polygon biases it.
+        mask_2d = mask_inputs[0, 0]  # (image_size, image_size)
+        ys, xs = torch.where(mask_2d > 0.5)
         
-        # Convert binary mask (0/1) to logit scale for the SAM decoder.
-        # The prompt encoder's mask convolutions expect logit-scale inputs
-        # (matching previous-prediction logits), not raw binary values.
-        mask_inputs_for_decoder = mask_inputs * 20.0 - 10.0
+        if len(ys) > 0:
+            # Bounding box of the polygon in image_size coords
+            x1, y1 = xs.min().item(), ys.min().item()
+            x2, y2 = xs.max().item(), ys.max().item()
+            box_coords = torch.tensor(
+                [[[x1, y1], [x2, y2]]], dtype=torch.float32, device=self.device
+            )
+            box_labels = torch.tensor(
+                [[2, 3]], dtype=torch.int32, device=self.device
+            )
+            point_inputs = {
+                "point_coords": box_coords,
+                "point_labels": box_labels,
+            }
+        else:
+            point_inputs = None
+        
+        point_inputs_per_frame[frame_idx] = point_inputs if point_inputs is not None else {}
+        mask_inputs_per_frame.pop(frame_idx, None)
         
         is_init_cond_frame = frame_idx not in self.inference_state.get("frames_already_tracked", [])
-        if is_init_cond_frame:
-            reverse = False
-        else:
-            reverse = False
+        reverse = False
         
         obj_output_dict = self.inference_state["output_dict_per_obj"][obj_idx]
         obj_temp_output_dict = self.inference_state["temp_output_dict_per_obj"][obj_idx]
         is_cond = is_init_cond_frame or self.add_all_frames_to_correct_as_cond
         storage_key = "cond_frame_outputs" if is_cond else "non_cond_frame_outputs"
         
-        current_out, _ = self._run_single_frame_inference(
-            output_dict=obj_output_dict,
-            frame_idx=frame_idx,
-            batch_size=1,
-            is_init_cond_frame=is_init_cond_frame,
-            point_inputs=None,
-            mask_inputs=mask_inputs_for_decoder,
-            reverse=reverse,
-            run_mem_encoder=False,
+        if point_inputs is not None:
+            # Pure box prompt — let SAM3 use visual features to segment
+            current_out, _ = self._run_single_frame_inference(
+                output_dict=obj_output_dict,
+                frame_idx=frame_idx,
+                batch_size=1,
+                is_init_cond_frame=is_init_cond_frame,
+                point_inputs=point_inputs,
+                mask_inputs=None,
+                reverse=reverse,
+                run_mem_encoder=False,
+            )
+        else:
+            # Fallback: mask-only
+            current_out, _ = self._run_single_frame_inference(
+                output_dict=obj_output_dict,
+                frame_idx=frame_idx,
+                batch_size=1,
+                is_init_cond_frame=is_init_cond_frame,
+                point_inputs=None,
+                mask_inputs=mask_inputs * 6.0 - 3.0,
+                reverse=reverse,
+                run_mem_encoder=False,
+            )
+        
+        # Intersect SAM3's prediction with the original polygon.
+        # The box prompt gives SAM3 freedom to find the object using
+        # visual features, but may include regions outside the polygon.
+        # Clamping logits to strongly negative outside the polygon
+        # recovers the polygon's shape specificity.
+        pred_masks = current_out["pred_masks"]
+        polygon_low_res = F.interpolate(
+            mask_inputs,
+            size=pred_masks.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        ).to(pred_masks.device) > 0.5
+        current_out["pred_masks"] = torch.where(
+            polygon_low_res,
+            pred_masks,
+            torch.clamp(pred_masks, max=-10.0),
         )
+        
         obj_temp_output_dict[storage_key][frame_idx] = current_out
         
         obj_ids = self.inference_state["obj_ids"]
