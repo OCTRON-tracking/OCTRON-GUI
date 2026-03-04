@@ -213,24 +213,42 @@ class sam2_octron_callbacks():
             float(bottom_right[0]),# y2
         ]
         
-        # Buffer box prompts - accumulate all boxes for this frame/object
+        # Buffer box prompts per frame, capped to the most recent N.
+        # The text prompt (label name) provides the category-level prior;
+        # the boxes just show exemplar locations.  Too many box prompts
+        # dilute the transformer's attention and cause mask quality to
+        # degrade (more background co-selected).  2-3 boxes is the sweet
+        # spot; beyond that, the additional exemplars add noise.
+        _MAX_BOX_PROMPTS = 3
         if not hasattr(organizer_entry, '_semantic_box_prompts'):
             organizer_entry._semantic_box_prompts = {}
         if frame_idx not in organizer_entry._semantic_box_prompts:
             organizer_entry._semantic_box_prompts[frame_idx] = []
         
         organizer_entry._semantic_box_prompts[frame_idx].append(box_xyxy)
+        # Keep only the N most recent boxes (drop oldest)
+        if len(organizer_entry._semantic_box_prompts[frame_idx]) > _MAX_BOX_PROMPTS:
+            organizer_entry._semantic_box_prompts[frame_idx] = \
+                organizer_entry._semantic_box_prompts[frame_idx][-_MAX_BOX_PROMPTS:]
         all_boxes = organizer_entry._semantic_box_prompts[frame_idx]
         
-        # Always reset text embeddings before detection to prevent state corruption
-        # This is especially important after propagation, which can leave stale embeddings
+        # Use the label name as a text prompt so the detector knows WHAT
+        # to look for, not just WHERE the examples are.  SAM3 is a
+        # vision-language model — with the generic "visual" text, a single
+        # box prompt often yields low-confidence results.  Passing the
+        # actual category name (e.g. "fly", "screw") dramatically improves
+        # single-box detection quality.
+        text_prompt = organizer_entry.label  # e.g. "fly", "screw"
+        
+        # Always reset text embeddings before detection so that switching
+        # labels forces fresh text-encoding for the new category name.
         if hasattr(predictor, 'detector'):
             if hasattr(predictor.detector, 'text_embeddings'):
                 predictor.detector.text_embeddings = {}
             if hasattr(predictor.detector, 'names'):
                 predictor.detector.names = []
         
-        print(f'SAM3 Mode B: Running detection with {len(all_boxes)} box prompt(s)...')
+        print(f'SAM3 Mode B: Running detection for "{text_prompt}" with {len(all_boxes)} box prompt(s)...')
         
         # Read detection threshold from GUI input
         thresh_text = self.octron.sam3detect_thresh.text().strip()
@@ -246,11 +264,12 @@ class sam2_octron_callbacks():
                 show_error(f'Detection threshold {conf_threshold} out of range. Must be between 0 and 1.')
                 return None
         
-        # Run detection with ALL accumulated boxes together
-        # This allows the model to see all examples simultaneously
+        # Run detection with text + ALL accumulated boxes together.
+        # The text tells the model WHAT to find; the boxes show WHERE.
         pred_masks, pred_scores, _ = predictor.detect(
             frame_idx=frame_idx,
-            bboxes=all_boxes,  # Pass all boxes, not just the latest one
+            text=text_prompt,
+            bboxes=all_boxes,
             conf_threshold=conf_threshold,
         )
         
