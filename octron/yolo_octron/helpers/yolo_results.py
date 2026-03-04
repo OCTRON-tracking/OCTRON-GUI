@@ -216,9 +216,10 @@ class YOLO_results:
                 track_ids_from_csv = []
                 labels_from_csv = []
                 track_id_label_dict = {}
+                csv_frame_indices = {}  # {track_id: set of frame indices}
                 for csv_file in self.csvs:
                     try:
-                        df = pd.read_csv(csv_file, skiprows=header_lines, usecols=['track_id','label'])
+                        df = pd.read_csv(csv_file, skiprows=header_lines, usecols=['track_id','label','frame_idx'])
                         if 'track_id' in df.columns:
                             assert set(df['track_id'].unique()) == set(df['track_id']), f"Duplicate track IDs found in {csv_file.name}"
                             track_ids_from_csv.extend(df['track_id'].unique().tolist())
@@ -229,6 +230,10 @@ class YOLO_results:
                             labels_from_csv.extend(df['label'].unique().tolist())
                         elif self.verbose:
                             print(f"Column 'label' not found in {csv_file.name}")
+                        # Collect per-track frame indices for later cross-validation
+                        if 'track_id' in df.columns and 'frame_idx' in df.columns:
+                            tid = int(df.iloc[0].track_id)
+                            csv_frame_indices[tid] = set(df['frame_idx'].astype(int))
                     except Exception as e:
                         if self.verbose:
                             print(f"Could not read track_ids and labels from {csv_file.name}: {e}")
@@ -241,14 +246,14 @@ class YOLO_results:
                         raise ValueError(f"Duplicate track ID {track_id} found.")
                 # Sort the dictionary by track_id
                 track_id_label_dict = dict(sorted(track_id_label_dict.items()))
-                return list(set(track_ids_from_csv)), list(set(labels_from_csv)), track_id_label_dict
+                return list(set(track_ids_from_csv)), list(set(labels_from_csv)), track_id_label_dict, csv_frame_indices
             else:
                 if self.verbose:
                     print("No CSV files found, cannot extract track IDs from CSVs.")
-                return [], [], {}
+                return [], [], {}, {}
 
         zarr_ids = _track_ids_zarr()
-        csv_ids, csv_labels, track_id_label  = _track_ids_labels_csv(self.csv_header_lines)
+        csv_ids, csv_labels, track_id_label, csv_frame_indices = _track_ids_labels_csv(self.csv_header_lines)
 
         if not csv_ids:
             raise ValueError("No track IDs found in CSV files.")
@@ -265,6 +270,7 @@ class YOLO_results:
         self.track_ids = sorted(csv_ids)
         self.labels = sorted(csv_labels)
         self.track_id_label = track_id_label
+        self._csv_frame_indices = csv_frame_indices  # {track_id: set(frame_idx)}
         if self.verbose:
             print(f"Found {len(self.track_id_label)} unique track IDs in zarr and CSVs: {self.track_id_label}")
 
@@ -754,6 +760,31 @@ class YOLO_results:
             except Exception as e:
                 if self.verbose:
                     print(f"Could not read mask data for track ID {track_id}: {e}")
+        
+        # ── Frame-level alignment check: zarr masks vs CSV tracking ──
+        # Compare per-track frame indices from zarr (masks) against CSV
+        # (tracking) to catch silent misalignment early.
+        if mask_data and self._csv_frame_indices:
+            for tid, mdata in mask_data.items():
+                if tid not in self._csv_frame_indices:
+                    continue
+                zarr_frames = set(mdata['frame_indices'])
+                csv_frames = self._csv_frame_indices[tid]
+                mask_only = zarr_frames - csv_frames
+                csv_only  = csv_frames - zarr_frames
+                if mask_only or csv_only:
+                    label = mdata['label']
+                    parts = [f"Frame index mismatch for track ID {tid} ('{label}'):"]
+                    if mask_only:
+                        preview = sorted(mask_only)[:10]
+                        suffix = f" ... ({len(mask_only)} total)" if len(mask_only) > 10 else ""
+                        parts.append(f"  {len(mask_only)} frames in zarr masks only: {preview}{suffix}")
+                    if csv_only:
+                        preview = sorted(csv_only)[:10]
+                        suffix = f" ... ({len(csv_only)} total)" if len(csv_only) > 10 else ""
+                        parts.append(f"  {len(csv_only)} frames in CSV tracking only: {preview}{suffix}")
+                    warnings.warn("\n".join(parts), UserWarning, stacklevel=2)
+
         return mask_data
     
     def get_masks_for_label(self, label, close_holes=False):
