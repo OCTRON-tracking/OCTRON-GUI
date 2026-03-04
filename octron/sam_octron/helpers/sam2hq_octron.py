@@ -154,9 +154,9 @@ class SAM2_octron_hq(SAM2HQBase):
             }
             return obj_idx
         else:
-            print(f"Cannot add new object id {obj_id} after tracking starts.")
-            print(f"All existing object ids: {inference_state['obj_ids']}.")
-            print(f"Please call 'reset_state' to restart from scratch.")
+            print(f"⚠️ Cannot add a new label (id={obj_id}) after batch prediction has already run.")
+            print(f"  ℹ️ You can only annotate existing labels: {inference_state['obj_ids']}")
+            print(f"  ➡️ To add additional labels, reset the predictor first (click 'Reset').")
             return
     
     

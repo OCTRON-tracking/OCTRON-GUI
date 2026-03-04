@@ -411,11 +411,10 @@ class SAM3_octron:
             }
             return obj_idx
         else:
-            raise RuntimeError(
-                f"Cannot add new object id {obj_id} after tracking starts. "
-                f"All existing object ids: {self.inference_state['obj_ids']}. "
-                f"Please call 'reset_state' to restart from scratch."
-            )
+            print(f"⚠️ Cannot add a new label (id={obj_id}) after batch prediction has already run.")
+            print(f"  ℹ️ You can only annotate existing labels: {self.inference_state['obj_ids']}")
+            print(f"  ➡️ To add additional labels, reset the predictor first (click 'Reset').")
+            return None
     
     def _get_obj_num(self):
         return len(self.inference_state["obj_idx_to_id"])
@@ -689,6 +688,8 @@ class SAM3_octron:
         video_res_masks : torch.Tensor
         """
         obj_idx = self._obj_id_to_idx(obj_id)
+        if obj_idx is None:
+            return None, None, None
         point_inputs_per_frame = self.inference_state["point_inputs_per_obj"][obj_idx]
         mask_inputs_per_frame = self.inference_state["mask_inputs_per_obj"][obj_idx]
         
@@ -816,6 +817,8 @@ class SAM3_octron:
         video_res_masks : torch.Tensor
         """
         obj_idx = self._obj_id_to_idx(obj_id)
+        if obj_idx is None:
+            return None, None, None
         point_inputs_per_frame = self.inference_state["point_inputs_per_obj"][obj_idx]
         mask_inputs_per_frame = self.inference_state["mask_inputs_per_obj"][obj_idx]
         
@@ -1486,13 +1489,15 @@ class SAM3_semantic_octron:
         
         for i in range(pred_masks.shape[0]):
             obj_id = self._next_obj_id
-            self._next_obj_id += 1
             mask_np = pred_masks[i].cpu().numpy()
-            _, obj_ids, video_res_masks = self.tracker.add_new_mask(
+            out_frame_idx, obj_ids, video_res_masks = self.tracker.add_new_mask(
                 frame_idx=frame_idx,
                 obj_id=obj_id,
                 mask=mask_np,
             )
+            if out_frame_idx is None:
+                return obj_ids_added, video_res_masks
+            self._next_obj_id += 1
             obj_ids_added.append(obj_id)
         
         return obj_ids_added, video_res_masks
