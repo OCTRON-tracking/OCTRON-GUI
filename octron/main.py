@@ -1132,6 +1132,10 @@ class octron_widget(QWidget):
             
         # Reset variables for a clean start
         self.object_organizer = ObjectOrganizer()
+        self.label_list_combobox.clear()
+        self.label_list_combobox.addItem("Label ...")
+        self.label_list_combobox.addItem(u"\u2295 Create")
+        self.label_list_combobox.addItem(u"\u2296 Remove")
         self.project_folder_path_label.setEnabled(False)
         self.project_folder_path_label.setText(f'→{folder.as_posix()}')
         
