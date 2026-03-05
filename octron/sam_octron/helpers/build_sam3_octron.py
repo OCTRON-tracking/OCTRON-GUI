@@ -42,7 +42,7 @@ def build_sam3_octron(
     device : torch.device
         The device the model is running on.
     """
-    from .sam3_octron import SAM3_octron
+    from .sam3_octron import SAM3_octron, SAM3_IMAGE_SIZE
     
     # Find out which device to use
     if torch.cuda.is_available():
@@ -69,6 +69,11 @@ def build_sam3_octron(
     if mode == "eval":
         sam3_model.eval()
     
+    # Configure model resolution from the global SAM3_IMAGE_SIZE constant.
+    # set_imgsz updates: image_size, prompt encoder, memory encoder, and
+    # backbone positional embeddings / RoPE frequencies.
+    sam3_model.set_imgsz([SAM3_IMAGE_SIZE, SAM3_IMAGE_SIZE])
+    
     # Wrap in SAM3_octron (tracker – used in both modes)
     tracker = SAM3_octron(model=sam3_model, device=device)
     
@@ -85,6 +90,7 @@ def build_sam3_octron(
     detector = detector.to(device)
     if mode == "eval":
         detector.eval()
+    detector.set_imgsz((SAM3_IMAGE_SIZE, SAM3_IMAGE_SIZE))
     
     predictor = SAM3_semantic_octron(
         detector_model=detector,

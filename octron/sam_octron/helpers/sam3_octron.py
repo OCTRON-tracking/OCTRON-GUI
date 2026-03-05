@@ -22,10 +22,11 @@ warnings.simplefilter("ignore")
 # SAM3 constants
 SAM3_IMAGE_SIZE = 1008
 SAM3_BACKBONE_STRIDE = 14
+_fs = SAM3_IMAGE_SIZE // SAM3_BACKBONE_STRIDE  # base feature size
 SAM3_BB_FEAT_SIZES = [
-    (288, 288),  # 1008 / 14 * 4
-    (144, 144),  # 1008 / 14 * 2
-    (72, 72),    # 1008 / 14
+    (_fs * 4, _fs * 4),
+    (_fs * 2, _fs * 2),
+    (_fs,     _fs),
 ]
 # SAM3 normalization: maps [0,1] to [-1,1]
 SAM3_IMG_MEAN = (0.5, 0.5, 0.5)
