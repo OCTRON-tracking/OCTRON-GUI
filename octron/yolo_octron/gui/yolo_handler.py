@@ -600,6 +600,7 @@ class YoloHandler(QObject):
             self.w.start_stop_training_btn.setEnabled(True)
             self.w.start_stop_training_btn.setStyleSheet('')
             self.w.start_stop_training_btn.setText(f'▷ Train')
+            self.w.train_resume_checkBox.setEnabled(True)
 
     #######################################################################################################
     # YOLO TRAINING PIPELINE
@@ -809,6 +810,12 @@ class YoloHandler(QObject):
             self.w.train_data_watershed_checkBox.setEnabled(True)
             self.w.train_data_overwrite_checkBox.setEnabled(True)
             self.w.train_prune_checkBox.setEnabled(True)
+            # Re-enable training controls (disabled during training)
+            self.w.train_resume_checkBox.setEnabled(True)
+            self.w.yolomodel_list.setEnabled(True)
+            self.w.yoloimagesize_list.setEnabled(True)
+            self.w.num_epochs_input.setEnabled(True)
+            self.w.save_period_input.setEnabled(True)
             # Reset pipeline flags so data generation can be re-entered
             self.bbox_or_polygon_generated = False
             self.training_data_generated = False
