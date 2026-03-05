@@ -597,6 +597,7 @@ class YoloHandler(QObject):
             self.yolo.write_yolo_config(train_mode=self.w.train_mode)
             # Enable next part (YOLO training) of the pipeline 
             self.w.train_train_groupbox.setEnabled(True)
+            self.w.start_stop_training_btn.setEnabled(True)
             self.w.start_stop_training_btn.setStyleSheet('')
             self.w.start_stop_training_btn.setText(f'▷ Train')
 
