@@ -1,12 +1,15 @@
 sam2_base_plus:
-  name: "SAM2 Base Plus"
+  name: "SAM2 Base+"
   config_path: "configs/sam2.1/sam2.1_hiera_b+.yaml"
   checkpoint_path: "checkpoints/sam2.1_hiera_base_plus.pt"
+  tooltip: "Lightweight SAM2 model - faster inference, lower VRAM usage"
 sam2_large:
-  name: "SAM2 Large"
+  name: "SAM2 L"
   config_path: "configs/sam2.1/sam2.1_hiera_l.yaml"
   checkpoint_path: "checkpoints/sam2.1_hiera_large.pt"
+  tooltip: "Large SAM2 model - better segmentation quality"
 sam2_large_hq:
-  name: "SAM2 Large HQ"
+  name: "SAM2 L HQ"
   config_path: "configs/sam2.1/sam2.1_hq_hiera_l.yaml"
   checkpoint_path: "checkpoints/sam2.1_hq_hiera_large.pt"
+  tooltip: "Large SAM2 model with HQ token - best edge detail"
