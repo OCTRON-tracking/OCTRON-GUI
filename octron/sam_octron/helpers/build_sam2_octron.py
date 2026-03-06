@@ -71,7 +71,7 @@ def build_sam2_octron(
             torch.backends.cudnn.allow_tf32 = True
     elif device.type == "mps":
         print(
-            "⚠️ Support for MPS devices is preliminary. SAM 2 is trained with CUDA and might "
+            "⚠️  Support for MPS devices is preliminary. SAM 2 is trained with CUDA and might "
             "give numerically different outputs and sometimes degraded performance on MPS. "
             "See e.g. https://github.com/pytorch/pytorch/issues/84936 for a discussion."
         )
