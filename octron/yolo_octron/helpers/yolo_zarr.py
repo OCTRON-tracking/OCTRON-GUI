@@ -92,6 +92,7 @@ def create_prediction_zarr(store,
                                    )
     image_zarr.attrs['created_at'] = str(datetime.now())
     image_zarr.attrs['video_hash'] = video_hash
+    image_zarr.attrs['annotated_frames'] = []
     if verbose:
         print('Zarr array info:')
         print(image_zarr.info)

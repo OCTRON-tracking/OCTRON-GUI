@@ -32,6 +32,8 @@ from qtpy.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QHeaderView,
+    QLabel,
+    QMenu,
 )
 import napari
 from napari.utils.notifications import (
@@ -61,11 +63,14 @@ import zarr
 from octron.sam_octron.helpers.sam2_zarr import (
     create_image_zarr,
     load_image_zarr,
+    get_annotated_frames,
+    mark_frames_annotated,
 )
 # YOLO specific 
 from octron.yolo_octron.gui.yolo_handler import YoloHandler
 from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
 from octron.yolo_octron.yolo_octron import YOLO_octron
+from octron.yolo_octron.constants import TASK_COLORS
 
 # Tracker specific 
 from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
@@ -125,6 +130,7 @@ class octron_widget(QWidget):
         self.project_path_video = None # Video path that the user selects
         self.video_layer = None
         self.current_video_hash = None # Hashed video file
+        self.train_mode = 'segment'
         self.video_zarr = None
         self.all_zarrs = [] # Collect zarrs in list so they can be cleaned up upon closing
         self.prefetcher_worker = None
@@ -214,7 +220,7 @@ class octron_widget(QWidget):
         self._viewer.layers.events.removed.connect(self.on_layer_removed)
         
         # ToolBox tab changed callback
-        self.toolBox.currentChanged.connect(self.on_toolbox_tab_changed)
+        self.main_toolbox.currentChanged.connect(self.on_toolbox_tab_changed)
         
         # Main video drop area
         self.video_file_drop_widget.callback = self.on_mp4_file_dropped_area
@@ -236,13 +242,25 @@ class octron_widget(QWidget):
         self.generate_training_data_btn.setText('')
         self.start_stop_training_btn.setText('')
         self.predict_start_btn.setText('')
+        # Train mode radiobuttons — set initial titles and color indicators
+        self.train_generate_groupbox.setTitle('Generate training data (Mode: Segmentation)')
+        self.generate_mode_indicator = QLabel(self.train_generate_groupbox)
+        self.generate_mode_indicator.setFixedSize(14, 14)
+        self.generate_mode_indicator.move(380, 2)
+        self.train_train_groupbox.setTitle('Train (Mode: Segmentation)')
+        self.train_mode_indicator = QLabel(self.train_train_groupbox)
+        self.train_mode_indicator.setFixedSize(14, 14)
+        self.train_mode_indicator.move(380, 2)
+        self._update_train_mode_indicators(TASK_COLORS['segment'])
+        self.segmentation_radiobutton.toggled.connect(self.on_train_mode_changed)
+        
         # Lists
         self.label_list_combobox.currentIndexChanged.connect(self.on_label_change)
         # Upon start, disable some of the toolbox tabs and functionality for video drop 
         self.project_video_drop_groupbox.setEnabled(False)
-        self.toolBox.widget(1).setEnabled(False) # Annotation
-        self.toolBox.widget(2).setEnabled(False) # Training
-        self.toolBox.widget(3).setEnabled(False) # Prediction
+        self.main_toolbox.widget(1).setEnabled(False) # Annotation
+        self.main_toolbox.widget(2).setEnabled(False) # Training
+        self.main_toolbox.widget(3).setEnabled(False) # Prediction
         
         # Disable layer annotation until SAM2 model is loaded
         self.annotate_layer_create_groupbox.setEnabled(False)
@@ -251,16 +269,44 @@ class octron_widget(QWidget):
         self.sam3detect_thresh.setEnabled(False)
         self.threshold_label.setEnabled(False)
         
-        # And ... 
+        # And disable some more boxes
+        # Training
+        self.segmentation_bbox_decision_groupbox.setEnabled(False)
         self.train_generate_groupbox.setEnabled(False)
         self.train_train_groupbox.setEnabled(False)
-        # ... 
+        # Prediction
         self.predict_video_drop_groupbox.setEnabled(False)
         self.predict_video_predict_groupbox.setEnabled(False)
         
         # Connect to the Napari viewer close event
         self.app.lastWindowClosed.connect(self.closeEvent)
     
+    def _update_train_mode_indicators(self, color):
+        """
+        Update the colored square indicators on the generate and train groupboxes.
+        """
+        icon = create_color_icon(color, size=14)
+        pixmap = icon.pixmap(14, 14)
+        self.generate_mode_indicator.setPixmap(pixmap)
+        self.train_mode_indicator.setPixmap(pixmap)
+
+    def on_train_mode_changed(self, checked):
+        """
+        Callback triggered when the segmentation/detection radiobutton is toggled.
+        Updates self.train_mode, groupbox titles, and color indicators.
+        """
+        if checked:
+            self.train_mode = 'segment'
+            self.train_generate_groupbox.setTitle('Generate training data (Mode: Segmentation)')
+            self.train_train_groupbox.setTitle('Train (Mode: Segmentation)')
+            self._update_train_mode_indicators(TASK_COLORS['segment'])
+        else:
+            self.train_mode = 'detect'
+            self.train_generate_groupbox.setTitle('Generate training data (Mode: Detection)')
+            self.train_train_groupbox.setTitle('Train (Mode: Detection)')
+            self._update_train_mode_indicators(TASK_COLORS['detect'])
+        print(f'Train mode set to: {self.train_mode}')
+
     def on_toolbox_tab_changed(self, index):
         """
         Callback triggered when a different tab is selected in the toolBox.
@@ -323,8 +369,8 @@ class octron_widget(QWidget):
         new_family = "SAM3" if is_sam3 else "SAM2"
         show_error(
             f"Model incompatibility: existing annotations were created with "
-            f"{existing_family} ({existing_image_size}×{existing_image_size}). "
-            f"Cannot load {new_family} model ({new_image_size}×{new_image_size}). "
+            f"{existing_family} ({existing_image_size}x{existing_image_size}). "
+            f"Cannot load {new_family} model ({new_image_size}x{new_image_size}). "
             f"SAM2 and SAM3 use different image resolutions and are not interchangeable."
         )
         return False
@@ -382,6 +428,7 @@ class octron_widget(QWidget):
         assert model_found, f"Model '{model_name}' not found in SAM2 models dictionary."
         
         print(f"Loading SAM2 model {model_id}")
+        self._cleanup_predictor()
         model = self.sam2models_dict[model_id]
         config_path = Path(model['config_path'])
         checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
@@ -390,6 +437,7 @@ class octron_widget(QWidget):
                                                         )
         self.predictor.is_initialized = False
         show_info(f"SAM2 model {model_name} loaded on {self.device}")
+        self.chunk_size = 15
         self._on_model_loaded(model_name)
 
     def load_sam3model(self, model_name=''):
@@ -415,6 +463,7 @@ class octron_widget(QWidget):
         assert model_found, f"Model '{model_name}' not found in SAM3 models dictionary."
         
         print(f"Loading SAM3 model {model_id}")
+        self._cleanup_predictor()
         model = self.sam3models_dict[model_id]
         checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
         semantic = model.get('semantic', False)
@@ -424,6 +473,9 @@ class octron_widget(QWidget):
         )
         self.predictor.is_initialized = False
         show_info(f"SAM3 model {model_name} loaded on {self.device}")
+        # SAM3 semantic (Mode B) is much more expensive per frame due to
+        # the large number of tracked objects, so use a smaller batch.
+        self.chunk_size = 6 if semantic else 15
         self._on_model_loaded(model_name)
         
         # Disable "Points" option for SAM3 semantic+detector models
@@ -464,6 +516,48 @@ class octron_widget(QWidget):
         self.annotate_layer_create_groupbox.setEnabled(True)
         
         
+    def _cleanup_predictor(self):
+        """
+        Fully release the current predictor and free GPU memory.
+        
+        Called before loading a new model or removing the video layer
+        so that the old model's weights, inference state, and cached
+        backbone features don't linger on the GPU.
+        """
+        import gc
+        if self.predictor is None:
+            return
+        
+        try:
+            if getattr(self.predictor, 'is_initialized', False):
+                self.predictor.reset_state()
+        except Exception as e:
+            print(f"Warning: reset_state during cleanup failed: {e}")
+        
+        # For SAM3_semantic_octron, also release the detector model
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron, SAM3_octron
+        if isinstance(self.predictor, SAM3_semantic_octron):
+            del self.predictor.detector
+            del self.predictor.tracker.model
+        # For SAM3_octron (plain tracker), release the wrapped model
+        elif isinstance(self.predictor, SAM3_octron):
+            del self.predictor.model
+        
+        device = getattr(self, 'device', None)
+        del self.predictor
+        self.predictor = None
+        
+        gc.collect()
+        
+        import torch
+        if device is not None and device.type == "mps":
+            torch.mps.synchronize()
+            torch.mps.empty_cache()
+        elif device is not None and device.type == "cuda":
+            torch.cuda.empty_cache()
+        
+        print("🧹 Predictor cleaned up, GPU memory freed.")
+    
     def reset_predictor(self):
         """
         Reset the predictor and all layers, including clearing masks on current frame.
@@ -498,9 +592,21 @@ class octron_widget(QWidget):
             if hasattr(entry, '_semantic_accumulated_masks'):
                 entry._semantic_accumulated_masks.pop(current_frame, None)
         
+        # Clear semantic object ID mapping
+        self._semantic_obj_id_map = {}
+        
         show_info("SAM predictor was reset.")
         
     
+    def _flush_semantic_frame_buffer(self):
+        """Write any pending semantic frame buffer to zarr and refresh."""
+        buf = getattr(self, '_semantic_frame_buffer', None)
+        if buf is not None:
+            layer, fidx, data = buf
+            layer.data[fidx, :, :] = data
+            layer.refresh()
+            self._semantic_frame_buffer = None
+
     def _batch_predict_yielded(self, value):
         """
         prediction_worker()
@@ -508,11 +614,64 @@ class octron_widget(QWidget):
         Updates the progress bar and the mask layer with the predicted mask.
         """
         progress, frame_idx, obj_id, mask, last_run = value
-        organizer_entry = self.object_organizer.get_entry(obj_id)
-        # Extract current mask layer
-        prediction_layer = organizer_entry.prediction_layer
-        prediction_layer.data[frame_idx,:,:] = mask
-        prediction_layer.refresh()  
+        
+        # Check if this is a semantic tracker obj_id mapped to a parent entry
+        semantic_map = getattr(self, '_semantic_obj_id_map', {})
+        if obj_id in semantic_map:
+            parent_obj_id, mask_id = semantic_map[obj_id]
+            organizer_entry = self.object_organizer.get_entry(parent_obj_id)
+            prediction_layer = organizer_entry.prediction_layer
+
+            # Buffer all semantic object writes for the same frame so we
+            # only do one zarr read + one zarr write + one napari refresh
+            # per frame instead of N (one per detected object).
+            buf = getattr(self, '_semantic_frame_buffer', None)
+            if buf is not None and (buf[0] is not prediction_layer or buf[1] != frame_idx):
+                # Frame (or layer) changed — flush the previous buffer
+                self._flush_semantic_frame_buffer()
+                buf = None
+
+            if buf is None:
+                current = np.array(prediction_layer.data[frame_idx])
+                # Convert fill-value (-1) to proper background (0) so
+                # propagated frames are recognised as annotated downstream.
+                current[current < 0] = 0
+            else:
+                current = buf[2]
+
+            # Clear old pixels that had this mask_id (object may have moved)
+            current[current == mask_id] = 0
+            # Stamp new mask pixels with mask_id
+            current[mask > 0] = mask_id
+
+            # Keep buffer for efficient in-memory accumulation (avoids
+            # re-reading zarr on the next object for the same frame).
+            self._semantic_frame_buffer = (prediction_layer, frame_idx, current)
+            # Also write to layer immediately so the viewer shows the
+            # masks while the current frame is still on screen.
+            prediction_layer.data[frame_idx, :, :] = current
+            # Track annotated frames (batched flush in _on_prediction_finished)
+            pending = getattr(self, '_pending_annotated_frames', {})
+            key = id(prediction_layer.data)
+            pending.setdefault(key, (prediction_layer.data, set()))
+            pending[key][1].add(int(frame_idx))
+            self._pending_annotated_frames = pending
+            prediction_layer.refresh()
+        else:
+            # Flush any pending semantic buffer before handling non-semantic object
+            self._flush_semantic_frame_buffer()
+
+            organizer_entry = self.object_organizer.get_entry(obj_id)
+            prediction_layer = organizer_entry.prediction_layer
+            prediction_layer.data[frame_idx,:,:] = mask
+            # Track annotated frames (batched flush in _on_prediction_finished)
+            pending = getattr(self, '_pending_annotated_frames', {})
+            key = id(prediction_layer.data)
+            pending.setdefault(key, (prediction_layer.data, set()))
+            pending[key][1].add(int(frame_idx))
+            self._pending_annotated_frames = pending
+            prediction_layer.refresh()
+        
         if self._viewer.dims.current_step[0] != frame_idx and not last_run:
             self._viewer.dims.set_point(0, frame_idx)
         self.batch_predict_progressbar.setValue(progress)
@@ -523,10 +682,23 @@ class octron_widget(QWidget):
         Callback for when worker within init_prediction_threaded() 
         has finished executing. 
         """
-        # Enable the predcition button again
+        # Flush the last semantic frame buffer (propagation ended)
+        self._flush_semantic_frame_buffer()
+        
+        # Batch-flush all pending annotated frame attrs accumulated during propagation
+        for zarr_array, frame_set in getattr(self, '_pending_annotated_frames', {}).values():
+            mark_frames_annotated(zarr_array, frame_set)
+        self._pending_annotated_frames = {}
+        
+        # Enable the prediction button and UI sections again
         self.predict_next_batch_btn.setEnabled(True)
         self.predict_next_oneframe_btn.setEnabled(True)
         self.skip_frames_spinbox.setEnabled(True)
+        self.segmentation_bbox_decision_groupbox.setEnabled(True)
+        self.train_generate_groupbox.setEnabled(True)
+        self.train_train_groupbox.setEnabled(True)
+        self.predict_video_drop_groupbox.setEnabled(True)
+        self.predict_video_predict_groupbox.setEnabled(True)
         self.batch_predict_progressbar.setValue(0)
         
         # Save the object organizer 
@@ -546,17 +718,82 @@ class octron_widget(QWidget):
         # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
-            for obj_id, entry in self.object_organizer.entries.items():
-                if hasattr(entry, '_semantic_accumulated_masks'):
-                    for frame_idx, mask in entry._semantic_accumulated_masks.items():
-                        # Finalize the accumulated mask to the tracker
+            # Only rebuild the mapping when there are NEW accumulated masks to
+            # register.  On repeated propagation clicks (no new annotations) the
+            # tracker still holds the objects from the previous run, so the
+            # existing map must be preserved.
+            # Rebuild the tracker when it has been reset (e.g. by a
+            # new detection on any label) but accumulated masks exist.
+            # We intentionally keep _semantic_accumulated_masks alive
+            # across propagation runs so that ALL labels are re-registered
+            # when the tracker is rebuilt — not just the label that
+            # triggered the new detection.
+            tracker_needs_rebuild = (
+                not self.predictor.inference_state.get('tracking_has_started', False)
+                and any(
+                    hasattr(e, '_semantic_accumulated_masks') and e._semantic_accumulated_masks
+                    for e in self.object_organizer.entries.values()
+                )
+            )
+            if tracker_needs_rebuild:
+                # Always start object IDs from 0 when rebuilding from
+                # accumulated masks.
+                self.predictor._next_obj_id = 0
+                self._semantic_obj_id_map = {}  # tracker_obj_id → (organizer_obj_id, mask_id)
+
+                # Collect entries that have accumulated masks.
+                entries_with_masks = []
+                all_cond_frames = set()
+                for obj_id, entry in self.object_organizer.entries.items():
+                    if hasattr(entry, '_semantic_accumulated_masks') and entry._semantic_accumulated_masks:
+                        entries_with_masks.append((obj_id, entry))
+                        all_cond_frames.update(entry._semantic_accumulated_masks.keys())
+
+                # When labels were detected on different frames (common after
+                # re-detection on one label), align ALL labels to the most
+                # recent frame so that every object shares a single
+                # conditioning frame.  For labels without a fresh detection
+                # at that frame, read the propagated masks from their zarr
+                # layer.  This avoids "ghost" memory entries (objects with
+                # NO_OBJ_SCORE at frames they weren't detected on) that
+                # corrupt memory attention and degrade prediction quality.
+                target_frame = max(all_cond_frames) if all_cond_frames else None
+
+                for obj_id, entry in entries_with_masks:
+                    id_mask = entry._semantic_accumulated_masks.get(target_frame)
+                    cond_frame = target_frame
+
+                    if id_mask is None and target_frame is not None:
+                        # Label wasn't re-detected at target_frame.
+                        # Read its propagated masks from the zarr layer.
+                        prediction_layer = entry.prediction_layer
+                        if prediction_layer is not None:
+                            zarr_data = np.array(prediction_layer.data[target_frame, :, :])
+                            if zarr_data.max() > 0:
+                                id_mask = zarr_data
+                                # Keep accumulated masks in sync so the
+                                # next rebuild uses the correct frame.
+                                entry._semantic_accumulated_masks = {target_frame: id_mask}
+
+                    if id_mask is None:
+                        # No zarr data either (before first propagation);
+                        # fall back to the label's own detection frame.
+                        cond_frame = next(iter(entry._semantic_accumulated_masks))
+                        id_mask = entry._semantic_accumulated_masks[cond_frame]
+
+                    # Split ID-encoded mask into per-object binary masks
+                    unique_ids = np.unique(id_mask)
+                    unique_ids = unique_ids[unique_ids > 0]  # Exclude background
+                    for mask_id in unique_ids:
+                        tracker_obj_id = self.predictor._next_obj_id
+                        self.predictor._next_obj_id += 1
+                        binary_mask = (id_mask == mask_id)
                         self.predictor.tracker.add_new_mask(
-                            frame_idx=frame_idx,
-                            obj_id=obj_id,
-                            mask=mask.astype(bool),
+                            frame_idx=cond_frame,
+                            obj_id=tracker_obj_id,
+                            mask=binary_mask,
                         )
-                    # Clear accumulated masks after finalizing
-                    entry._semantic_accumulated_masks = {}
+                        self._semantic_obj_id_map[tracker_obj_id] = (obj_id, int(mask_id))
         
         # Before doing anything, make sure, some input has been provided
         valid = False
@@ -570,10 +807,15 @@ class octron_widget(QWidget):
         # Identify the sender (button) that called this function
         sender = self.sender()
         
-        # Disable the prediction button
+        # Disable the prediction button and unrelated UI sections
         self.predict_next_batch_btn.setEnabled(False)
         self.predict_next_oneframe_btn.setEnabled(False)
         self.skip_frames_spinbox.setEnabled(False)
+        self.segmentation_bbox_decision_groupbox.setEnabled(False)
+        self.train_generate_groupbox.setEnabled(False)
+        self.train_train_groupbox.setEnabled(False)
+        self.predict_video_drop_groupbox.setEnabled(False)
+        self.predict_video_predict_groupbox.setEnabled(False)
         if sender == self.predict_next_batch_btn:
             self.prediction_worker = create_worker(self.octron_sam2_callbacks.batch_predict)
             self.prediction_worker.setAutoDelete(True)
@@ -646,6 +888,9 @@ class octron_widget(QWidget):
                                     min_num_frames=0
                                     )  
         if not label_dict:
+            # Clear the table if a model already exists (e.g. switching projects)
+            if hasattr(self, 'label_table_model'):
+                self.label_table_model.update_data({}, delete_old=True)
             return
         
         # Initialize the table model if not already done
@@ -661,6 +906,9 @@ class octron_widget(QWidget):
             header.setStretchLastSection(True)
             # Connect double-click event on table rows 
             self.existing_data_table.doubleClicked.connect(self.on_label_table_double_clicked)
+            # Enable right-click context menu
+            self.existing_data_table.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.existing_data_table.customContextMenuRequested.connect(self.on_label_table_context_menu)
         
         # Update the table with new data
         self.label_table_model.update_data(label_dict, delete_old=delete_old)
@@ -674,13 +922,62 @@ class octron_widget(QWidget):
         # Enable training tab if data is available
         if label_dict and any(v for k, v in label_dict.items() if k != 'video' and k != 'video_file_path'):
             print("Data available, enabling training tab.")
-            self.toolBox.widget(2).setEnabled(True)  # Training
+            self.main_toolbox.widget(2).setEnabled(True)  # Training
+            self.segmentation_bbox_decision_groupbox.setEnabled(True)
             self.train_generate_groupbox.setEnabled(True)
-            self.train_train_groupbox.setEnabled(True)
+            # train_train_groupbox is enabled only after training data generation finishes
+            # (see _on_training_data_finished in yolo_handler.py)
             # Enable some buttons too 
             self.train_data_watershed_checkBox.setEnabled(True)
             self.train_data_overwrite_checkBox.setEnabled(True)
             self.train_prune_checkBox.setEnabled(True)
+
+    def on_label_table_context_menu(self, pos):
+        """
+        Handle right-click context menu on the existing data table.
+        Offers a 'Delete' action that removes annotations from disk.
+        """
+        index = self.existing_data_table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        menu = QMenu(self)
+        delete_action = menu.addAction("Delete")
+        action = menu.exec_(self.existing_data_table.viewport().mapToGlobal(pos))
+
+        if action == delete_action:
+            folder_path = self.label_table_model.get_folder_path(index)
+            if not folder_path:
+                return
+
+            folder = Path(folder_path)
+            video_file_path = self.label_table_model.label_dict[folder_path].get('video_file_path', '')
+            reply = QMessageBox.warning(
+                self,
+                "Delete annotations",
+                f"This will permanently delete all annotations for this video from disk:\n\n"
+                f"{folder.name}\nFull path: {folder.as_posix()}\n\n"
+                f"Associated video: '{Path(video_file_path).name}' (will not be deleted!)\n\n"
+                f"This action cannot be undone. Continue?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+
+            if reply == QMessageBox.Yes:
+                # If the video being deleted is currently loaded, remove its layers first
+                if (self.video_layer is not None
+                        and self.project_path_video is not None
+                        and folder.resolve() == self.project_path_video.resolve()):
+                    self._viewer.layers.remove(self.video_layer)
+
+                # Delete folder from disk
+                if folder.exists() and folder.is_dir():
+                    shutil.rmtree(folder)
+                    show_info(f"Deleted: {folder.name}")
+                # Remove row from table model
+                self.label_table_model.remove_row(index.row())
+                # Refresh the table from disk
+                self.refresh_label_table_list(delete_old=True)
 
     def on_label_table_double_clicked(self, index):
         """
@@ -835,6 +1132,10 @@ class octron_widget(QWidget):
             
         # Reset variables for a clean start
         self.object_organizer = ObjectOrganizer()
+        self.label_list_combobox.clear()
+        self.label_list_combobox.addItem("Label ...")
+        self.label_list_combobox.addItem(u"\u2295 Create")
+        self.label_list_combobox.addItem(u"\u2296 Remove")
         self.project_folder_path_label.setEnabled(False)
         self.project_folder_path_label.setText(f'→{folder.as_posix()}')
         
@@ -897,7 +1198,7 @@ class octron_widget(QWidget):
                 
         total_deleted = len(mask_layers) + len(other_layers)
         if total_deleted:
-            print(f"💀 Auto-deleted {total_deleted} layers")
+            print(f"🗑️ Auto-deleted {total_deleted} layers")
 
 
     def on_layer_removed(self, event):
@@ -969,7 +1270,7 @@ class octron_widget(QWidget):
                 self.prefetcher_worker = None
                 self.all_zarrs = []
                 # SAM2 
-                self.predictor = None
+                self._cleanup_predictor()
                 self.loaded_model_name = None
                 self.sam_model_list.setCurrentIndex(0)
                 self.sam_model_list.setEnabled(True)
@@ -989,7 +1290,7 @@ class octron_widget(QWidget):
                 # Disable the layer annotation box until SAM2 is loaded 
                 self.annotate_layer_create_groupbox.setEnabled(False)
                 # Reset naming of annotation tab 
-                self.toolBox.setItemText(1, "Generate annotation data")
+                self.main_toolbox.setItemText(1, "Generate annotation data")
             # Reset the flag 
             self.remove_current_layer = False
     
@@ -1068,7 +1369,7 @@ class octron_widget(QWidget):
                 if l._basename() == 'Image' and 'VIDEO' in l.name:
                     video_layers.append(l)
             except Exception as e:
-                show_error(f"💀 Error when checking layer: {e}")
+                show_error(f"Error when checking layer: {e}")
 
         if len(video_layers) > 1:
             # This should never happen
@@ -1094,8 +1395,8 @@ class octron_widget(QWidget):
             self.init_zarr_prefetcher_threaded()
             
             print(f"VIDEO LAYER >>> {layer_name}")
-            self.toolBox.widget(1).setEnabled(True) 
-            self.toolBox.setItemText(1, f"Generate annotation data for: {self.current_video_hash}")
+            self.main_toolbox.widget(1).setEnabled(True) 
+            self.main_toolbox.setItemText(1, f"Generate annotation data for: {self.current_video_hash}")
 
         return
         
@@ -1238,11 +1539,11 @@ class octron_widget(QWidget):
         predictor_image_size = self.predictor.image_size # SAM2 model image size
         largest_edge = max(video_height, video_width) 
 
-        image_scaler = predictor_image_size / largest_edge
-        # Resize both (!) edges to the same size 
-        # This is a hack since I did not get SAM2 to work for non-square videos
-        resized_height = int(np.floor(image_scaler * largest_edge)) 
-        resized_width = int(np.floor(image_scaler * largest_edge))
+        # Resize both (!) edges to the same square size matching the model's expected input.
+        # Use predictor_image_size directly to avoid floating-point rounding errors
+        # (e.g. int(floor(1008/1337*1337)) can yield 1007 instead of 1008).
+        resized_height = predictor_image_size
+        resized_width = predictor_image_size
         print(f'📐 Resized video dimensions: {resized_height}x{resized_width}')
         
         # Create zarr store for video layer
@@ -1458,6 +1759,7 @@ class octron_widget(QWidget):
                                                                  project_path=self.project_path_video,
                                                                  color=mask_colors,
                                                                  video_hash_abrrev=self.current_video_hash,
+                                                                 label_id=organizer_entry.label_id,
                                                                  )
             # Add zarr store to list for cleanup upon closing
             self.all_zarrs.append(zarr_data)
@@ -1568,7 +1870,7 @@ class octron_widget(QWidget):
         indices = []
         for layer in prediction_layers:
             data = layer.data
-            annotated_indices = np.where(data[:,0,0] >= 0)[0]
+            annotated_indices = get_annotated_frames(data)
             # Get the next index after the current one
             next_idx = np.where(annotated_indices > current_timeline_idx)[0]
             if next_idx.size > 0:
@@ -1596,7 +1898,7 @@ class octron_widget(QWidget):
         indices = []
         for layer in prediction_layers:
             data = layer.data
-            annotated_indices = np.where(data[:,0,0] >= 0)[0]
+            annotated_indices = get_annotated_frames(data)
             # Get the next index after the current one
             prev_idx = np.where(annotated_indices < current_timeline_idx)[0]
             if prev_idx.size > 0:

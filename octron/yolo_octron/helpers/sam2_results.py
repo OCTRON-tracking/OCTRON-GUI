@@ -9,6 +9,7 @@ from scipy.ndimage import gaussian_filter1d
 from skimage.morphology import remove_small_holes, binary_closing, disk
 from tqdm import tqdm
 from skimage.measure import regionprops
+from octron.sam_octron.helpers.sam2_zarr import get_annotated_frames
 
 class ANNOT_results:
     def __init__(self, annotation_dir, verbose=True, **kwargs):
@@ -111,7 +112,7 @@ class ANNOT_results:
                 if self.verbose:
                     print(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
             # Check which indices are empty 
-            self.frame_indices_dict[label_name] = np.where(self.zarr_dict[label_name][:,0,0] != -1)[0]
+            self.frame_indices_dict[label_name] = get_annotated_frames(self.zarr_dict[label_name])
     
     
     def create_tracking_dict(self):

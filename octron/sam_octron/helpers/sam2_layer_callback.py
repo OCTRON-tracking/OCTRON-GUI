@@ -1,10 +1,14 @@
 # OCTRON SAM2 related callbacks
 import time
 import numpy as np
+import cmasher as cmr
+from napari.utils import DirectLabelColormap
 from octron.sam_octron.helpers.sam2_octron import (
     SAM2_octron,
     run_new_pred,
 )
+from octron.sam_octron.helpers.sam2_colors import sample_maximally_different, create_semantic_colormap
+from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
 from napari.utils.notifications import (
     show_warning,
     show_info,
@@ -120,33 +124,40 @@ class sam2_octron_callbacks():
                 
             else:
                 # In all other cases, just treat shapes as masks 
-                shape_masks = np.stack(shapes_layer.to_masks((video_height, video_width)))
-                if len(shape_masks) == 1: 
-                    shape_mask = shape_masks[0]
-                else:
-                    frame_indices = np.array([s[0][0] for s in shapes_layer.data]).astype(int)
-                    valid_indices = np.argwhere(frame_indices == frame_idx)
-                    valid_masks = shape_masks[valid_indices].squeeze()
-                    if valid_masks.ndim == 3:
-                        shape_mask = np.sum(valid_masks, axis=0)
+                try:
+                    shape_masks = np.stack(shapes_layer.to_masks((video_height, video_width)))
+                    if len(shape_masks) == 1: 
+                        shape_mask = shape_masks[0]
                     else:
-                        shape_mask = valid_masks
-                shape_mask[shape_mask > 0] = 1
-                shape_mask = shape_mask.astype(np.uint8)
-            
-                label = 1 # Always positive for now
-                mask = run_new_pred(predictor=predictor,
-                                    frame_idx=frame_idx,
-                                    obj_id=obj_id,
-                                    labels=label,
-                                    masks=shape_mask,
-                                    )
+                        frame_indices = np.array([s[0][0] for s in shapes_layer.data]).astype(int)
+                        valid_indices = np.argwhere(frame_indices == frame_idx)
+                        valid_masks = shape_masks[valid_indices].squeeze()
+                        if valid_masks.ndim == 3:
+                            shape_mask = np.sum(valid_masks, axis=0)
+                        else:
+                            shape_mask = valid_masks
+                    shape_mask[shape_mask > 0] = 1
+                    shape_mask = shape_mask.astype(np.uint8)
+                
+                    label = 1 # Always positive for now
+                    mask = run_new_pred(predictor=predictor,
+                                        frame_idx=frame_idx,
+                                        obj_id=obj_id,
+                                        labels=label,
+                                        masks=shape_mask,
+                                        )
+                except Exception as e:
+                    import traceback
+                    print(f'❌ Error processing shape mask: {e}')
+                    traceback.print_exc()
+                    return
             if mask is not None:
                 # mask can be None,
                 # when new objects are added after tracking starts 
                 # for the SAM2-HQ model. See comments in 
                 # sam2hq_octron.add_new_mask / add_new_points_or_box
                 prediction_layer.data[frame_idx] = mask
+                mark_frames_annotated(prediction_layer.data, frame_idx)
                 prediction_layer.refresh()
   
         else:
@@ -202,67 +213,48 @@ class sam2_octron_callbacks():
             float(bottom_right[0]),# y2
         ]
         
-        # Helper function to calculate IoU (Intersection over Union) between two boxes
-        def calculate_iou(box1, box2):
-            """Calculate IoU between two boxes in [x1, y1, x2, y2] format."""
-            x1_inter = max(box1[0], box2[0])
-            y1_inter = max(box1[1], box2[1])
-            x2_inter = min(box1[2], box2[2])
-            y2_inter = min(box1[3], box2[3])
-            
-            if x2_inter < x1_inter or y2_inter < y1_inter:
-                return 0.0
-            
-            inter_area = (x2_inter - x1_inter) * (y2_inter - y1_inter)
-            box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-            box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-            union_area = box1_area + box2_area - inter_area
-            
-            return inter_area / union_area if union_area > 0 else 0.0
-        
-        # Buffer box prompts - accumulate all boxes for this frame/object
+        # Buffer box prompts per frame, capped to the most recent N.
+        # The text prompt (label name) provides the category-level prior;
+        # the boxes just show exemplar locations.  Too many box prompts
+        # dilute the transformer's attention and cause mask quality to
+        # degrade (more background co-selected).  2-3 boxes is the sweet
+        # spot; beyond that, the additional exemplars add noise.
+        _MAX_BOX_PROMPTS = 3
         if not hasattr(organizer_entry, '_semantic_box_prompts'):
             organizer_entry._semantic_box_prompts = {}
         if frame_idx not in organizer_entry._semantic_box_prompts:
             organizer_entry._semantic_box_prompts[frame_idx] = []
         
-        # Check if new box overlaps significantly with existing boxes (IoU > 0.5)
-        existing_boxes = organizer_entry._semantic_box_prompts[frame_idx]
-        is_redundant = False
-        iou_threshold = 0.5
-        
-        for existing_box in existing_boxes:
-            iou = calculate_iou(box_xyxy, existing_box)
-            if iou > iou_threshold:
-                is_redundant = True
-                show_warning(
-                    f'SAM3 Mode B: New box overlaps {iou:.2f} with existing box. '
-                    f'Skipping to avoid redundancy. Draw boxes around DIFFERENT objects.'
-                )
-                break
-        
-        if is_redundant:
-            # Don't add the box, just return current mask without re-detecting
-            current_mask = prediction_layer.data[frame_idx]
-            return current_mask if current_mask is not None else np.zeros(
-                (self.octron.video_layer.metadata['height'], 
-                 self.octron.video_layer.metadata['width']),
-                dtype=np.uint8
-            )
-        
-        # Add the new box to the buffer
         organizer_entry._semantic_box_prompts[frame_idx].append(box_xyxy)
+        # Keep only the N most recent boxes (drop oldest)
+        if len(organizer_entry._semantic_box_prompts[frame_idx]) > _MAX_BOX_PROMPTS:
+            organizer_entry._semantic_box_prompts[frame_idx] = \
+                organizer_entry._semantic_box_prompts[frame_idx][-_MAX_BOX_PROMPTS:]
         all_boxes = organizer_entry._semantic_box_prompts[frame_idx]
         
-        # Always reset text embeddings before detection to prevent state corruption
-        # This is especially important after propagation, which can leave stale embeddings
+        # Use the label name as a text prompt so the detector knows WHAT
+        # to look for, not just WHERE the examples are.  SAM3 is a
+        # vision-language model — with the generic "visual" text, a single
+        # box prompt often yields low-confidence results.  Passing the
+        # actual category name (e.g. "fly", "screw") dramatically improves
+        # single-box detection quality.
+        #
+        # However, if the label name is not a real word the text encoder
+        # recognises (e.g. "octo", abbreviations, project codes), the
+        # text embedding actually *hurts* — it pushes scores to near zero.
+        # We detect this by trying with text first; if the best score is
+        # very low we automatically fall back to box-only mode ("visual").
+        text_prompt = organizer_entry.label  # e.g. "fly", "screw"
+        
+        # Always reset text embeddings before detection so that switching
+        # labels forces fresh text-encoding for the new category name.
         if hasattr(predictor, 'detector'):
             if hasattr(predictor.detector, 'text_embeddings'):
                 predictor.detector.text_embeddings = {}
             if hasattr(predictor.detector, 'names'):
                 predictor.detector.names = []
         
-        print(f'SAM3 Mode B: Running detection with {len(all_boxes)} box prompt(s)...')
+        print(f'SAM3 Mode B: Running detection for "{text_prompt}" with {len(all_boxes)} box prompt(s)...')
         
         # Read detection threshold from GUI input
         thresh_text = self.octron.sam3detect_thresh.text().strip()
@@ -278,13 +270,37 @@ class sam2_octron_callbacks():
                 show_error(f'Detection threshold {conf_threshold} out of range. Must be between 0 and 1.')
                 return None
         
-        # Run detection with ALL accumulated boxes together
-        # This allows the model to see all examples simultaneously
+        # Run detection with text + box prompts.  If the label name
+        # produces a very weak response (max score < 0.25), the text
+        # encoder doesn't understand the word — retry without text so
+        # the detector relies purely on visual similarity from the boxes.
+        _TEXT_FALLBACK_THRESH = 0.25
         pred_masks, pred_scores, _ = predictor.detect(
             frame_idx=frame_idx,
-            bboxes=all_boxes,  # Pass all boxes, not just the latest one
+            text=text_prompt,
+            bboxes=all_boxes,
             conf_threshold=conf_threshold,
         )
+        
+        if pred_scores is not None and pred_scores.numel() > 0:
+            best_score = pred_scores.max().item()
+        else:
+            best_score = 0.0
+        
+        if best_score < _TEXT_FALLBACK_THRESH:
+            # Text prompt isn't helping — fall back to box-only ("visual")
+            print(f'  ↳ Text "{text_prompt}" produced low scores (max {best_score:.3f}), '
+                  f'retrying with box-only mode...')
+            if hasattr(predictor, 'detector'):
+                if hasattr(predictor.detector, 'text_embeddings'):
+                    predictor.detector.text_embeddings = {}
+                if hasattr(predictor.detector, 'names'):
+                    predictor.detector.names = []
+            pred_masks, pred_scores, _ = predictor.detect(
+                frame_idx=frame_idx,
+                bboxes=all_boxes,
+                conf_threshold=conf_threshold,
+            )
         
         if pred_masks is None or pred_masks.shape[0] == 0:
             show_warning('SAM3 Mode B: No objects detected.')
@@ -292,33 +308,53 @@ class sam2_octron_callbacks():
         
         n_detections = pred_masks.shape[0]
         
-        # Merge all detected masks into a single combined mask
-        combined_mask = np.zeros_like(
-            pred_masks[0].cpu().numpy(), dtype=np.uint8
+        # Sort detections by confidence (descending) so highest confidence gets priority
+        sorted_indices = pred_scores.argsort(descending=True)
+        
+        # Encode each detected mask with a unique 1-based object ID
+        # (0 = background). Higher-confidence masks get priority for overlapping pixels:
+        # stamp highest-confidence first, only fill pixels still at 0.
+        id_mask = np.zeros_like(
+            pred_masks[0].cpu().numpy(), dtype=np.int16
         )
-        for i in range(n_detections):
-            combined_mask |= (pred_masks[i] > 0).cpu().numpy().astype(np.uint8)
+        for rank, idx in enumerate(sorted_indices):
+            mask_id = rank + 1  # 1-based IDs
+            binary = (pred_masks[idx] > 0).cpu().numpy()
+            id_mask[(binary) & (id_mask == 0)] = mask_id
         
         # Get number of box prompts used
         n_boxes = len(organizer_entry._semantic_box_prompts.get(frame_idx, []))
         max_score = pred_scores.max().item() if pred_scores is not None and pred_scores.numel() > 0 else 0.0
+        n_objects = len(np.unique(id_mask)) - 1  # Exclude background
         print(
-            f'SAM3 Mode B: Detected {n_detections} objects using {n_boxes} box prompt(s). '
-            f'Max score: {max_score:.3f}'
+            f'SAM3 Mode B: Detected {n_detections} objects ({n_objects} encoded) '
+            f'using {n_boxes} box prompt(s). Max score: {max_score:.3f}'
         )
         
         # Update visual layer
-        prediction_layer.data[frame_idx] = combined_mask
+        prediction_layer.data[frame_idx] = id_mask
+        mark_frames_annotated(prediction_layer.data, frame_idx)
+        
+        # Assign distinct colors so each object ID is visually separable
+        prediction_layer.colormap = create_semantic_colormap(n_objects, label_id=organizer_entry.label_id)
         prediction_layer.refresh()
+        
+        # Persist max object ID in zarr metadata so the colormap
+        # can be restored when the project is reloaded later.
+        if hasattr(prediction_layer.data, 'attrs'):
+            prev_max = prediction_layer.data.attrs.get('max_object_id', 0)
+            prediction_layer.data.attrs['max_object_id'] = max(int(n_objects), int(prev_max))
         
         # DO NOT call add_new_mask here - it corrupts detector state!
         # The tracker will be updated later when needed (before propagation)
-        # Store the accumulated mask for later
-        if not hasattr(organizer_entry, '_semantic_accumulated_masks'):
-            organizer_entry._semantic_accumulated_masks = {}
-        organizer_entry._semantic_accumulated_masks[frame_idx] = combined_mask
+        # Store the ID-encoded mask for later.  Replace the entire dict so
+        # each label only keeps its most recent detection frame.  Without
+        # this, old detections (e.g. frame 5) accumulate alongside new ones
+        # (e.g. frame 25), causing the same physical objects to be
+        # registered twice with different tracker IDs.
+        organizer_entry._semantic_accumulated_masks = {frame_idx: id_mask}
         
-        return combined_mask
+        return id_mask
     
     
     def on_points_changed(self, event):
@@ -411,6 +447,7 @@ class sam2_octron_callbacks():
                     # for the SAM2-HQ model. See comments in 
                     # sam2hq_octron.add_new_mask / add_new_points_or_box
                     prediction_layer.data[frame_idx,:,:] = mask
+                    mark_frames_annotated(prediction_layer.data, frame_idx)
             prediction_layer.refresh()  
         else:
             # Catching all above with ['added','removed','changed']
@@ -445,8 +482,29 @@ class sam2_octron_callbacks():
         if not image_indices:
             return
         
-        print(f'⚡️ Prefetching {len(image_indices)} images, skipping {skip_frames} frames | start: {current_frame}')
+        print(f'⚡️ Prefetching {len(image_indices)} images, skipping {skip_frames - 1} frames | start: {current_frame}')
         _ = predictor.images[image_indices]
+        
+        # Pre-compute backbone features so propagation only needs track_step.
+        # Limit to the cache capacity to avoid OOM.
+        tracker = getattr(predictor, 'tracker', predictor)
+        max_bb = getattr(tracker, '_max_cached_backbone_frames', 0)
+        if (max_bb > 0
+                and hasattr(tracker, 'inference_state')
+                and tracker.inference_state):
+            prefetch_indices = image_indices[:max_bb]
+            t0 = time.perf_counter()
+            import torch
+            # Use batched backbone when available (SAM3); fall back to
+            # per-frame computation for SAM2 or other predictors.
+            if hasattr(tracker, '_prefetch_backbone_batch'):
+                tracker._prefetch_backbone_batch(prefetch_indices, batch_size=4)
+            elif hasattr(tracker, '_get_image_feature'):
+                with torch.inference_mode():
+                    for idx in prefetch_indices:
+                        tracker._get_image_feature(tracker.inference_state, idx, batch_size=1)
+            t1 = time.perf_counter()
+            print(f'⚡️ Pre-computed backbone features for {len(prefetch_indices)} frames in {t1-t0:.2f}s')
 
     
     def next_predict(self):
@@ -486,9 +544,10 @@ class sam2_octron_callbacks():
                 last_run = True
             else:
                 last_run = False
+            # Single GPU→CPU transfer for all objects instead of N separate ones
+            all_masks = (out_mask_logits > 0).cpu().numpy().astype(np.uint8)
             for i, out_obj_id in enumerate(out_obj_ids):
-                mask = (out_mask_logits[i] > 0).cpu().numpy().astype(np.uint8)
-                yield counter, out_frame_idx, out_obj_id, mask.squeeze(), last_run
+                yield counter, out_frame_idx, out_obj_id, all_masks[i].squeeze(), last_run
 
             counter += 1
             
@@ -532,9 +591,10 @@ class sam2_octron_callbacks():
             else:
                 last_run = False
             try:
+                # Single GPU→CPU transfer for all objects instead of N separate ones
+                all_masks = (out_mask_logits > 0).cpu().numpy().astype(np.uint8)
                 for i, out_obj_id in enumerate(out_obj_ids):
-                    mask = (out_mask_logits[i] > 0).cpu().numpy().astype(np.uint8)
-                    yield counter, out_frame_idx, out_obj_id, mask.squeeze(), last_run
+                    yield counter, out_frame_idx, out_obj_id, all_masks[i].squeeze(), last_run
             except Exception as e:
                 # Trying again for sam hq 
                 for i, out_obj_id in enumerate(out_obj_ids):

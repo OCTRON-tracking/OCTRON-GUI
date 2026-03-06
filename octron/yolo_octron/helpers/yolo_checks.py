@@ -74,9 +74,9 @@ def check_yolo_models(YOLO_BASE_URL,
         For example:
         {
             'YOLO11m': {
-                'name: 'YOLO11m-seg',
-                'model_path': 'models/yolo11m-seg.pt',
-
+                'name': 'YOLO11m',
+                'model_path_seg': 'yolo11m-seg.pt',
+                'model_path_detect': 'yolo11m.pt',
             },
             
         ...
@@ -101,21 +101,23 @@ def check_yolo_models(YOLO_BASE_URL,
     for model in models_dict:
         # Perform some sanity checks on the dictionary 
         assert 'name' in models_dict[model], f"Name not found for model {model} in yaml file"
-        assert 'model_path' in models_dict[model], f"Model path not found for model {model} in yaml file"
+        assert 'model_path_seg' in models_dict[model], f"Segmentation model path not found for model {model} in yaml file"
+        assert 'model_path_detect' in models_dict[model], f"Detection model path not found for model {model} in yaml file"
 
-        # Some sanity checks on the actual paths
-        model_path = (yolo_model_path  / models_dict[model]['model_path'])
-        # Check if the model file exists. If not, download it.
-        if model_path.exists() and not force_download:
-            print(f"Model file {model_path} exists. Skipping download.")
-        else:
-            print(f'Trying to download the model file (force_download={force_download})')
-            model_name = model_path.name
-            model_url = f"{YOLO_BASE_URL}/{model_name}"
-            assert check_url_availability(model_url), f"URL {model_url} is not available."
-            download_yolo_model(url=model_url, 
-                               fpath=model_path, 
-                               overwrite=True
-                             )
+        # Download both segmentation and detection model variants
+        for path_key in ('model_path_seg', 'model_path_detect'):
+            model_path = (yolo_model_path / models_dict[model][path_key])
+            # Check if the model file exists. If not, download it.
+            if model_path.exists() and not force_download:
+                print(f"Model file {model_path} exists. Skipping download.")
+            else:
+                print(f'Trying to download {path_key} for {model} (force_download={force_download})')
+                model_name = model_path.name
+                model_url = f"{YOLO_BASE_URL}/{model_name}"
+                assert check_url_availability(model_url), f"URL {model_url} is not available."
+                download_yolo_model(url=model_url, 
+                                   fpath=model_path, 
+                                   overwrite=True
+                                 )
      
     return models_dict

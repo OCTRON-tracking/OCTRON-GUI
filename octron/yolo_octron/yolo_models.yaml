@@ -1,12 +1,16 @@
 YOLO11m:
-  name: "YOLO11m-seg"
-  model_path: "yolo11m-seg.pt"
+  name: "YOLO11m"
+  model_path_seg: "yolo11m-seg.pt"
+  model_path_detect: "yolo11m.pt"
 YOLO11l:
-  name: "YOLO11l-seg"
-  model_path: "yolo11l-seg.pt"
+  name: "YOLO11l"
+  model_path_seg: "yolo11l-seg.pt"
+  model_path_detect: "yolo11l.pt"
 YOLO26m:
-  name: "YOLO26m-seg"
-  model_path: "yolo26m-seg.pt"
+  name: "YOLO26m"
+  model_path_seg: "yolo26m-seg.pt"
+  model_path_detect: "yolo26m.pt"
 YOLO26l:
-  name: "YOLO26l-seg"
-  model_path: "yolo26l-seg.pt"
+  name: "YOLO26l"
+  model_path_seg: "yolo26l-seg.pt"
+  model_path_detect: "yolo26l.pt"

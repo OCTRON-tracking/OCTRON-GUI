@@ -175,7 +175,8 @@ class SAM2_octron(SAM2VideoPredictor):
         storage_device = self.inference_state["storage_device"]
         maskmem_features = current_out["maskmem_features"]
         if maskmem_features is not None:
-            maskmem_features = maskmem_features.to(torch.bfloat16)
+            mem_dtype = torch.float32 if storage_device.type == "mps" else torch.bfloat16
+            maskmem_features = maskmem_features.to(mem_dtype)
             maskmem_features = maskmem_features.to(storage_device, non_blocking=True)
         pred_masks_gpu = current_out["pred_masks"]
         
@@ -675,6 +676,16 @@ class SAM2_octron(SAM2VideoPredictor):
 
         mask_inputs_per_frame[frame_idx] = mask_inputs
         point_inputs_per_frame.pop(frame_idx, None)
+        
+        # Convert binary mask (0/1) to logit scale for the SAM decoder.
+        # The prompt encoder's mask convolutions expect logit-scale inputs
+        # (matching previous-prediction logits), not raw binary values.
+        # Use a soft scale so SAM treats the polygon as a rough hint and
+        # can reject background pixels that were accidentally enclosed.
+        # (Higher scale = SAM follows the mask more literally;
+        #  lower scale = SAM relies more on its own visual understanding.)
+        mask_inputs_for_decoder = mask_inputs * 6.0 - 3.0
+        
         # If this frame hasn't been tracked before, we treat it as an initial conditioning
         # frame, meaning that the inputs points are to generate segments on this frame without
         # using any memory from other frames, like in SAM. Otherwise (if it has been tracked),
@@ -699,7 +710,7 @@ class SAM2_octron(SAM2VideoPredictor):
             batch_size=1,  # run on the slice of a single object
             is_init_cond_frame=is_init_cond_frame,
             point_inputs=None,
-            mask_inputs=mask_inputs,
+            mask_inputs=mask_inputs_for_decoder,
             reverse=reverse,
             # Skip the memory encoder when adding clicks or mask. We execute the memory encoder
             # at the beginning of `propagate_in_video` (after user finalize their clicks). This

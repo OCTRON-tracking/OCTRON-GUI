@@ -4,13 +4,14 @@ import numpy as np
 from skimage import measure
 from skimage.morphology import binary_opening, disk
 
-def find_objects_in_mask(mask, min_area=10):
+def find_objects_in_mask(mask, min_area=10, properties=None,
+                        intensity_image=None, extra_properties=None):
     """
     Find all objects in a binary mask using connected component labeling.
     This is run initially to gain an understanding of the objects in the masks,
     i.e. know their median area, etc.
     See also:
-    https://scikit-image.org/docs/0.23.x/api/skimage.feature.html#
+    https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops
     
     
     Parameters:
@@ -20,14 +21,38 @@ def find_objects_in_mask(mask, min_area=10):
         and background has value 0
     min_area : int
         Minimum area (in pixels) for an object to be considered
+    properties : tuple or list, optional
+        Region properties to extract via skimage.measure.regionprops_table.
+        'label' and 'centroid' are always included automatically.
+        If None, only the minimum internal properties are extracted.
+    intensity_image : numpy.ndarray, optional
+        Intensity (original) image of same spatial shape as mask.
+        Required for intensity-based properties (e.g. 'intensity_mean').
+        Passed directly to skimage.measure.regionprops_table.
+        Safely ignored when no intensity properties are requested.
+    extra_properties : tuple of callables, optional
+        Custom measurement functions passed to skimage.measure.regionprops_table.
+        Each function must accept a region mask as its first argument.
+        If the function requires an intensity image, it must accept it as the
+        second argument. The function name becomes the property/column name.
+        See https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops_table
         
     Returns:
     --------
     labels : numpy.ndarray
         Labeled image where each object has a unique integer value
     regions : list
-        List of region properties for each object
+        List of region property dicts for each object. Each dict contains
+        'label', 'centroid', and all requested properties.
     """
+    if properties is None:
+        properties = ()
+    
+    # 'label', 'area' and 'centroid' are always needed internally
+    all_properties = tuple(dict.fromkeys(('label', 'area', 'centroid') + tuple(properties)))
+    
+    # Collect extra property function names for output dict construction
+    extra_prop_names = tuple(fn.__name__ for fn in extra_properties) if extra_properties else ()
 
     binary_mask = mask > 0
     labels = measure.label(binary_mask, background=0, connectivity=2)
@@ -35,7 +60,9 @@ def find_objects_in_mask(mask, min_area=10):
     # Use regionprops_table for efficiency
     props = measure.regionprops_table(
         labels, 
-        properties=('label', 'area', 'centroid', 'eccentricity', 'solidity', 'orientation')
+        intensity_image=intensity_image,
+        properties=all_properties,
+        extra_properties=extra_properties,
     )
     
     # Filter small regions
@@ -54,18 +81,29 @@ def find_objects_in_mask(mask, min_area=10):
         for prop in props:
             props[prop] = props[prop][valid_indices]
     
+    # Collect all table keys that are NOT internal ('label', 'centroid-*').
+    # regionprops_table may expand multi-valued / multichannel properties into
+    # suffixed columns (e.g. intensity_mean-0, moments_hu-3).  We simply pass
+    # through every key the table produced.
+    # Note: 'area' is only used internally for min_area filtering but is
+    # included in the output if the user explicitly requested it.
+    _internal_prefixes = ('label', 'centroid')
+    _user_requested = set(properties) | set(extra_prop_names)
+    output_keys = [k for k in props
+                   if not k.startswith(_internal_prefixes)
+                   and (k.split('-')[0] in _user_requested
+                        or k in _user_requested)]
+
     num_regions = len(props['label'])
     regions_list = []
     
     for i in range(num_regions):
         region_dict = {
             'label': props['label'][i],
-            'area': props['area'][i],
             'centroid': (props['centroid-0'][i], props['centroid-1'][i]),
-            'eccentricity': props['eccentricity'][i],
-            'solidity': props['solidity'][i],
-            'orientation': props['orientation'][i]
         }
+        for key in output_keys:
+            region_dict[key] = props[key][i]
         regions_list.append(region_dict)
     
     return labels, regions_list
