@@ -497,6 +497,17 @@ class octron_widget(QWidget):
             # Enable the feed-input button for SAM3 semantic mode
             self.feed_input_to_predictor_btn.setEnabled(True)
             self.feed_input_to_predictor_btn.setText('▷ Run')
+            # Inform the user about the SAM3 semantic workflow
+            QMessageBox.information(
+                self,
+                'SAM3 Multi — Workflow',
+                'SAM3 Multi is a heavy model that accepts multiple box prompts '
+                'at once.\n\n'
+                'Workflow:\n'
+                '1. Draw one or more rectangles on the canvas.\n'
+                '2. Click "▷ Run" to detect objects.\n'
+                '3. Then forward-predict as usual.',
+            )
 
     def _on_model_loaded(self, model_name):
         """

@@ -513,9 +513,9 @@
            <widget class="QWidget" name="layoutWidget">
             <property name="geometry">
              <rect>
-              <x>10</x>
+              <x>11</x>
               <y>30</y>
-              <width>381</width>
+              <width>380</width>
               <height>37</height>
              </rect>
             </property>
@@ -549,13 +549,13 @@
               <widget class="QPushButton" name="load_sam_model_btn">
                <property name="minimumSize">
                 <size>
-                 <width>90</width>
+                 <width>88</width>
                  <height>25</height>
                 </size>
                </property>
                <property name="maximumSize">
                 <size>
-                 <width>90</width>
+                 <width>88</width>
                  <height>25</height>
                 </size>
                </property>
@@ -568,13 +568,13 @@
               <widget class="QLineEdit" name="sam3detect_thresh">
                <property name="minimumSize">
                 <size>
-                 <width>40</width>
+                 <width>39</width>
                  <height>25</height>
                 </size>
                </property>
                <property name="maximumSize">
                 <size>
-                 <width>40</width>
+                 <width>39</width>
                  <height>25</height>
                 </size>
                </property>
@@ -652,8 +652,7 @@
                 </size>
                </property>
                <property name="toolTip">
-                <string>Predict with SAM3 multi on bounding boxes you drew.
-Keyboard shortcut: p</string>
+                <string>Predict with SAM3 multi on bounding boxes you drew.</string>
                </property>
                <property name="text">
                 <string/>

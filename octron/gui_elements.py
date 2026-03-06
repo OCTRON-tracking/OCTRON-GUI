@@ -286,7 +286,7 @@ class octron_gui_elements(QWidget):
         self.octron.model_select_groupbox.setMaximumSize(QSize(400, 80))
         self.octron.layoutWidget = QWidget(self.octron.model_select_groupbox)
         self.octron.layoutWidget.setObjectName(u"layoutWidget")
-        self.octron.layoutWidget.setGeometry(QRect(10, 30, 381, 37))
+        self.octron.layoutWidget.setGeometry(QRect(11, 30, 380, 37))
         self.octron.model_select_grid_layout = QGridLayout(self.octron.layoutWidget)
         self.octron.model_select_grid_layout.setObjectName(u"model_select_grid_layout")
         self.octron.model_select_grid_layout.setHorizontalSpacing(10)
@@ -301,15 +301,15 @@ class octron_gui_elements(QWidget):
 
         self.octron.load_sam_model_btn = QPushButton(self.octron.layoutWidget)
         self.octron.load_sam_model_btn.setObjectName(u"load_sam_model_btn")
-        self.octron.load_sam_model_btn.setMinimumSize(QSize(90, 25))
-        self.octron.load_sam_model_btn.setMaximumSize(QSize(90, 25))
+        self.octron.load_sam_model_btn.setMinimumSize(QSize(88, 25))
+        self.octron.load_sam_model_btn.setMaximumSize(QSize(88, 25))
 
         self.octron.model_select_grid_layout.addWidget(self.octron.load_sam_model_btn, 0, 4, 1, 1, Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
 
         self.octron.sam3detect_thresh = QLineEdit(self.octron.layoutWidget)
         self.octron.sam3detect_thresh.setObjectName(u"sam3detect_thresh")
-        self.octron.sam3detect_thresh.setMinimumSize(QSize(40, 25))
-        self.octron.sam3detect_thresh.setMaximumSize(QSize(40, 25))
+        self.octron.sam3detect_thresh.setMinimumSize(QSize(39, 25))
+        self.octron.sam3detect_thresh.setMaximumSize(QSize(39, 25))
         self.octron.sam3detect_thresh.setInputMask(u"")
         self.octron.sam3detect_thresh.setText(u"")
         self.octron.sam3detect_thresh.setMaxLength(100)
@@ -1170,8 +1170,7 @@ class octron_gui_elements(QWidget):
 #endif // QT_CONFIG(tooltip)
         self.octron.sam_model_list.setCurrentText(QCoreApplication.translate("self", u"Model", None))
 #if QT_CONFIG(tooltip)
-        self.octron.feed_input_to_predictor_btn.setToolTip(QCoreApplication.translate("self", u"Predict with SAM3 multi on bounding boxes you drew.\n"
-"Keyboard shortcut: p", None))
+        self.octron.feed_input_to_predictor_btn.setToolTip(QCoreApplication.translate("self", u"Predict with SAM3 multi on bounding boxes you drew.", None))
 #endif // QT_CONFIG(tooltip)
         self.octron.feed_input_to_predictor_btn.setText("")
         self.octron.annotate_layer_create_groupbox.setTitle(QCoreApplication.translate("self", u"Label manager", None))

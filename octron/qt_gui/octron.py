@@ -192,7 +192,7 @@ class Ui_octron_widgetui(object):
         self.model_select_groupbox.setMaximumSize(QSize(400, 80))
         self.layoutWidget = QWidget(self.model_select_groupbox)
         self.layoutWidget.setObjectName(u"layoutWidget")
-        self.layoutWidget.setGeometry(QRect(10, 30, 381, 37))
+        self.layoutWidget.setGeometry(QRect(11, 30, 380, 37))
         self.model_select_grid_layout = QGridLayout(self.layoutWidget)
         self.model_select_grid_layout.setObjectName(u"model_select_grid_layout")
         self.model_select_grid_layout.setHorizontalSpacing(10)
@@ -207,15 +207,15 @@ class Ui_octron_widgetui(object):
 
         self.load_sam_model_btn = QPushButton(self.layoutWidget)
         self.load_sam_model_btn.setObjectName(u"load_sam_model_btn")
-        self.load_sam_model_btn.setMinimumSize(QSize(90, 25))
-        self.load_sam_model_btn.setMaximumSize(QSize(90, 25))
+        self.load_sam_model_btn.setMinimumSize(QSize(88, 25))
+        self.load_sam_model_btn.setMaximumSize(QSize(88, 25))
 
         self.model_select_grid_layout.addWidget(self.load_sam_model_btn, 0, 4, 1, 1, Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
 
         self.sam3detect_thresh = QLineEdit(self.layoutWidget)
         self.sam3detect_thresh.setObjectName(u"sam3detect_thresh")
-        self.sam3detect_thresh.setMinimumSize(QSize(40, 25))
-        self.sam3detect_thresh.setMaximumSize(QSize(40, 25))
+        self.sam3detect_thresh.setMinimumSize(QSize(39, 25))
+        self.sam3detect_thresh.setMaximumSize(QSize(39, 25))
         self.sam3detect_thresh.setInputMask(u"")
         self.sam3detect_thresh.setText(u"")
         self.sam3detect_thresh.setMaxLength(100)
@@ -1081,8 +1081,7 @@ class Ui_octron_widgetui(object):
 #endif // QT_CONFIG(tooltip)
         self.sam_model_list.setCurrentText(QCoreApplication.translate("octron_widgetui", u"Model", None))
 #if QT_CONFIG(tooltip)
-        self.feed_input_to_predictor_btn.setToolTip(QCoreApplication.translate("octron_widgetui", u"Predict with SAM3 multi on bounding boxes you drew.\n"
-"Keyboard shortcut: p", None))
+        self.feed_input_to_predictor_btn.setToolTip(QCoreApplication.translate("octron_widgetui", u"Predict with SAM3 multi on bounding boxes you drew.", None))
 #endif // QT_CONFIG(tooltip)
         self.feed_input_to_predictor_btn.setText("")
         self.annotate_layer_create_groupbox.setTitle(QCoreApplication.translate("octron_widgetui", u"Label manager", None))
