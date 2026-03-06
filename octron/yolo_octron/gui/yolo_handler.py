@@ -1223,13 +1223,14 @@ class YoloHandler(QObject):
         self.w.single_subject_checkBox.setEnabled(True)
         self.w.overwrite_prediction_checkBox.setEnabled(True)
         self.w.predict_conf_thresh_spinbox.setEnabled(True)
+        self.w.predict_iou_thresh_spinbox.setEnabled(True)
+        self.w.prediction_iou_label.setEnabled(True)
         self.w.skip_frames_analysis_spinBox.setEnabled(True)
         # Only re-enable mask-related controls if the selected model is a segmentation model
         model_name = self.w.yolomodel_trained_list.currentText()
         model_path = self.trained_models.get(model_name)
         is_segment = model_path is not None and self.yolo.get_model_info(model_path).get('task') == 'segment'
         self.w.predict_mask_opening_spinbox.setEnabled(is_segment)
-        self.w.predict_iou_thresh_spinbox.setEnabled(is_segment)
         self.w.detailed_extraction_checkBox.setEnabled(is_segment)
 
     # Worker uncoupling functions
