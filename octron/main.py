@@ -1287,6 +1287,9 @@ class octron_widget(QWidget):
                 self.all_zarrs = []
                 # SAM2 
                 self._cleanup_predictor()
+                self._semantic_obj_id_map = {}
+                self._semantic_frame_buffer = None
+                self._pending_annotated_frames = {}
                 self.loaded_model_name = None
                 self.sam_model_list.setCurrentIndex(0)
                 self.sam_model_list.setEnabled(True)
