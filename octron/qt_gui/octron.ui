@@ -516,24 +516,46 @@
               <x>10</x>
               <y>30</y>
               <width>381</width>
-              <height>41</height>
+              <height>37</height>
              </rect>
             </property>
             <layout class="QGridLayout" name="model_select_grid_layout">
              <property name="horizontalSpacing">
               <number>10</number>
              </property>
-             <item row="0" column="3" alignment="Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QPushButton" name="load_sam_model_btn">
+             <item row="0" column="1" alignment="Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter">
+              <widget class="QLabel" name="threshold_label">
                <property name="minimumSize">
                 <size>
-                 <width>165</width>
+                 <width>50</width>
                  <height>25</height>
                 </size>
                </property>
                <property name="maximumSize">
                 <size>
-                 <width>165</width>
+                 <width>50</width>
+                 <height>25</height>
+                </size>
+               </property>
+               <property name="text">
+                <string>Thresh.</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="4" alignment="Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter">
+              <widget class="QPushButton" name="load_sam_model_btn">
+               <property name="minimumSize">
+                <size>
+                 <width>90</width>
+                 <height>25</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>90</width>
                  <height>25</height>
                 </size>
                </property>
@@ -542,29 +564,7 @@
                </property>
               </widget>
              </item>
-             <item row="0" column="1" alignment="Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QLabel" name="threshold_label">
-               <property name="minimumSize">
-                <size>
-                 <width>55</width>
-                 <height>25</height>
-                </size>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>55</width>
-                 <height>25</height>
-                </size>
-               </property>
-               <property name="text">
-                <string>Thresh.:</string>
-               </property>
-               <property name="alignment">
-                <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-               </property>
-              </widget>
-             </item>
-             <item row="0" column="2" alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter">
+             <item row="0" column="2" alignment="Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter">
               <widget class="QLineEdit" name="sam3detect_thresh">
                <property name="minimumSize">
                 <size>
@@ -599,13 +599,13 @@
               <widget class="QComboBox" name="sam_model_list">
                <property name="minimumSize">
                 <size>
-                 <width>87</width>
+                 <width>120</width>
                  <height>25</height>
                 </size>
                </property>
                <property name="maximumSize">
                 <size>
-                 <width>87</width>
+                 <width>120</width>
                  <height>25</height>
                 </size>
                </property>
@@ -620,6 +620,44 @@
                  <string>Model</string>
                 </property>
                </item>
+              </widget>
+             </item>
+             <item row="0" column="3" alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter">
+              <widget class="QPushButton" name="feed_input_to_predictor_btn">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>45</width>
+                 <height>25</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>45</width>
+                 <height>25</height>
+                </size>
+               </property>
+               <property name="baseSize">
+                <size>
+                 <width>15</width>
+                 <height>25</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>Predict with SAM3 multi on bounding boxes you drew.
+Keyboard shortcut: p</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
               </widget>
              </item>
             </layout>
@@ -1202,7 +1240,7 @@ This will delete the masks on the current frame but no other (already annotated)
           <x>0</x>
           <y>0</y>
           <width>402</width>
-          <height>461</height>
+          <height>475</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="train_vertical_layout" stretch="0,0,0">
