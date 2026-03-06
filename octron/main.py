@@ -210,6 +210,9 @@ class octron_widget(QWidget):
         self.gui_callback_functions()
         # Connect layer specific callbacks
         self.octron_sam2_callbacks = sam2_octron_callbacks(self)
+        self.feed_input_to_predictor_btn.clicked.connect(
+            self.octron_sam2_callbacks.feed_rectangles_to_predictor
+        )
         print(f'OCTRON GUI v{octron_version} initialized')
 
     ###################################################################################################
@@ -517,8 +520,9 @@ class octron_widget(QWidget):
         
         self.predict_next_batch_btn.setText(f'▷ {self.chunk_size} frames')
         self.predict_next_oneframe_btn.setText('▷')
-        self.predict_next_oneframe_btn.setEnabled(True)
-        self.predict_next_batch_btn.setEnabled(True)
+        # Keep disabled until the first SAM prediction has run
+        self.predict_next_oneframe_btn.setEnabled(False)
+        self.predict_next_batch_btn.setEnabled(False)
         
         # Check if you can create a zarr store for video
         # Creating a zarr store for the video is only possible if a video has been loaded
