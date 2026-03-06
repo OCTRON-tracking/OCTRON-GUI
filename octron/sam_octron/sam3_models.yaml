@@ -2,9 +2,9 @@ sam3_mode_a:
   name: "SAM3"
   checkpoint_path: "checkpoints/sam3.pt"
   semantic: false
-  tooltip: "SAM3 single-object tracking mode"
+  tooltip: "SAM3 - single-object tracking mode"
 sam3_mode_b:
   name: "SAM3 multi"
   checkpoint_path: "checkpoints/sam3.pt"
   semantic: true
-  tooltip: "SAM3 multi-object semantic mode - higher VRAM usage"
+  tooltip: "SAM3 - multi-object semantic mode - higher VRAM usage"
