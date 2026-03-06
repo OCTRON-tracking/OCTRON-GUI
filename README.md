@@ -4,7 +4,7 @@ This is the main OCTRON repository.
 
 OCTRON is a pipeline built on [napari](https://www.napari.org) that enables segmentation, detection, and tracking of animals in behavioral setups. It helps you to create rich annotation data that can be used to train your own machine learning segmentation and detection models. This enables dense quantification of animal behavior across a wide range of species and video recording conditions.
 <br><br>
-OCTRON is built on [Napari](https://www.napari.org), [Segment Anything (SAM2/SAM3)](https://segment-anything.com/), [YOLO](https://www.ultralytics.com/), [BoxMOT](https://github.com/mikel-brostrom/boxmot) and 💜.
+OCTRON is built on [Napari](https://www.napari.org), [Segment Anything (SAM2/SAM3)](https://aidemos.meta.com/), [YOLO](https://www.ultralytics.com/), [BoxMOT](https://github.com/mikel-brostrom/boxmot) and 💜.
 
 ### Documentation 
 All documentation can be found under [OCTRON-docs on github pages](https://octron-tracking.github.io/OCTRON-docs/).
