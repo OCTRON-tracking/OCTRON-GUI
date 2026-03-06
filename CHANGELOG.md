@@ -1,5 +1,48 @@
 #### Changelog
 
+## vers. 0.2
+- Date: 2026-03-06
+- 98 commits since v0.1
+
+### Major Features
+- SAM3 support — Initial integration of SAM3 segmentation models alongside SAM2, including new GUI elements, logit thresholding, and predictor management. Extensive renaming of folders and imports to remove SAM2-specific biases.
+- Detection (bounding box) mode — Full support for YOLO detection training, prediction, and result loading in bounding-box-only mode. Includes dedicated bbox workers, watershed segmentation for bboxes (same as for segmentation), and `bbox_aspect_ratio` as a new standard parameter in prediction output
+- Region properties dialog — New streamlined region properties selection UI (`region_props_dialog.py`) triggered when the user clicks "Detailed" in the Analysis tab.
+- Batch prediction CLI improvements — Prepared `batch_predict` for easier command-line usage, with usability improvements for `videos_for_prediction_list` handling.
+
+### Features & Enhancements
+- Video management — New "delete" option when right-clicking on a video in the existing data table; checkmark indicator when prediction finishes.
+- Model management — Trained model type detection with color coding; automatic model list refresh after training; simplified SAM2/YOLO model download prompts.
+- Training improvements — Increased default patience from 50 to 100 epochs; detection and resume training support; re-enable buttons after training/dataset generation finishes; disable key dropdowns/buttons during training.
+- GUI polish — Various layout, tooltip, and usability improvements; shorter track display (max 200); IOU spinbox behavior bugfix; improved annotated frame detection speed.
+- SAM annotation loading via dedicated class. This makes it easier to load the SAM annotation results if someone needs it (and hasn't trained a YOLO model on those data).
+- Accept `.mts` files for video conversion.
+- GPU cache cleanup when videos/predictor change. This has the nice benefit that users don't have to quit the app anymore.
+
+### Bug Fixes
+- Fixed `float16`/`bfloat16` errors on CUDA.
+- Fixed MPS image size and dtype issues.
+- Fixed `ModuleNotFoundError: 'pkg_resources'` (tensorboard).
+- Fixed prediction loading for detection mode.
+- Fixed project folder change state handling. This now clears (refreshes) menus correctly.
+- Fixed bugs in prediction boxes / dialogues when all predictions are skipped.
+- Fixed frame index validation when loading results. It is now not anymore implicitly assumed that the csv and zarr ouput match.
+- Fixed print statement for skipping frames. Now the GUI and print statement show the same info.
+- Fixed SAM2/SAM3 annotation incompatibility detection. The user is now correctly informed that SAM2 and SAM3 annotation projects are incompatible (they can either annotate with SAM2 or SAM3 on a single video but cannot switch once started on that particular video).
+- Bugfixes for multi-label case.
+
+### Dependencies
+- Bumped napari to 0.7.0a3 (with PyQt6 support).
+- Bumped ultralytics to >=8.4.19.
+- Added `timm`, `clip`, `huggingface_hub`, and `transformers` to dependencies.
+- Updated SAM2 and boxmot wheel URLs.
+- Set semantic model chunk size to 6 (from 15). This is because SAM3 multi (semantic) is very heavy and prediction latencies were a bit too long for my taste.
+
+### Documentation & Build
+- Updated README and notebooks.
+- Updated YOLO model download URLs.
+- Cleaned up `__init__` imports.
+
 ## vers. 0.1 (biorxiv publication)
 - Date: 2025-12-20
 - 37 commits since v0.0.5
