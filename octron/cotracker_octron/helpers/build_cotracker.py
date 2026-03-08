@@ -17,7 +17,7 @@ def build_cotracker(ckpt_path):
         else "cpu"
     )
 
-    # Get online CoTracker predictor and move to device
+    # Instantiate CoTracker model from checkpoint and move to device
     model = CoTrackerOnlinePredictor(checkpoint=ckpt_path)
     model = model.to(device)
 

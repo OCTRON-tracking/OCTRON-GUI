@@ -88,10 +88,13 @@ def check_cotracker_models(checkpoints_dir, force_download=False):
         return {}
 
     # Build the models dict (relative to cotracker_octron/)
+    ckpt_path_anchor = next(
+        p for p in ckpt_path.parents if p.name == "cotracker_octron"
+    )
     cotracker_models_dict = {
         "cotracker": {
             "name": "Cotracker3",
-            "checkpoint_path": "checkpoints/scaled_online.pth",
+            "checkpoint_path": ckpt_path.relative_to(ckpt_path_anchor).as_posix(),
         }
     }
     return cotracker_models_dict
