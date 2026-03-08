@@ -61,6 +61,7 @@ pyqt6 = ["PyQt6>=6.10.0"]
 all = ["napari[pyqt6]==0.7.0a3"]
 dev = [
     "pytest>=8.0",
+    "pytest-cov",
     "pytest-qt>=4.0", # for qtbot fixture
 ]
 
