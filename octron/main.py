@@ -1519,13 +1519,13 @@ class octron_widget(QWidget):
         
     def init_sam2_model(self):
         """
-        Initialize the SAM2 model for the current session.
-        This function requires a video to be loaded AND a model to be selected / loaded. 
+        Initialize the predictor for the current session.
+        This function requires a video to be loaded AND a model to be selected / loaded.
         It is called only once from within the prefetcher worker.
-        
+
         """
         if not self.predictor:
-            show_warning("Please select a SAM2 model first.")
+            show_warning("Please select a model first.")
             return
         if not self.video_layer:
             print("No video layer found.")
@@ -1533,18 +1533,25 @@ class octron_widget(QWidget):
         if not self.video_zarr:
             show_warning("No video zarr store found.")
             return
-        
-        # Prewarm SAM2 predictor (model)
-        # This needs the zarr store to be initialized first
-        # -> that happens when either the model is loaded or a video layer is found
-        # -> on_changed_layer() and load_sam2model() take care of this
+
         if not self.predictor.is_initialized:
-            self.predictor.init_state(video_data=self.video_layer.data, 
-                                      zarr_store=self.video_zarr,
-                                      )
+            from cotracker.predictor import CoTrackerOnlinePredictor
+            if isinstance(self.predictor, CoTrackerOnlinePredictor):
+                # CoTracker initialises on the first forward call
+                # (is_first_step=True), not via a separate init_state().
+                # TODO: PR3 will handle this.
+                pass
+            else:
+                # Initialise SAM2/SAM3 predictor
+                # This needs the zarr store to be initialized first
+                # -> that happens when either the model is loaded or a video layer is found
+                # -> on_changed_layer() and load_sam2model() take care of this
+                self.predictor.init_state(video_data=self.video_layer.data,
+                                          zarr_store=self.video_zarr,
+                                          )
             self.hard_reset_layer_btn.setEnabled(True)
             self.predictor.is_initialized = True
-            
+
         return
     
     def init_zarr_prefetcher_threaded(self):
