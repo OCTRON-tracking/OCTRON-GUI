@@ -1,4 +1,4 @@
-import os
+# Code for checking the availability of the Cotracker model checkpoint
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download
@@ -14,7 +14,9 @@ def download_cotracker_file(filename, local_dir, overwrite=False):
     Parameters
     ----------
     filename : str
-        Name of the file to download (e.g. "cotracker_scaled_online.pth", "config.json").
+        Name of the file to download from the HF repository at
+        https://huggingface.co/facebook/cotracker3/tree/main
+        (e.g. "scaled_online.pth").
     local_dir : str or Path
         Local directory to download into.
     overwrite : bool
@@ -66,7 +68,7 @@ def check_cotracker_models(checkpoints_dir, force_download=False):
     """
     checkpoints_dir = Path(checkpoints_dir)
     if not checkpoints_dir.exists():
-        os.makedirs(checkpoints_dir, exist_ok=True)
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         for fname in COTRACKER_FILES:
