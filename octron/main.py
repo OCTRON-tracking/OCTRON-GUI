@@ -317,7 +317,7 @@ class octron_widget(QWidget):
 
     ###### SAM SPECIFIC CALLBACKS ####################################################################
     
-    def _check_model_data_compatibility(self, model_name):
+    def _check_sam_model_data_compatibility(self, model_name):
         """
         Check whether the model being loaded is compatible with existing
         annotation data.  SAM2 models operate at 1024×1024 while SAM3 models
@@ -383,8 +383,10 @@ class octron_widget(QWidget):
             model_name = self.sam_model_list.currentText()
 
         # Block loading if the model family is incompatible with existing data
-        # Only for SAM2 vs SAM3 since they have different expected image sizes. 
-        if not self._check_model_data_compatibility(model_name):
+        # Only for SAM2 vs SAM3 since they have different expected image sizes.
+        # CoTracker models bypass this check entirely.
+        is_cotracker = any(m['name'] == model_name for m in self.cotracker_models_dict.values())
+        if not is_cotracker and not self._check_sam_model_data_compatibility(model_name):
             return
 
         # Load SAM3 model if selected
@@ -489,7 +491,8 @@ class octron_widget(QWidget):
             self.sam3detect_thresh.setEnabled(True)
             self.threshold_label.setEnabled(True)
 
-    def load_cotrackermodel(self, model_name=''): 
+    def load_cotracker_model(self, model_name=''): 
+        """Load the selected CoTracker model and enable prediction controls."""
         # Get model_name from index
         if not model_name:
             index = self.sam_model_list.currentIndex()
@@ -505,7 +508,7 @@ class octron_widget(QWidget):
                 break
         assert model_found, f"Model '{model_name}' not found in Cotracker models dictionary."
         
-        # Download locally?
+        # Build model from local checkpoint
         model = self.cotracker_models_dict[model_id]
         checkpoint_path = self.base_path / Path(f"cotracker_octron/{model['checkpoint_path']}")
         self.predictor, self.device = build_cotracker(
