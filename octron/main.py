@@ -528,7 +528,7 @@ class octron_widget(QWidget):
 
     def _on_model_loaded(self, model_name):
         """
-        Common post-load setup shared by SAM2 and SAM3.
+        Common post-load setup shared by SAM2, SAM3 and cotracker.
         Disables the dropdown, enables prediction controls, starts zarr prefetcher.
         """
         self.loaded_model_name = model_name
