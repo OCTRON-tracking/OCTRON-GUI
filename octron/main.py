@@ -169,17 +169,17 @@ class octron_widget(QWidget):
         # Populate SAM2 dropdown list with available models
         for model_id, model in self.sam2models_dict.items():
             print(f"Adding SAM2 model {model_id}")
-            self.sam_model_list.addItem(model['name'])
+            self.prediction_model_list.addItem(model['name'])
         
         # Populate SAM3 entries in the same dropdown
         for model_id, model in self.sam3models_dict.items():
             print(f"Adding SAM3 model {model_id}")
-            self.sam_model_list.addItem(model['name'])
+            self.prediction_model_list.addItem(model['name'])
 
         # Populate Cotracker entries in the same dropdown
         for model_id, model in self.cotracker_models_dict.items():
             print(f"Adding model {model_id}")
-            self.sam_model_list.addItem(model['name'])
+            self.prediction_model_list.addItem(model['name'])
             
         # Populate YOLO dropdown list with available models
         for model_id, model in self.yolomodels_dict.items():
@@ -376,10 +376,10 @@ class octron_widget(QWidget):
         depending on whether the selected name is SAM2, SAM3 or cotracker
         """
         if not model_name:
-            index = self.sam_model_list.currentIndex()
+            index = self.prediction_model_list.currentIndex()
             if index == 0:
                 return
-            model_name = self.sam_model_list.currentText()
+            model_name = self.prediction_model_list.currentText()
 
         # Block loading if the model family is incompatible with existing data
         # Only for SAM2 vs SAM3 since they have different expected image sizes.
@@ -419,10 +419,10 @@ class octron_widget(QWidget):
         """
         if not model_name:
             # Assuming this is retrievable from current GUI ...             
-            index = self.sam_model_list.currentIndex()
+            index = self.prediction_model_list.currentIndex()
             if index == 0:
                 return
-            model_name = self.sam_model_list.currentText()
+            model_name = self.prediction_model_list.currentText()
         # Reverse lookup model_id
         model_found = False
         for model_id, model in self.sam2models_dict.items():
@@ -454,10 +454,10 @@ class octron_widget(QWidget):
             The name of the SAM3 model to load.
         """
         if not model_name:
-            index = self.sam_model_list.currentIndex()
+            index = self.prediction_model_list.currentIndex()
             if index == 0:
                 return
-            model_name = self.sam_model_list.currentText()
+            model_name = self.prediction_model_list.currentText()
         # Reverse lookup model_id
         model_found = False
         for model_id, model in self.sam3models_dict.items():
@@ -494,10 +494,10 @@ class octron_widget(QWidget):
         """Load the selected CoTracker model and enable prediction controls."""
         # Get model_name from index
         if not model_name:
-            index = self.sam_model_list.currentIndex()
+            index = self.prediction_model_list.currentIndex()
             if index == 0:
                 return
-            model_name = self.sam_model_list.currentText()
+            model_name = self.prediction_model_list.currentText()
 
         # Reverse lookup model_id
         model_found = False
@@ -533,8 +533,8 @@ class octron_widget(QWidget):
         """
         self.loaded_model_name = model_name
         # Deactivate the dropdown menu upon successful model loading
-        self.sam_model_list.setCurrentIndex(-1)
-        self.sam_model_list.setEnabled(False)
+        self.prediction_model_list.setCurrentIndex(-1)
+        self.prediction_model_list.setEnabled(False)
         self.load_sam_model_btn.setEnabled(False)
         self.load_sam_model_btn.setText(f'{model_name} ✓')
 
@@ -1048,8 +1048,8 @@ class octron_widget(QWidget):
         self.object_organizer = ObjectOrganizer()
         # SAM2 
         self.loaded_model_name = None
-        self.sam_model_list.setCurrentIndex(0)
-        self.sam_model_list.setEnabled(True)
+        self.prediction_model_list.setCurrentIndex(0)
+        self.prediction_model_list.setEnabled(True)
         self.load_sam_model_btn.setEnabled(True)
         self.load_sam_model_btn.setText(f'Load model')
         self.predict_next_batch_btn.setText('')
@@ -1093,9 +1093,9 @@ class octron_widget(QWidget):
             saved_model_name = saved_settings.get('model_name')
             if saved_model_name:
                 self.loaded_model_name = saved_model_name
-                idx = self.sam_model_list.findText(saved_model_name)
+                idx = self.prediction_model_list.findText(saved_model_name)
                 if idx >= 0:
-                    self.sam_model_list.setCurrentIndex(idx)
+                    self.prediction_model_list.setCurrentIndex(idx)
         
         # Clear the label list combobox and re-initialize it
         self.label_list_combobox.clear()
@@ -1311,8 +1311,8 @@ class octron_widget(QWidget):
                 # SAM2 
                 self._cleanup_predictor()
                 self.loaded_model_name = None
-                self.sam_model_list.setCurrentIndex(0)
-                self.sam_model_list.setEnabled(True)
+                self.prediction_model_list.setCurrentIndex(0)
+                self.prediction_model_list.setEnabled(True)
                 self.load_sam_model_btn.setEnabled(True)
                 self.load_sam_model_btn.setText(f'Load model')
                 self.predict_next_batch_btn.setText('')

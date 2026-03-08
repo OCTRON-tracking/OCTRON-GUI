@@ -222,13 +222,13 @@ class Ui_octron_widgetui(object):
 
         self.octron.model_select_grid_layout.addWidget(self.octron.sam3detect_thresh, 0, 2, 1, 1, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.octron.sam_model_list = QComboBox(self.octron.layoutWidget)
-        self.octron.sam_model_list.addItem("")
-        self.octron.sam_model_list.setObjectName(u"sam_model_list")
-        self.octron.sam_model_list.setMinimumSize(QSize(87, 25))
-        self.octron.sam_model_list.setMaximumSize(QSize(87, 25))
+        self.octron.prediction_model_list = QComboBox(self.octron.layoutWidget)
+        self.octron.prediction_model_list.addItem("")
+        self.octron.prediction_model_list.setObjectName(u"prediction_model_list")
+        self.octron.prediction_model_list.setMinimumSize(QSize(87, 25))
+        self.octron.prediction_model_list.setMaximumSize(QSize(87, 25))
 
-        self.octron.model_select_grid_layout.addWidget(self.octron.sam_model_list, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
+        self.octron.model_select_grid_layout.addWidget(self.octron.prediction_model_list, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
 
         self.octron.annotate_vertical_layout.addWidget(self.octron.model_select_groupbox, 0, Qt.AlignmentFlag.AlignTop)
@@ -1058,12 +1058,12 @@ class Ui_octron_widgetui(object):
         self.octron.sam3detect_thresh.setToolTip(QCoreApplication.translate("self", u"SAM3 multi only: Detection threshold for objects (0-1). Default is 0.5.", None))
 #endif // QT_CONFIG(tooltip)
         self.octron.sam3detect_thresh.setPlaceholderText(QCoreApplication.translate("self", u"0.5", None))
-        self.octron.sam_model_list.setItemText(0, QCoreApplication.translate("self", u"Model", None))
+        self.octron.prediction_model_list.setItemText(0, QCoreApplication.translate("self", u"Model", None))
 
 #if QT_CONFIG(tooltip)
-        self.octron.sam_model_list.setToolTip(QCoreApplication.translate("self", u"SAM models", None))
+        self.octron.prediction_model_list.setToolTip(QCoreApplication.translate("self", u"SAM models", None))
 #endif // QT_CONFIG(tooltip)
-        self.octron.sam_model_list.setCurrentText(QCoreApplication.translate("self", u"Model", None))
+        self.octron.prediction_model_list.setCurrentText(QCoreApplication.translate("self", u"Model", None))
         self.octron.annotate_layer_create_groupbox.setTitle(QCoreApplication.translate("self", u"Label manager", None))
         self.octron.layer_type_combobox.setItemText(0, QCoreApplication.translate("self", u"Type ... ", None))
         self.octron.layer_type_combobox.setItemText(1, QCoreApplication.translate("self", u"Shapes", None))
