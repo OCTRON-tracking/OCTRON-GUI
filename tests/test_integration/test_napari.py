@@ -87,4 +87,17 @@ def test_prediction_model_list(octron_widget):
     assert all(name in list_models_names for name in expected_models), (
         f"Not all expected models found in dropdown. "
         f"Expected: {expected_models}, got: {list_models_names}"
-    )       
+    )
+
+
+def test_load_cotracker_model(octron_widget, capsys):
+    """Test that selecting Cotracker3 and pressing load shows the expected message."""
+    # Select cotracker in dropdown
+    idx = octron_widget.prediction_model_list.findText("Cotracker3")
+    octron_widget.prediction_model_list.setCurrentIndex(idx)
+
+    # Load selected model
+    octron_widget.load_model()
+
+    captured = capsys.readouterr()
+    assert "Model Cotracker3 loaded on" in captured.out
