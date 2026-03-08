@@ -179,7 +179,6 @@ class octron_widget(QWidget):
         # Populate Cotracker entries in the same dropdown
         for model_id, model in self.cotracker_models_dict.items():
             print(f"Adding model {model_id}")
-            # add it to sam model list for now?
             self.sam_model_list.addItem(model['name'])
             
         # Populate YOLO dropdown list with available models
@@ -575,8 +574,7 @@ class octron_widget(QWidget):
             print(f"Warning: reset_state during cleanup failed: {e}")
         
         # For SAM3_semantic_octron, also release the detector model
-        from octron.sam_octron.helpers.sam3_octron import (
-            SAM3_octron, SAM3_semantic_octron)
+        from octron.sam_octron.helpers.sam3_octron import SAM3_octron, SAM3_semantic_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
             del self.predictor.detector
             del self.predictor.tracker.model
@@ -1587,6 +1585,8 @@ class octron_widget(QWidget):
         # Resize video frames if required
         predictor_image_size = self.predictor.image_size 
         if predictor_image_size is None:
+            # Cotracker does not require the input image to be a certain size,
+            # so we keep the original video dimensions.
             resized_height = video_height
             resized_width = video_width
         else:
@@ -1836,8 +1836,7 @@ class octron_widget(QWidget):
         if layer_type == 'Shapes':
             annotation_layer_name = f"{layer_name} shapes"
             # Create a shape layer
-            from octron.sam_octron.helpers.sam3_octron import \
-                SAM3_semantic_octron
+            from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
             if self.predictor is not None:
                 semantic_mode = isinstance(self.predictor, SAM3_semantic_octron)
             else:

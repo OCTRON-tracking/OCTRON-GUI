@@ -47,7 +47,7 @@ def download_cotracker_file(filename, local_dir, overwrite=False):
 
 def check_cotracker_models(checkpoints_dir, force_download=False):
     """
-    Ensure the Cotracker checkpoint and config are available locally.
+    Ensure the Cotracker files are available locally.
     Downloads them from HuggingFace if missing.
 
     Returns a dictionary for the model-selection dropdown.
@@ -55,7 +55,7 @@ def check_cotracker_models(checkpoints_dir, force_download=False):
     Parameters
     ----------
     checkpoints_dir : str or Path
-        Directory where cotracker.pt and config.json should reside
+        Directory where the files should reside
         (typically ``<base_path>/cotracker_octron/checkpoints``).
     force_download : bool
         Re-download even if files exist.

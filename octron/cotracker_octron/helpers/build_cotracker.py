@@ -1,25 +1,3 @@
-"""
-
-Follow the pattern in build_sam3_octron.py:
-
-Load CoTracker3 checkpoint (from torch hub or local file)
-Move to device, set eval mode
-Return (model, device)
-
-
-cotracker = torch.hub.load("facebookresearch/co-tracker", "cotracker3_online").to(device)
-
-# Run Online CoTracker, the same model with a different API:
-# Initialize online processing
-cotracker(video_chunk=video, is_first_step=True, grid_size=grid_size)
-
-# Process the video
-for ind in range(0, video.shape[1] - cotracker.step, cotracker.step):
-    pred_tracks, pred_visibility = cotracker(
-        video_chunk=video[:, ind : ind + cotracker.step * 2]
-    )  # B T N 2,  B T N 1
-"""
-
 import torch
 from cotracker.predictor import CoTrackerOnlinePredictor
 
@@ -30,7 +8,7 @@ def build_cotracker(ckpt_path):
     It assumes the checkpoint is already downloaded and available at ckpt_path.
     Returns the model and the torch device it's on.
     """
-    # Find out which device to use
+    # Select device
     device = torch.device(
         "cuda"
         if torch.cuda.is_available()
