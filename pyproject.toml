@@ -59,6 +59,10 @@ dependencies = [
 pyqt5 = ["PyQt5>=5.15.11"]
 pyqt6 = ["PyQt6>=6.10.0"]
 all = ["napari[pyqt6]==0.7.0a3"]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.0", # for qtbot fixture
+]
 
 [project.urls]
 Homepage = "https://github.com/OCTRON-tracking/OCTRON-GUI"
@@ -77,6 +81,10 @@ octron = "octron:napari.yaml"
 octron-gui = "octron.main:octron_gui"
 octron-gif = "octron.tools.mp4_to_gif:main"
 octron-test-gpu = "octron.test_gpu:check_gpu_access"
+
+[tool.pytest.ini_options]
+addopts = "--cov=octron"
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["."]

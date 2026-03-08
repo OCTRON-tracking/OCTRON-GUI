@@ -9,6 +9,15 @@ OCTRON is built on [Napari](https://www.napari.org), [Segment Anything (SAM2/SAM
 ### Documentation 
 All documentation can be found under [OCTRON-docs on github pages](https://octron-tracking.github.io/OCTRON-docs/).
 
+### Contributing
+
+To run the test suite locally, install the development dependencies with the `[dev]` extra and execute `pytest`:
+
+```bash
+pip install -e ".[dev]"
+pytest tests
+```
+
 ### Support
 
 If you find this project helpful, consider supporting us:

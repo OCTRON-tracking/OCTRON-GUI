@@ -97,4 +97,5 @@ def check_cotracker_models(checkpoints_dir, force_download=False):
             "checkpoint_path": ckpt_path.relative_to(ckpt_path_anchor).as_posix(),
         }
     }
+    print(cotracker_models_dict)
     return cotracker_models_dict
