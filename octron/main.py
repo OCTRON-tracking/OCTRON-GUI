@@ -398,7 +398,7 @@ class octron_widget(QWidget):
         # Load cotracker model if selected
         for model_id, model in self.cotracker_models_dict.items():
             if model['name'] == model_name:
-                self.load_cotrackermodel(model_name=model_name)
+                self.load_cotracker_model(model_name=model_name)
                 return
             
         # Fall back to SAM2 otherwise
