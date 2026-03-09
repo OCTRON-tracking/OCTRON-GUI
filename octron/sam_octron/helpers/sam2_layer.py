@@ -155,7 +155,7 @@ def add_sam2_shapes_layer(
                                  ndim=3,
                                  name=name, 
                                  scale=(1,1),
-                                 edge_width=4,
+                                 edge_width=2,
                                  edge_color=color,
                                  face_color=[1,1,1,0],
                                  opacity=.4,
@@ -166,7 +166,6 @@ def add_sam2_shapes_layer(
     qctrl = viewer.window.qt_viewer.controls.widgets[shapes_layer]
     if semantic_mode:
         buttons_to_hide = [
-                        'select_button',
                         'direct_button',
                         'ellipse_button',
                         'line_button',
@@ -178,7 +177,6 @@ def add_sam2_shapes_layer(
                         'vertex_remove_button',
                         'move_front_button',
                         'move_back_button',
-                        'delete_button',
                         ]
     else:
         buttons_to_hide = [
