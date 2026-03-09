@@ -114,8 +114,10 @@ def add_sam2_mask_layer(viewer,
                         'polygon_button',
                         'transform_button',
                         ]
-    for btn in buttons_to_hide: 
-        getattr(qctrl, btn).hide() 
+    for btn in buttons_to_hide:
+        widget = getattr(qctrl, btn)
+        widget.setEnabled(False)
+        widget.setToolTip('This function is disabled in OCTRON')
         
     return labels_layer, layer_data, zarr_file_path
 
@@ -185,8 +187,9 @@ def add_sam2_shapes_layer(
                         'polyline_button',
                         ]
     for btn in buttons_to_hide:
-        attr = getattr(qctrl, btn)
-        attr.hide()
+        widget = getattr(qctrl, btn)
+        widget.setEnabled(False)
+        widget.setToolTip('This function is disabled in OCTRON')
         
     # Select the shapes layer and activate the rectangle tool
     viewer.layers.selection.active = shapes_layer
