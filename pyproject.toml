@@ -51,13 +51,19 @@ dependencies = [
     "sam-2 @ https://github.com/horsto/sam2/releases/download/v0.0.2/sam_2-1.0-py3-none-any.whl",
     "boxmot @ https://github.com/horsto/boxmot/releases/download/v.15.0.5.2/boxmot-15.0.5-py3-none-any.whl",
     "timm>=1.0.25",
-    "clip @ git+https://github.com/ultralytics/CLIP.git"
+    "clip @ git+https://github.com/ultralytics/CLIP.git",
+    "cotracker @ git+https://github.com/facebookresearch/co-tracker.git"
 ]
 
 [project.optional-dependencies]
 pyqt5 = ["PyQt5>=5.15.11"]
 pyqt6 = ["PyQt6>=6.10.0"]
 all = ["napari[pyqt6]==0.7.0a3"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "pytest-qt>=4.0", # for qtbot fixture
+]
 
 [project.urls]
 Homepage = "https://github.com/OCTRON-tracking/OCTRON-GUI"
@@ -76,6 +82,10 @@ octron = "octron:napari.yaml"
 octron-gui = "octron.main:octron_gui"
 octron-gif = "octron.tools.mp4_to_gif:main"
 octron-test-gpu = "octron.test_gpu:check_gpu_access"
+
+[tool.pytest.ini_options]
+addopts = "--cov=octron"
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["."]
