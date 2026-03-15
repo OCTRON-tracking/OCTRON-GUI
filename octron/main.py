@@ -7,6 +7,8 @@ import os
 import sys
 from typing import List, Optional
 
+from octron.cotracker_octron.helpers.cotracker_octron import CoTracker_octron
+
 # if using Apple MPS, fall back to CPU for unsupported ops
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import shutil
@@ -510,10 +512,10 @@ class octron_widget(QWidget):
         # Build model from local checkpoint
         model = self.cotracker_models_dict[model_id]
         checkpoint_path = self.base_path / Path(f"cotracker_octron/{model['checkpoint_path']}")
-        self.predictor, self.device = build_cotracker(
+        model, self.device = build_cotracker(
             ckpt_path=checkpoint_path.as_posix(),
         )
-        self.predictor.is_initialized = False
+        self.predictor = CoTracker_octron(model, self.device)
         show_info(f"Model {model_name} loaded on {self.device}")
 
         # Set cache size

@@ -21,11 +21,4 @@ def build_cotracker(ckpt_path):
     model = CoTrackerOnlinePredictor(checkpoint=ckpt_path)
     model = model.to(device)
 
-    # Cotracker does not require the input image to be a certain
-    # size, but internally its working resolution is 384×512. It then
-    # scales the predicted tracks back to the original video resolution. 
-    # For the zarr cache we set it to the actual video resolution to match
-    # the napari videos and the cotracker results. 
-    model.image_size = None
-
     return model, device
