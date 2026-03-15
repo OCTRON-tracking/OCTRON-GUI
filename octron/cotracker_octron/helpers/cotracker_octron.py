@@ -6,13 +6,14 @@ import torch
 class CoTracker_octron:
     """
     OCTRON wrapper around CoTrackerOnlinePredictor for interactive
-    point tracking in video.
+    point tracking in a video.
 
     Provides a similar interface to SAM2_octron / SAM3_octron:
-        - init_state(video_data, zarr_store)
         - add_new_points(frame_idx, obj_id, points)
         - propagate_in_video(start_frame, end_frame)
+        - init_state(video_data, zarr_store)
         - reset_state()
+        - remove_object(obj_id)
     """
 
     def __init__(self, model, device):
