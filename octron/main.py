@@ -519,6 +519,7 @@ class octron_widget(QWidget):
         show_info(f"Model {model_name} loaded on {self.device}")
 
         # Set cache size
+        # (how many frames the "predict next batch" button processes)
         self.chunk_size = 15
         self._on_model_loaded(model_name)
 
@@ -1535,20 +1536,13 @@ class octron_widget(QWidget):
             return
 
         if not self.predictor.is_initialized:
-            from cotracker.predictor import CoTrackerOnlinePredictor
-            if isinstance(self.predictor, CoTrackerOnlinePredictor):
-                # CoTracker initialises on the first forward call
-                # (is_first_step=True), not via a separate init_state().
-                # TODO: PR3 will handle this.
-                pass
-            else:
-                # Initialise SAM2/SAM3 predictor
-                # This needs the zarr store to be initialized first
-                # -> that happens when either the model is loaded or a video layer is found
-                # -> on_changed_layer() and load_sam2model() take care of this
-                self.predictor.init_state(video_data=self.video_layer.data,
-                                          zarr_store=self.video_zarr,
-                                          )
+            # Initialise predictor (SAM2, SAM3, or CoTracker)
+            # This needs the zarr store to be initialized first
+            # -> that happens when either the model is loaded or a video layer is found
+            # -> on_changed_layer() and load_sam2model() take care of this
+            self.predictor.init_state(video_data=self.video_layer.data,
+                                      zarr_store=self.video_zarr,
+                                      )
             self.hard_reset_layer_btn.setEnabled(True)
             self.predictor.is_initialized = True
 
