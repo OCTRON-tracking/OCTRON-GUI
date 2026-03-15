@@ -3,7 +3,6 @@ import time
 import warnings
 
 import numpy as np
-from cotracker.predictor import CoTrackerOnlinePredictor
 from napari.utils.notifications import (
     show_error,
     show_warning,
@@ -463,11 +462,6 @@ class sam2_octron_callbacks():
         """
         predictor = self.octron.predictor
         assert predictor, "No model loaded."
-
-        # CoTracker does not use the SAM2/SAM3 OctoZarr image cache yet.
-        # TODO (PR 3): wire CoTrackerOnlinePredictor with init_state() and OctoZarr.
-        if isinstance(predictor, CoTrackerOnlinePredictor):
-            return
 
         self.octron.init_sam2_model() # This initializes the model if it is not yet initialized
         
