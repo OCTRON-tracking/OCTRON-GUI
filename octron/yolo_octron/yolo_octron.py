@@ -26,8 +26,9 @@ import zarr
 from skimage import measure, color
 from boxmot import create_tracker
 import napari
-from octron import __version__ as octron_version
-from octron.main import base_path as octron_base_path
+from importlib.metadata import version as _get_version
+octron_version = _get_version('octron')
+octron_base_path = Path(__file__).parent.parent
 from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
 from octron.yolo_octron.helpers.polygons import (find_objects_in_mask, 
                                                  watershed_mask,
