@@ -1,5 +1,5 @@
 from collections import OrderedDict
-
+from octron.sam_octron.helpers.sam2_zarr import OctoZarr
 import torch
 
 
@@ -329,14 +329,40 @@ class CoTracker_octron:
         }
 
     @torch.inference_mode()
-    def init_state():
-        pass
+    def init_state(self, video_data, zarr_store):
+        """Initialise video state for CoTracker tracking.
+
+        Creates an OctoZarr cache from the raw video data and zarr store,
+        stores video metadata, and marks the predictor as ready.
+
+        Parameters
+        ----------
+        video_data : np.ndarray
+            Video data with shape (num_frames, H, W, 3).
+        zarr_store : zarr.core.Array
+            Zarr array for caching preprocessed frames.
+        """
+        # assert len(video_data.shape) == 4, \
+        #     f"video_data should have shape (num_frames, H, W, 3), got {video_data.shape}"
+        # assert video_data.shape[3] == 3, \
+        #     f"video_data should be RGB with shape (num_frames, H, W, 3), got {video_data.shape}"
+
+        # OctoZarr with default ImageNet normalisation (same as CoTracker)
+        self.images = OctoZarr(zarr_store, video_data)
+
+        # turn octron flag ON
+        self.is_initialized = True
 
     @torch.inference_mode()
     def reset_state(self):
-        """clear all queries and trajectory data"""
-        pass
+        """Clear all query points and internal tracking state."""
+        self.point_inputs_per_obj.clear()
+        self._buffered_frames = []
+        self._is_first_step = True
+        self._n_frames_to_yield = 0
+        self._n_frames_seen = 0
 
     @torch.inference_mode()
-    def remove_object():
-        pass
+    def remove_object(self, obj_id):
+        """Remove a single object's query points from tracking."""
+        self.point_inputs_per_obj.pop(obj_id, None)
