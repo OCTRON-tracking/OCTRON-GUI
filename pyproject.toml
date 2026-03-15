@@ -46,6 +46,7 @@ dependencies = [
     "opencv-python>=4.11.0",       
     "natsort>=8.4.0",
     "loguru>=0.7",
+    "typer>=0.12.0",
     "huggingface_hub>=1.5.0",
     "transformers>=5.2.0",
     "napari-pyav @ https://github.com/horsto/napari-pyav/releases/download/v0.0.10.2/napari_pyav-0.0.10-py3-none-any.whl",
@@ -73,7 +74,7 @@ octron = "octron:napari.yaml"
 octron = "octron.main:octron_gui"
 
 [project.scripts]
-octron = "octron:napari.yaml"
+octron = "octron.cli:main"
 octron-gui = "octron.main:octron_gui"
 octron-gif = "octron.tools.mp4_to_gif:main"
 octron-test-gpu = "octron.test_gpu:check_gpu_access"
