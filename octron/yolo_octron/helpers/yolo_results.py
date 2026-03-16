@@ -105,27 +105,41 @@ class YOLO_results:
         elif self.verbose:
             logger.info(f"No prediction_metadata.json found in '{self.results_dir.name}'")
 
+    # Video formats supported for auto-detection and loading
+    VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mov', '.mkv')
+
     def find_video(self):
         """
         Check if video is present in the second parent directory, then probe it for properties.
-        OCTRON saves results of analyzed mp4 files into a subdirectory /octron_predictions/VIDEONAME/
+        OCTRON saves results into a subdirectory /octron_predictions/VIDEONAME_TRACKER/
+        alongside the original video file.
+
+        Note: auto-detection only works when the video is still in the same directory as
+        octron_predictions/.  If the video has been moved or is stored elsewhere (e.g. to
+        avoid duplicating large files), pass the path explicitly via the ``video_path``
+        argument of ``run_render`` / ``YOLO_results``.
         """
         from octron.sam_octron.helpers.video_loader import probe_video
         results_dir = self.results_dir
         video = None
         video_dict = None
-        for video_path in results_dir.parent.parent.glob('*.mp4'):
-            if video_path.stem == '_'.join(results_dir.name.split('_')[:-1]):
+        stem = '_'.join(results_dir.name.split('_')[:-1])
+        for ext in self.VIDEO_EXTENSIONS:
+            video_path = results_dir.parent.parent / f'{stem}{ext}'
+            if video_path.exists():
                 video = FastVideoReader(video_path, read_format='rgb24')
                 video_dict = probe_video(video_path, verbose=self.verbose)
                 self.height = video_dict['height']
                 self.width = video_dict['width']
                 self.num_frames = video_dict['num_frames']
-                # If height, width, num_frames are not set, there is still a chance
-                # to recover that info from the zarr array ...
                 break
         if video is None and self.verbose:
-            logger.warning(f"No video found for '{results_dir.name}'")
+            logger.warning(
+                f"No video found for '{results_dir.name}' "
+                f"(looked for {stem}{{{','.join(self.VIDEO_EXTENSIONS)}}} "
+                f"in '{results_dir.parent.parent}'). "
+                f"Use --video to specify the path explicitly."
+            )
         self.video, self.video_dict = video, video_dict
             
     def find_csv(self):
