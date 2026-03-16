@@ -18,8 +18,16 @@ import typer
 app = typer.Typer(
     name='octron',
     help='OCTRON – segmentation and tracking for animal behavior quantification.',
-    no_args_is_help=True,
+    invoke_without_command=True,
 )
+
+
+@app.callback()
+def default(ctx: typer.Context):
+    """Launch the OCTRON napari GUI (default), or run a subcommand."""
+    if ctx.invoked_subcommand is None:
+        from octron.main import octron_gui
+        octron_gui()
 
 
 @app.command()
