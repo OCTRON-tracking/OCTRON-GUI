@@ -48,7 +48,7 @@ def gpu_test():
 def train(
     project_path: Path = typer.Argument(..., help='Path to the OCTRON project directory.'),
     model: str = typer.Option('YOLO11m', help='YOLO model name or path to a .pt file.'),
-    device: str = typer.Option('cpu', help="Device to train on ('cpu', 'cuda', 'mps')."),
+    device: str = typer.Option('auto', help="Device to train on ('auto', 'cpu', 'cuda', 'mps')."),
     epochs: int = typer.Option(30, help='Number of training epochs.'),
     imagesz: int = typer.Option(640, help='Input image size.'),
     save_period: int = typer.Option(15, help='Save a checkpoint every N epochs.'),
@@ -57,6 +57,9 @@ def train(
 ):
     """Run the full YOLO training pipeline on an OCTRON project."""
     from octron.train import run_training
+    from octron.test_gpu import auto_device
+    if device == 'auto':
+        device = auto_device()
     run_training(
         project_path=project_path,
         model=model,
@@ -73,7 +76,7 @@ def train(
 def analyze(
     videos: List[Path] = typer.Argument(..., help='One or more video file paths.'),
     model_path: Path = typer.Option(..., '--model', help='Path to a trained YOLO .pt file.'),
-    device: str = typer.Option('cpu', help="Device to run inference on ('cpu', 'cuda', 'mps')."),
+    device: str = typer.Option('auto', help="Device to run inference on ('auto', 'cpu', 'cuda', 'mps')."),
     tracker: str = typer.Option('ByteTrack', '--tracker', help="Tracker name (e.g. 'ByteTrack', 'BotSort') or path to a tracker config YAML."),
     skip_frames: int = typer.Option(0, help='Number of frames to skip between predictions.'),
     one_object_per_label: bool = typer.Option(False, help='Track only the top-confidence detection per label.'),
@@ -85,6 +88,9 @@ def analyze(
 ):
     """Run YOLO prediction and tracking on one or more videos."""
     from octron.analyze import run_analysis
+    from octron.test_gpu import auto_device
+    if device == 'auto':
+        device = auto_device()
     tracker_name = None
     tracker_cfg_path = None
     if tracker.endswith(('.yaml', '.yml')):
