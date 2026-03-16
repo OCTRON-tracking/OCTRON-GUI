@@ -1,0 +1,30 @@
+name: Tests
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Install CPU-only torch first so pip doesn't pull in a CUDA wheel.
+      # The project requires torch>=2.5.1; CPU wheels are available for
+      # Linux x86_64 via PyTorch's own index.
+      - name: Install CPU-only torch
+        run: |
+          pip install torch>=2.5.1 torchvision>=0.20.1 \
+            --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install package with dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short

@@ -59,6 +59,10 @@ dependencies = [
 pyqt5 = ["PyQt5>=5.15.11"]
 pyqt6 = ["PyQt6>=6.10.0"]
 all = ["napari[pyqt6]==0.7.0a3"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
 
 [project.urls]
 Homepage = "https://github.com/OCTRON-tracking/OCTRON-GUI"
