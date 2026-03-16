@@ -11,7 +11,7 @@ from pathlib import Path
 def run_predict(
     videos,
     model_path,
-    device='auto',
+    device="auto",
     tracker_name=None,
     tracker_cfg_path=None,
     tracker_params=None,
@@ -61,12 +61,13 @@ def run_predict(
     """
     from octron.yolo_octron.yolo_octron import YOLO_octron
     from octron.test_gpu import auto_device
-    if device == 'auto':
+
+    if device == "auto":
         device = auto_device()
 
     yolo = YOLO_octron()
 
-    print(f'Running prediction with model: {model_path}')
+    print(f"Running prediction with model: {model_path}")
     for progress in yolo.predict_batch(
         videos=videos,
         model_path=model_path,
@@ -82,18 +83,18 @@ def run_predict(
         overwrite=overwrite,
         buffer_size=buffer_size,
     ):
-        stage = progress.get('stage', '')
-        video = progress.get('video_name', '')
-        vidx = progress.get('video_index', '?')
-        total_v = progress.get('total_videos', '?')
-        frame = progress.get('frame', '?')
-        total_f = progress.get('total_frames', '?')
-        pct = progress.get('overall_progress', 0)
-        eta = progress.get('eta', 0)
+        stage = progress.get("stage", "")
+        video = progress.get("video_name", "")
+        vidx = progress.get("video_index", "?")
+        total_v = progress.get("total_videos", "?")
+        frame = progress.get("frame", "?")
+        total_f = progress.get("total_frames", "?")
+        pct = progress.get("overall_progress", 0)
+        eta = progress.get("eta", 0)
         print(
-            f'  [{stage}] video {vidx}/{total_v} ({video}): '
-            f'frame {frame}/{total_f} | {pct:.1f}% | ETA: {eta:.0f}s',
-            end='\r',
+            f"  [{stage}] video {vidx}/{total_v} ({video}): "
+            f"frame {frame}/{total_f} | {pct:.1f}% | ETA: {eta:.0f}s",
+            end="\r",
         )
     print()
-    print('Prediction complete.')
+    print("Prediction complete.")
