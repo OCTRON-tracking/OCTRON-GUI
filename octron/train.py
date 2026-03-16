@@ -13,7 +13,7 @@ _MODELS_YAML = Path(__file__).parent / 'yolo_octron' / 'yolo_models.yaml'
 def run_training(
     project_path,
     model='YOLO11m',
-    device='cpu',
+    device='auto',
     epochs=30,
     imagesz=640,
     save_period=15,
@@ -30,7 +30,8 @@ def run_training(
     model : str or Path
         YOLO model name (e.g. 'YOLO11m') or path to an existing model file.
     device : str
-        Device to train on ('cpu', 'cuda', 'mps').
+        Device to train on ('auto', 'cpu', 'cuda', 'mps'). 'auto' selects
+        CUDA if available, then MPS, then CPU.
     epochs : int
         Number of training epochs.
     imagesz : int
@@ -43,6 +44,9 @@ def run_training(
         Resume training from an existing last.pt checkpoint.
     """
     from octron.yolo_octron.yolo_octron import YOLO_octron
+    from octron.test_gpu import auto_device
+    if device == 'auto':
+        device = auto_device()
 
     yolo = YOLO_octron(
         models_yaml_path=_MODELS_YAML,
