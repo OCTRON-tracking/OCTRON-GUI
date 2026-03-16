@@ -1,5 +1,5 @@
 """
-OCTRON analysis (prediction) pipeline.
+OCTRON prediction pipeline.
 
 Wraps YOLO_octron.predict_batch() into a single callable function
 that can be used from the CLI or called programmatically.
@@ -8,7 +8,7 @@ that can be used from the CLI or called programmatically.
 from pathlib import Path
 
 
-def run_analysis(
+def run_predict(
     videos,
     model_path,
     device='auto',
@@ -96,4 +96,4 @@ def run_analysis(
             end='\r',
         )
     print()
-    print('Analysis complete.')
+    print('Prediction complete.')
