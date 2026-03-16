@@ -11,7 +11,7 @@ from pathlib import Path
 def run_analysis(
     videos,
     model_path,
-    device='cpu',
+    device='auto',
     tracker_name=None,
     tracker_cfg_path=None,
     tracker_params=None,
@@ -33,7 +33,8 @@ def run_analysis(
     model_path : str or Path
         Path to the trained YOLO model (.pt file).
     device : str
-        Device to run inference on ('cpu', 'cuda', 'mps').
+        Device to run inference on ('auto', 'cpu', 'cuda', 'mps'). 'auto'
+        selects CUDA if available, then MPS, then CPU.
     tracker_name : str, optional
         Tracker to use (e.g. 'ByteTrack', 'BotSort'). Either this or
         tracker_cfg_path must be provided.
@@ -59,6 +60,9 @@ def run_analysis(
         Number of frames buffered before writing to zarr.
     """
     from octron.yolo_octron.yolo_octron import YOLO_octron
+    from octron.test_gpu import auto_device
+    if device == 'auto':
+        device = auto_device()
 
     yolo = YOLO_octron()
 
