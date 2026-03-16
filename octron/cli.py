@@ -11,7 +11,7 @@ Subcommands
   analyze     Run YOLO prediction and tracking on one or more videos
 """
 
-from typing import List, Optional
+from typing import List
 from pathlib import Path
 import typer
 
@@ -74,7 +74,7 @@ def analyze(
     videos: List[Path] = typer.Argument(..., help='One or more video file paths.'),
     model_path: Path = typer.Option(..., '--model', help='Path to a trained YOLO .pt file.'),
     device: str = typer.Option('cpu', help="Device to run inference on ('cpu', 'cuda', 'mps')."),
-    tracker: Optional[str] = typer.Option(None, '--tracker', help="Tracker name (e.g. 'ByteTrack', 'BotSort')."),
+    tracker: str = typer.Option('ByteTrack', '--tracker', help="Tracker name (e.g. 'ByteTrack', 'BotSort') or path to a tracker config YAML."),
     skip_frames: int = typer.Option(0, help='Number of frames to skip between predictions.'),
     one_object_per_label: bool = typer.Option(False, help='Track only the top-confidence detection per label.'),
     iou_thresh: float = typer.Option(0.7, help='IOU threshold for detection.'),
@@ -85,11 +85,18 @@ def analyze(
 ):
     """Run YOLO prediction and tracking on one or more videos."""
     from octron.analyze import run_analysis
+    tracker_name = None
+    tracker_cfg_path = None
+    if tracker.endswith(('.yaml', '.yml')):
+        tracker_cfg_path = Path(tracker)
+    else:
+        tracker_name = tracker
     run_analysis(
         videos=videos,
         model_path=model_path,
         device=device,
-        tracker_name=tracker,
+        tracker_name=tracker_name,
+        tracker_cfg_path=tracker_cfg_path,
         skip_frames=skip_frames,
         one_object_per_label=one_object_per_label,
         iou_thresh=iou_thresh,
