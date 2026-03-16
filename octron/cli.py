@@ -144,20 +144,45 @@ def predict(
 
 @app.command()
 def render(
-    predictions_path: Path = typer.Argument(..., help='Path to a prediction output directory (octron_predictions/video_Tracker/).'),
-    video_path: Path = typer.Option(None, '--video', help='Path to the original video. Auto-detected if it sits alongside octron_predictions/ and is .mp4/.avi/.mov/.mkv. Required if the video has been moved or lives elsewhere.'),
-    output_path: Path = typer.Option(None, '--output', '-o', help='Output directory. Defaults to <predictions_path>/rendered/.'),
-    preset: str = typer.Option('draft', '--preset', help="Quality preset: 'preview' (0.25×), 'draft' (0.5×), or 'final' (full resolution)."),
-    tracklets: bool = typer.Option(False, '--tracklets', help='Also generate one crop video per tracked animal.'),
-    tracklet_size: int = typer.Option(160, '--tracklet-size', help='Side length in pixels of each tracklet crop.'),
-    alpha: float = typer.Option(0.4, '--alpha', help='Mask overlay opacity (0–1).'),
-    start: int = typer.Option(None, '--start', help='First frame to render (inclusive).'),
-    end: int = typer.Option(None, '--end', help='Last frame to render (exclusive).'),
+    predictions_path: Path = typer.Argument(
+        ...,
+        help="Path to a prediction output directory (octron_predictions/video_Tracker/).",
+    ),
+    video_path: Path = typer.Option(
+        None,
+        "--video",
+        help="Path to the original video. Auto-detected if it sits alongside octron_predictions/ and is .mp4/.avi/.mov/.mkv. Required if the video has been moved or lives elsewhere.",
+    ),
+    output_path: Path = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output directory. Defaults to <predictions_path>/rendered/.",
+    ),
+    preset: str = typer.Option(
+        "draft",
+        "--preset",
+        help="Quality preset: 'preview' (0.25×), 'draft' (0.5×), or 'final' (full resolution).",
+    ),
+    tracklets: bool = typer.Option(
+        False, "--tracklets", help="Also generate one crop video per tracked animal."
+    ),
+    tracklet_size: int = typer.Option(
+        160, "--tracklet-size", help="Side length in pixels of each tracklet crop."
+    ),
+    alpha: float = typer.Option(0.4, "--alpha", help="Mask overlay opacity (0–1)."),
+    start: int = typer.Option(
+        None, "--start", help="First frame to render (inclusive)."
+    ),
+    end: int = typer.Option(None, "--end", help="Last frame to render (exclusive)."),
 ):
     """Render annotated video(s) from OCTRON prediction output."""
-    from octron.video.render import run_render, PRESETS
+    from octron.tools.render import run_render, PRESETS
+
     if preset not in PRESETS:
-        raise typer.BadParameter(f"preset must be one of {list(PRESETS)}.", param_hint="'--preset'")
+        raise typer.BadParameter(
+            f"preset must be one of {list(PRESETS)}.", param_hint="'--preset'"
+        )
     run_render(
         predictions_path=predictions_path,
         video_path=video_path,
@@ -171,12 +196,15 @@ def render(
     )
 
 
-@app.command('bbox-sizes')
+@app.command("bbox-sizes")
 def bbox_sizes(
-    predictions_path: Path = typer.Argument(..., help='Path to a prediction output directory.'),
+    predictions_path: Path = typer.Argument(
+        ..., help="Path to a prediction output directory."
+    ),
 ):
     """Report per-track bounding-box sizes to help choose --tracklet-size."""
-    from octron.video.render import report_bbox_sizes
+    from octron.tools.render import report_bbox_sizes
+
     report_bbox_sizes(predictions_path)
 
 
