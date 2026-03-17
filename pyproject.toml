@@ -91,6 +91,15 @@ exclude = ["pics", "sample_data"]
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.svg", "*.md"]
 
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.setuptools_scm]
 # write version into code for import
 write_to = "octron/_version.py"
