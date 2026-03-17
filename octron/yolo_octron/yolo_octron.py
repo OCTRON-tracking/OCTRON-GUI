@@ -1047,13 +1047,14 @@ class YOLO_octron:
         return args
     
 
-    def train(self, 
+    def train(self,
               device='cpu',
-              imagesz = 640,    
-              epochs=30, 
+              imagesz = 640,
+              epochs=30,
               save_period=15,
               train_mode='segment',
               resume=False,
+              batch=-1,
               ):
         """
         Train the YOLO model with epoch progress updates
@@ -1239,7 +1240,7 @@ class YOLO_octron:
                     resume=resume,
                     patience=100,
                     plots=True,
-                    batch=-1, # auto
+                    batch=batch,
                     cache='disk', # for fast access
                     save=True,
                     save_period=save_period, 
