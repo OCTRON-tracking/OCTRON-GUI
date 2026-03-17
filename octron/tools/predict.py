@@ -5,6 +5,7 @@ Wraps YOLO_octron.predict_batch() into a single callable function
 that can be used from the CLI or called programmatically.
 """
 
+from collections import deque
 from pathlib import Path
 
 
@@ -68,6 +69,8 @@ def run_predict(
     yolo = YOLO_octron()
 
     print(f"Running prediction with model: {model_path}")
+    frame_time = 0.0
+    _frame_times = deque(maxlen=30)
     for progress in yolo.predict_batch(
         videos=videos,
         model_path=model_path,
@@ -87,13 +90,27 @@ def run_predict(
         video = progress.get("video_name", "")
         vidx = progress.get("video_index", "?")
         total_v = progress.get("total_videos", "?")
-        frame = progress.get("frame", "?")
-        total_f = progress.get("total_frames", "?")
-        pct = progress.get("overall_progress", 0)
-        eta = progress.get("eta", 0)
+        frame = progress.get("frame", 0)
+        total_f = progress.get("total_frames", 0)
+        frame_time = progress.get("frame_time", frame_time)
+        if frame_time > 0:
+            _frame_times.append(frame_time)
+        avg_frame_time = sum(_frame_times) / len(_frame_times) if _frame_times else 0.0
+
+        if total_f and total_f > 0:
+            pct = 100.0 * frame / total_f
+            remaining = total_f - frame
+            eta = remaining * avg_frame_time if avg_frame_time > 0 else 0.0
+        else:
+            pct = 0.0
+            eta = 0.0
+
+        fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 0.0
+        eta_s = int(eta)
+        eta_str = f"{eta_s // 3600:02d}:{(eta_s % 3600) // 60:02d}:{eta_s % 60:02d}"
         print(
             f"  [{stage}] video {vidx}/{total_v} ({video}): "
-            f"frame {frame}/{total_f} | {pct:.1f}% | ETA: {eta:.0f}s",
+            f"frame {frame}/{total_f} | {pct:.1f}% | {fps:.1f} fps | ETA: {eta_str}",
             end="\r",
         )
     print()

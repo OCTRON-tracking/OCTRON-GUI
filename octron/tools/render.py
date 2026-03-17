@@ -69,6 +69,8 @@ def run_render(
     tracklets=False,
     tracklet_size=160,
     alpha=0.4,
+    draw_masks=True,
+    draw_boxes=True,
     start=None,
     end=None,
 ):
@@ -101,6 +103,11 @@ def run_render(
         Side length in pixels of each tracklet crop (default 160).
     alpha : float
         Opacity of mask overlays blended onto the original frame (0–1).
+    draw_masks : bool
+        Render semi-transparent segmentation mask fills (default True).
+        Requires a segmentation model prediction (zarr masks).
+    draw_boxes : bool
+        Render bounding boxes and label text (default True).
     start : int, optional
         First frame index to render (inclusive).  None = beginning of video.
     end : int, optional
@@ -165,11 +172,14 @@ def run_render(
     tracking_data = results.get_tracking_data(interpolate=False)
 
     # Build per-frame index lookups for fast O(1) access during frame loop
-    bbox_lookup = {}  # {track_id: DataFrame indexed by frame_idx}
-    pos_lookup = {}  # {track_id: DataFrame indexed by frame_idx}
+    # Use plain Python dicts keyed by int(frame_idx) to avoid pandas type-matching issues
+    bbox_lookup = {}  # {track_id: {frame_idx: Series}}
+    pos_lookup = {}  # {track_id: {frame_idx: Series}}
     for tid, td in tracking_data.items():
-        bbox_lookup[tid] = td["features"].set_index("frame_idx")
-        pos_lookup[tid] = td["data"].set_index("frame_idx")
+        bbox_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["features"].iterrows()}
+        pos_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["data"].iterrows()}
+        n_bbox = len(bbox_lookup[tid])
+        print(f"  Track {tid} ({td['label']}): {n_bbox} frames with bbox data")
 
     # Color per track: RGBA [0-1] from OCTRON's color system → BGR uint8 for OpenCV
     track_colors = {}
@@ -208,73 +218,109 @@ def run_render(
         f"| output {out_w}×{out_h} px"
     )
 
+    import time
+    from collections import deque
+
+    # Pre-compute nearest-neighbour downscale indices for masks (vectorised batch resize)
+    _y_idx = _x_idx = None
+    if draw_masks and scale != 1.0 and results.has_masks:
+        for tid in results.track_ids:
+            arr_key = f"{tid}_masks"
+            if arr_key in results.zarr_root:
+                _H, _W = results.zarr_root[arr_key].shape[1:3]
+                _y_idx = np.round(np.linspace(0, _H - 1, out_h)).astype(int)
+                _x_idx = np.round(np.linspace(0, _W - 1, out_w)).astype(int)
+                break
+
+    # Zarr batch size — match chunk_size so each chunk is decompressed exactly once
+    _BATCH = 500
+    _batch_masks = {}   # tid -> (n, out_h, out_w) uint8, current batch
+    _batch_start = None  # first frame_idx of current batch
+
     cap = cv2.VideoCapture(str(src_path))
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start)
 
+    _bar_width = 30
+    _frame_times = deque(maxlen=30)
+    _t_frame = time.time()
+
     for i, frame_idx in enumerate(range(frame_start, frame_end)):
-        ok, frame_bgr = cap.read()
+        ok, orig_frame = cap.read()
         if not ok:
             print(f"\nWarning: could not read frame {frame_idx}, stopping early.")
             break
 
-        overlay = frame_bgr.astype(np.float32)
+        # Lazy-load the next zarr batch when the current one is exhausted
+        if draw_masks and results.has_masks and (_batch_start is None or frame_idx >= _batch_start + _BATCH):
+            _batch_start = frame_idx
+            _batch_end = min(_batch_start + _BATCH, frame_end)
+            _batch_masks = {}
+            for tid in results.track_ids:
+                arr_key = f"{tid}_masks"
+                if arr_key not in results.zarr_root:
+                    continue
+                zarr_arr = results.zarr_root[arr_key]
+                end_idx = min(_batch_end, zarr_arr.shape[0])
+                if _batch_start >= end_idx:
+                    continue
+                raw = np.asarray(zarr_arr[_batch_start:end_idx])  # (n, H, W)
+                if _y_idx is not None:
+                    raw = raw[:, _y_idx[:, None], _x_idx[None, :]]  # (n, out_h, out_w)
+                _batch_masks[tid] = raw
+
+        j = frame_idx - _batch_start if _batch_start is not None else 0
+
+        # Downscale frame for overlay; keep orig_frame for tracklet crops
+        if scale != 1.0:
+            frame_small = cv2.resize(orig_frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
+        else:
+            frame_small = orig_frame
+        overlay = frame_small.astype(np.float32)
 
         for tid in results.track_ids:
             color_bgr = track_colors[tid]
             label = results.track_id_label[tid]
 
             # Mask overlay (segmentation models only)
-            if results.has_masks:
-                arr_key = f"{tid}_masks"
-                if (
-                    arr_key in results.zarr_root
-                    and frame_idx < results.zarr_root[arr_key].shape[0]
-                ):
-                    mask = np.asarray(results.zarr_root[arr_key][frame_idx])
+            if draw_masks and results.has_masks and tid in _batch_masks:
+                batch = _batch_masks[tid]
+                if j < batch.shape[0]:
+                    mask = batch[j]
                     obj = mask == 1
                     if obj.any():
                         color_f = np.array(color_bgr, dtype=np.float32)
                         overlay[obj] = (1 - alpha) * overlay[obj] + alpha * color_f
 
             # Bounding box + label text
-            feat = bbox_lookup.get(tid)
-            if feat is not None and frame_idx in feat.index:
-                row = feat.loc[frame_idx]
-                # guard against duplicate index entries returning a DataFrame
-                if hasattr(row, "iloc"):
-                    row = row.iloc[0]
-                x1 = int(row["bbox_x_min"])
-                y1 = int(row["bbox_y_min"])
-                x2 = int(row["bbox_x_max"])
-                y2 = int(row["bbox_y_max"])
-                cv2.rectangle(overlay, (x1, y1), (x2, y2), color_bgr, 1)
-                cv2.putText(
-                    overlay,
-                    f"{label} {tid}",
-                    (x1, max(y1 - 6, 12)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.45,
-                    color_bgr,
-                    1,
-                    cv2.LINE_AA,
-                )
+            if draw_boxes:
+                row = bbox_lookup.get(tid, {}).get(frame_idx)
+                if row is not None:
+                    x1 = int(row["bbox_x_min"] * scale)
+                    y1 = int(row["bbox_y_min"] * scale)
+                    x2 = int(row["bbox_x_max"] * scale)
+                    y2 = int(row["bbox_y_max"] * scale)
+                    lw = max(1, int(2 * scale + 0.5))
+                    # Dark outline + coloured inner box for contrast against mask fill
+                    cv2.rectangle(overlay, (x1 - 1, y1 - 1), (x2 + 1, y2 + 1), (0, 0, 0), lw)
+                    cv2.rectangle(overlay, (x1, y1), (x2, y2), color_bgr, lw)
+                    txt = f"{label} {tid}"
+                    font_scale = max(0.3, 0.45 * scale / 0.5)
+                    txt_lw = max(1, lw)
+                    # Dark shadow then coloured text
+                    cv2.putText(overlay, txt, (x1 + 1, max(y1 - 5, 13)),
+                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), txt_lw + 1, cv2.LINE_AA)
+                    cv2.putText(overlay, txt, (x1, max(y1 - 6, 12)),
+                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, color_bgr, txt_lw, cv2.LINE_AA)
 
         out_frame = np.clip(overlay, 0, 255).astype(np.uint8)
-        if scale != 1.0:
-            out_frame = cv2.resize(
-                out_frame, (out_w, out_h), interpolation=cv2.INTER_AREA
-            )
         writer.write(out_frame)
 
-        # Tracklet crops — black frame when animal is not detected
+        # Tracklet crops — use orig_frame (full resolution) for crops
         if tracklets:
             for tid in results.track_ids:
                 crop = np.zeros((tracklet_size, tracklet_size, 3), dtype=np.uint8)
-                pos = pos_lookup.get(tid)
-                if pos is not None and frame_idx in pos.index:
-                    row = pos.loc[frame_idx]
-                    if hasattr(row, "iloc"):
-                        row = row.iloc[0]
+                row = pos_lookup.get(tid, {}).get(frame_idx)
+                if row is not None:
                     cx = int(row["pos_x"])
                     cy = int(row["pos_y"])
                     half = tracklet_size // 2
@@ -289,14 +335,26 @@ def run_render(
                     dst_y1 = src_y1 - (cy - half)
                     dst_x2 = dst_x1 + (src_x2 - src_x1)
                     dst_y2 = dst_y1 + (src_y2 - src_y1)
-                    crop[dst_y1:dst_y2, dst_x1:dst_x2] = frame_bgr[
+                    crop[dst_y1:dst_y2, dst_x1:dst_x2] = orig_frame[
                         src_y1:src_y2, src_x1:src_x2
                     ]
                 tracklet_writers[tid].write(crop)
 
-        if (i + 1) % 100 == 0 or (i + 1) == n_frames:
-            pct = (i + 1) / n_frames * 100
-            print(f"  {i + 1}/{n_frames} frames ({pct:.0f}%)", end="\r")
+        now = time.time()
+        _frame_times.append(now - _t_frame)
+        _t_frame = now
+        avg_ft = sum(_frame_times) / len(_frame_times)
+        fps = 1.0 / avg_ft if avg_ft > 0 else 0.0
+        remaining = n_frames - (i + 1)
+        eta_s = int(remaining * avg_ft) if avg_ft > 0 else 0
+        eta_str = f"{eta_s // 3600:02d}:{(eta_s % 3600) // 60:02d}:{eta_s % 60:02d}"
+        pct = (i + 1) / n_frames
+        filled = int(_bar_width * pct)
+        bar = "█" * filled + "░" * (_bar_width - filled)
+        print(
+            f"  [{bar}] {i + 1}/{n_frames} | {pct:.0%} | {fps:.1f} fps | ETA {eta_str}",
+            end="\r",
+        )
 
     print()
     cap.release()
