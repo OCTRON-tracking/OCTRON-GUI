@@ -22,6 +22,27 @@ from importlib.metadata import version
 __version__ = version("octron")
 octron_version = __version__
 
+# torch must be imported before any Qt bindings (pytorch/pytorch#166628)
+# (PYTORCH_ENABLE_MPS_FALLBACK already set above)
+import numpy as np
+from octron.sam_octron.helpers.video_loader import probe_video, get_vfile_hash
+from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron
+from octron.sam_octron.helpers.sam2_checks import check_sam2_models
+from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
+from octron.sam_octron.helpers.sam3_checks import check_sam3_models
+import zarr
+from octron.sam_octron.helpers.sam2_zarr import (
+    create_image_zarr,
+    load_image_zarr,
+    get_annotated_frames,
+    mark_frames_annotated,
+)
+# YOLO specific
+from octron.yolo_octron.gui.yolo_handler import YoloHandler
+from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
+from octron.yolo_octron.yolo_octron import YOLO_octron
+from octron.yolo_octron.constants import TASK_COLORS
+
 # Napari plugin QT components
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
@@ -44,33 +65,12 @@ from napari.utils.notifications import (
 from napari.qt import create_worker
 from napari.utils import DirectLabelColormap
 
-# Napari PyAV reader 
+# Napari PyAV reader
 from napari_pyav._reader import FastVideoReader
 
-# GUI 
+# GUI
 from octron.gui_elements import octron_gui_elements
 from octron.gui_tables import ExistingDataTable
-
-# SAM2 specific 
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-import numpy as np
-from octron.sam_octron.helpers.video_loader import probe_video, get_vfile_hash
-from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron  
-from octron.sam_octron.helpers.sam2_checks import check_sam2_models
-from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
-from octron.sam_octron.helpers.sam3_checks import check_sam3_models
-import zarr
-from octron.sam_octron.helpers.sam2_zarr import (
-    create_image_zarr,
-    load_image_zarr,
-    get_annotated_frames,
-    mark_frames_annotated,
-)
-# YOLO specific 
-from octron.yolo_octron.gui.yolo_handler import YoloHandler
-from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
-from octron.yolo_octron.yolo_octron import YOLO_octron
-from octron.yolo_octron.constants import TASK_COLORS
 
 # Tracker specific 
 from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
