@@ -13,6 +13,9 @@ Subcommands
   bbox-sizes  Report bounding-box sizes to inform --tracklet-size choice
 """
 
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="filterpy")
+
 from typing import List
 from pathlib import Path
 import typer
