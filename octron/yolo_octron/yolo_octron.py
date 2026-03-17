@@ -11,6 +11,7 @@ import webbrowser # Used to launch tensorboard
 import time
 import random
 import sys
+import struct
 import importlib.util
 import shutil
 from pathlib import Path
@@ -1143,41 +1144,55 @@ class YOLO_octron:
                 'finish_time': time.time(),
             })
         
-        def _find_train_image_size(data_path): 
+        def _find_train_image_size(data_path, max_samples=500): 
             """
             Helper to find whether rectangular or square training images are used.
             This determines rect parameter in YOLO training.
             
+            Samples up to *max_samples* images across all subdirectories so that
+            the decision is robust even when multiple datasets contribute images
+            with different aspect ratios.
+            
             Returns 
             -------
             height : float
-                Average height of one randomly sampled images
+                Average height of the sampled images.
             width : float
-                Average width of one randomly sampled images
+                Average width of the sampled images.
             rect : bool
-                True if all sampled images are rectangular, False otherwise.            
+                True only if ALL sampled images are landscape (width > height).
+                False otherwise — including mixed or portrait datasets — because
+                of an ultralytics dataloader bug that does not permit rectangular
+                (non-square) batches when height > width.
+                TODO: Re-evaluate this with updates of ultralytics. Current version: 8.3.158
             """
             data_path = Path(data_path)
             assert data_path.exists(), f"Data path {data_path} does not exist."
-            # Find png files and load one to determine image size
             png_files = list(data_path.glob('**/*.png'))
             if len(png_files) == 0:
                 raise FileNotFoundError(f"No .png files found in {data_path.as_posix()}")
-            sample_img = random.choice(png_files)
-            img = Image.open(sample_img)
-            width, height = img.size # This order of output is correct! 
-            img.close()
-            if height > width:
-                rect = False
-                # Decide for square (!) rect = False
-                # This is because of a bug in the dataloader of ultralyics that 
-                # does not permit rectangular (non-square) images with height > width
-                # TODO: Re-evaluate this with updates of ultralytics. Current version: 8.3.158
-            if height < width: 
-                rect = True
-            else: 
-                rect = False
-            return height, width, rect
+            print(f'Found {len(png_files)} png files')
+            samples = random.sample(png_files, min(max_samples, len(png_files)))
+
+            widths, heights = [], []
+            for fpath in samples:
+                # Read width/height directly from PNG IHDR chunk (bytes 16-23)
+                # I had it on PIL.Image.open() per file first, but this is very slow ... 
+                with open(fpath, 'rb') as f:
+                    f.seek(16)
+                    w, h = struct.unpack('>II', f.read(8))
+                widths.append(w)
+                heights.append(h)
+            
+            avg_h = sum(heights) / len(heights)
+            avg_w = sum(widths) / len(widths)
+            
+            # rect=True only when EVERY sampled image is landscape.
+            # Any portrait or square image forces rect=False (ultralytics bug).
+            all_landscape = all(w > h for w, h in zip(widths, heights))
+            rect = all_landscape
+            
+            return avg_h, avg_w, rect
 
         self.model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
         self.model.add_callback("on_train_end", _on_train_end)
