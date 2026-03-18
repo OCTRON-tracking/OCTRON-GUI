@@ -82,13 +82,13 @@ def train(
         ..., help="Path to the OCTRON project directory."
     ),
     model: str = typer.Option("YOLO26m", help="YOLO model name or path to a .pt file."),
+    train_mode: str = typer.Option("segment", "--mode", help="'segment' or 'detect'."),
     device: str = typer.Option(
         "auto", help="Device to train on ('auto', 'cpu', 'cuda', 'mps')."
     ),
     epochs: int = typer.Option(250, help="Number of training epochs."),
     imagesz: int = typer.Option(640, help="Input image size."),
     save_period: int = typer.Option(50, help="Save a checkpoint every N epochs."),
-    train_mode: str = typer.Option("segment", "--mode", help="'segment' or 'detect'."),
     resume: bool = typer.Option(
         False, help="Resume from an existing last.pt checkpoint."
     ),
