@@ -465,16 +465,21 @@ def train_test_val(frame_indices,
     """
     assert training_fraction + validation_fraction < 1, 'Fractions should sum to less than 1'
     assert training_fraction > validation_fraction, 'Training fraction should be greater than validation fraction'
-    assert len(frame_indices) > 0, 'No frame indices provided'
+    assert len(frame_indices) >= 3, (
+        f'Need at least 3 frames to split into train/val/test, got {len(frame_indices)}'
+    )
     
     # Shuffle the indices
     np.random.seed(random_seed)
     shuffled_indices = np.random.permutation(len(frame_indices))
 
-    # Calculate split points
-    train_size = int(training_fraction * len(frame_indices))
-    val_size = int(validation_fraction * len(frame_indices))
-    # test_size = len(frames) - train_size - val_size (remaining frames)
+    # Calculate split points, ensuring each split gets at least 1 frame
+    n = len(frame_indices)
+    train_size = max(1, int(training_fraction * n))
+    val_size = max(1, int(validation_fraction * n))
+    # Ensure test (remainder) also gets at least 1 frame
+    while train_size + val_size >= n:
+        train_size -= 1
 
     # Split the shuffled indices
     train_indices = shuffled_indices[:train_size]
