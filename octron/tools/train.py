@@ -67,6 +67,7 @@ def run_training(
     train_fraction=0.7,
     val_fraction=0.15,
     seed=88,
+    overwrite=False,
 ):
     """
     Run the OCTRON/YOLO training pipeline.
@@ -107,6 +108,19 @@ def run_training(
     from octron.test_gpu import auto_device
     from octron.tools.split import run_split
 
+    best_pt = Path(project_path) / "model" / "training" / "weights" / "best.pt"
+    last_pt = Path(project_path) / "model" / "training" / "weights" / "last.pt"
+    if resume:
+        if best_pt.exists():
+            print(f"Training already completed ({best_pt}). Nothing to resume. Use --overwrite to retrain from scratch.")
+            return
+        if not last_pt.exists():
+            print("No interrupted training found (last.pt missing). Starting fresh.")
+            resume = False
+    elif best_pt.exists() and not overwrite:
+        print(f"Trained model already exists at {best_pt}. Use --overwrite to retrain.")
+        return
+
     if device == "auto":
         device = auto_device()
 
@@ -121,7 +135,7 @@ def run_training(
             dry_run=False,
         )
 
-    # --- Step 5: load the base model ---
+    # --- Step 5: load the base model (or last.pt when resuming) ---
     yolo = YOLO_octron(
         models_yaml_path=_MODELS_YAML,
         project_path=project_path,
@@ -130,8 +144,12 @@ def run_training(
     yolo.train_mode = train_mode
     yolo.config_path = yolo.data_path / "yolo_config.yaml"
 
-    print(f"Loading model: {model}...")
-    yolo.load_model(model, train_mode=train_mode)
+    if resume:
+        print(f"Resuming from checkpoint: {last_pt}")
+        yolo.load_model(last_pt, train_mode=train_mode)
+    else:
+        print(f"Loading model: {model}...")
+        yolo.load_model(model, train_mode=train_mode)
 
     # --- Step 6: train ---
     batch_cache = Path(project_path) / "model" / "autobatch_cache.json"
