@@ -143,7 +143,7 @@ def predict(
     opening_radius: int = typer.Option(
         0, help="Morphological opening radius applied to masks."
     ),
-    overwrite: bool = typer.Option(True, help="Overwrite existing prediction results."),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite existing prediction results. Default: skip videos that already have predictions."),
     buffer_size: int = typer.Option(
         500, help="Frame buffer size before writing to zarr."
     ),

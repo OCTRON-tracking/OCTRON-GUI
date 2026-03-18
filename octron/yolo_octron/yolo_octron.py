@@ -1788,7 +1788,7 @@ class YOLO_octron:
                   iou_thresh=.7,
                   conf_thresh=.5,
                   opening_radius=0,
-                  overwrite=True,
+                  overwrite=False,
                   buffer_size=500,
                   output_dir=None,
                   ):
@@ -2000,7 +2000,7 @@ class YOLO_octron:
             if save_dir.exists() and overwrite:
                 shutil.rmtree(save_dir)
             elif save_dir.exists() and not overwrite:
-                logger.info(f"Prediction directory already exists at {save_dir}")
+                logger.info(f"Skipping {video_name}: predictions already exist at {save_dir}. Pass --overwrite to replace.")
                 yield {
                     'stage': 'skipped_video',
                     'video_name': video_name,

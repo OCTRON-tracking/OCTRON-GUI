@@ -7,6 +7,7 @@ that can be used from the CLI or called programmatically.
 
 from collections import deque
 from pathlib import Path
+import time
 
 
 def run_predict(
@@ -21,7 +22,7 @@ def run_predict(
     iou_thresh=0.7,
     conf_thresh=0.5,
     opening_radius=0,
-    overwrite=True,
+    overwrite=False,
     buffer_size=500,
 ):
     """
@@ -69,6 +70,7 @@ def run_predict(
     yolo = YOLO_octron()
 
     print(f"Running prediction with model: {model_path}")
+    _wall_start = time.time()
     frame_time = 0.0
     _frame_times = deque(maxlen=30)
     for progress in yolo.predict_batch(
@@ -87,6 +89,9 @@ def run_predict(
         buffer_size=buffer_size,
     ):
         stage = progress.get("stage", "")
+        if stage == "skipped_video":
+            print(f"\n  [skipped] {progress.get('video_name', '')} — predictions exist, use --overwrite to replace.")
+            continue
         video = progress.get("video_name", "")
         vidx = progress.get("video_index", "?")
         total_v = progress.get("total_videos", "?")
@@ -114,4 +119,7 @@ def run_predict(
             end="\r",
         )
     print()
-    print("Prediction complete.")
+    elapsed = time.time() - _wall_start
+    h, rem = divmod(int(elapsed), 3600)
+    m, s = divmod(rem, 60)
+    print(f"Prediction complete. Total time: {h:02d}:{m:02d}:{s:02d}")
