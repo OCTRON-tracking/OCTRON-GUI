@@ -11,12 +11,12 @@ Subcommands
   train       Prepare training data and run YOLO model training
   predict     Run YOLO prediction and tracking on one or more videos
   render      Render annotated video(s) from prediction output
-  bbox-sizes  Report bounding-box sizes to inform --tracklet-size choice
+              (use --bbox-sizes to report bbox sizes instead of rendering)
   transcode   Transcode video files to MP4 (H.264/libx264) using ffmpeg
 """
 
 
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 import typer
 
@@ -201,71 +201,99 @@ def predict(
 @app.command()
 def render(
     predictions_path: Path = typer.Argument(
-        ...,
-        help="Path to a prediction output directory (octron_predictions/video_Tracker/).",
+        ..., help="Path to a prediction output directory (octron_predictions/video_Tracker/).",
     ),
+    # --- Input / output ---
     video_path: Path = typer.Option(
-        None,
-        "--video",
-        help="Path to the original .mp4 video. Auto-detected if it sits alongside octron_predictions/. Required if the video has been moved or lives elsewhere.",
+        None, "--video",
+        help="Path to the original video. Auto-detected if alongside octron_predictions/.",
     ),
     output_path: Path = typer.Option(
-        None,
-        "--output",
-        "-o",
+        None, "--output", "-o",
         help="Output directory. Defaults to <predictions_path>/rendered/.",
     ),
     preset: str = typer.Option(
-        "draft",
-        "--preset",
-        help="Quality preset: 'preview' (0.25×), 'draft' (0.5×), or 'final' (full resolution).",
+        "draft", "--preset",
+        help="Quality preset: 'preview' (0.25×), 'draft' (0.5×), 'final' (full resolution).",
     ),
-    tracklets: bool = typer.Option(
-        False, "--tracklets", help="Also generate one crop video per tracked animal."
-    ),
-    tracklet_size: int = typer.Option(
-        160, "--tracklet-size", help="Side length in pixels of each tracklet crop."
-    ),
-    alpha: float = typer.Option(0.4, "--alpha", help="Mask overlay opacity (0–1)."),
-    draw_masks: bool = typer.Option(True, "--masks/--no-masks", help="Render segmentation mask fills."),
-    draw_boxes: bool = typer.Option(True, "--boxes/--no-boxes", help="Render bounding boxes and label text."),
-    start: int = typer.Option(
-        None, "--start", help="First frame to render (inclusive)."
-    ),
+    start: int = typer.Option(None, "--start", help="First frame to render (inclusive)."),
     end: int = typer.Option(None, "--end", help="Last frame to render (exclusive)."),
+    # --- Overlay options ---
+    alpha: float = typer.Option(0.4, "--alpha", help="Mask overlay opacity (0–1)."),
+    draw_masks: Optional[bool] = typer.Option(
+        None, "--masks/--no-masks",
+        help="Render segmentation masks. Default: on for overlay, off for tracklets.",
+    ),
+    draw_boxes: Optional[bool] = typer.Option(
+        None, "--boxes/--no-boxes",
+        help="Render bounding boxes. Default: on for overlay, off for tracklets.",
+    ),
+    draw_labels: Optional[bool] = typer.Option(
+        None, "--labels/--no-labels",
+        help="Render label text above bounding boxes (overlay mode only; never drawn on tracklets).",
+    ),
+    # --- Tracklet options ---
+    tracklets: bool = typer.Option(False, "--tracklets", help="Generate one crop video per tracked animal."),
+    tracklet_overlay: bool = typer.Option(
+        False, "--tracklet-overlay",
+        help="Render masks and/or boxes onto the tracklet crops (useful for inspection). Nothing drawn by default.",
+    ),
+    tracklet_size: int = typer.Option(160, "--tracklet-size", help="Side length in pixels of each tracklet crop."),
+    tracklet_mask_centroids: bool = typer.Option(
+        False, "--tracklet-mask-centroids",
+        help="Use mask centre-of-mass instead of bbox centre for tracklet positioning.",
+    ),
+    tracklet_smooth_cutoff_hz: float = typer.Option(
+        2.0, "--tracklet-smooth-cutoff", help="Butterworth low-pass cutoff (Hz) for centroid smoothing. 0=off.",
+    ),
+    tracklet_smooth_order: int = typer.Option(
+        4, "--tracklet-smooth-order", help="Butterworth filter order (higher = steeper rolloff).",
+    ),
+    bbox_sizes: bool = typer.Option(
+        False, "--bbox-sizes",
+        help="Report per-track bounding-box sizes to help choose --tracklet-size, then exit.",
+    ),
 ):
     """Render annotated video(s) from OCTRON prediction output."""
-    from octron.tools.render import run_render, PRESETS
+    from octron.tools.render import run_render, PRESETS, report_bbox_sizes
+
+    if bbox_sizes:
+        report_bbox_sizes(predictions_path)
+        return
 
     if preset not in PRESETS:
         raise typer.BadParameter(
             f"preset must be one of {list(PRESETS)}.", param_hint="'--preset'"
         )
+
+    # Resolve mode-specific defaults: overlay → everything on; tracklets → nothing on
+    if tracklets:
+        resolved_masks = draw_masks if draw_masks is not None else False
+        resolved_boxes = draw_boxes if draw_boxes is not None else False
+        resolved_labels = False  # never draw labels on tracklet crops
+    else:
+        resolved_masks = draw_masks if draw_masks is not None else True
+        resolved_boxes = draw_boxes if draw_boxes is not None else True
+        resolved_labels = draw_labels if draw_labels is not None else True
+
     run_render(
         predictions_path=predictions_path,
         video_path=video_path,
         output_path=output_path,
         preset=preset,
-        tracklets=tracklets,
-        tracklet_size=tracklet_size,
-        alpha=alpha,
-        draw_masks=draw_masks,
-        draw_boxes=draw_boxes,
         start=start,
         end=end,
+        alpha=alpha,
+        draw_masks=resolved_masks,
+        draw_boxes=resolved_boxes,
+        draw_labels=resolved_labels,
+        tracklets=tracklets,
+        also_overlay=tracklet_overlay,
+        tracklet_size=tracklet_size,
+        tracklet_mask_centroids=tracklet_mask_centroids,
+        tracklet_smooth_cutoff_hz=tracklet_smooth_cutoff_hz,
+        tracklet_smooth_order=tracklet_smooth_order,
     )
-
-
-@app.command("bbox-sizes")
-def bbox_sizes(
-    predictions_path: Path = typer.Argument(
-        ..., help="Path to a prediction output directory."
-    ),
-):
-    """Report per-track bounding-box sizes to help choose --tracklet-size."""
-    from octron.tools.render import report_bbox_sizes
-
-    report_bbox_sizes(predictions_path)
 
 
 @app.command()
