@@ -151,9 +151,9 @@ class octron_widget(QWidget):
                                                  models_yaml_path=sam2models_yaml_path,
                                                  force_download=False,
                                                  )
-        # SAM3 checkpoint from HuggingFace
-        sam3_checkpoints_dir = self.base_path / 'sam_octron/checkpoints'
-        self.sam3models_dict = check_sam3_models(checkpoints_dir=sam3_checkpoints_dir,
+        # Model yaml for SAM3
+        sam3models_yaml_path = self.base_path / 'sam_octron/sam3_models.yaml'
+        self.sam3models_dict = check_sam3_models(models_yaml_path=sam3models_yaml_path,
                                                  force_download=False,
                                                  )
         
@@ -181,11 +181,17 @@ class octron_widget(QWidget):
         for model_id, model in self.sam2models_dict.items():
             print(f"Adding SAM2 model {model_id}")
             self.sam_model_list.addItem(model['name'])
+            if 'tooltip' in model:
+                idx = self.sam_model_list.count() - 1
+                self.sam_model_list.setItemData(idx, model['tooltip'], Qt.ToolTipRole)
         
         # Populate SAM3 entries in the same dropdown
         for model_id, model in self.sam3models_dict.items():
             print(f"Adding SAM3 model {model_id}")
             self.sam_model_list.addItem(model['name'])
+            if 'tooltip' in model:
+                idx = self.sam_model_list.count() - 1
+                self.sam_model_list.setItemData(idx, model['tooltip'], Qt.ToolTipRole)
             
         # Populate YOLO dropdown list with available models
         for model_id, model in self.yolomodels_dict.items():
@@ -204,6 +210,9 @@ class octron_widget(QWidget):
         self.gui_callback_functions()
         # Connect layer specific callbacks
         self.octron_sam2_callbacks = sam2_octron_callbacks(self)
+        self.feed_input_to_predictor_btn.clicked.connect(
+            self.octron_sam2_callbacks.feed_rectangles_to_predictor
+        )
         print(f'OCTRON GUI v{octron_version} initialized')
 
     ###################################################################################################
@@ -485,6 +494,20 @@ class octron_widget(QWidget):
             # Enable detection threshold input for SAM3 semantic mode
             self.sam3detect_thresh.setEnabled(True)
             self.threshold_label.setEnabled(True)
+            # Enable the feed-input button for SAM3 semantic mode
+            self.feed_input_to_predictor_btn.setEnabled(True)
+            self.feed_input_to_predictor_btn.setText('▷ Run')
+            # Inform the user about the SAM3 semantic workflow
+            QMessageBox.information(
+                self,
+                'SAM3 Multi — Workflow',
+                'SAM3 Multi is a heavy model that accepts multiple box prompts '
+                'at once.\n\n'
+                'Workflow:\n'
+                '1. Draw one or more rectangles on the canvas.\n'
+                '2. Click "▷ Run" to detect objects.\n'
+                '3. Then forward-predict as usual.',
+            )
 
     def _on_model_loaded(self, model_name):
         """
@@ -493,10 +516,13 @@ class octron_widget(QWidget):
         """
         self.loaded_model_name = model_name
         # Deactivate the dropdown menu upon successful model loading
-        self.sam_model_list.setCurrentIndex(-1)
+        # Keep it showing the loaded model name
+        idx = self.sam_model_list.findText(model_name)
+        if idx >= 0:
+            self.sam_model_list.setCurrentIndex(idx)
         self.sam_model_list.setEnabled(False)
         self.load_sam_model_btn.setEnabled(False)
-        self.load_sam_model_btn.setText(f'{model_name} ✓')
+        self.load_sam_model_btn.setText('Loaded ✓')
 
         # Enable the predict next batch button
         # Take care of chunk size for batch prediction
@@ -505,8 +531,9 @@ class octron_widget(QWidget):
         
         self.predict_next_batch_btn.setText(f'▷ {self.chunk_size} frames')
         self.predict_next_oneframe_btn.setText('▷')
-        self.predict_next_oneframe_btn.setEnabled(True)
-        self.predict_next_batch_btn.setEnabled(True)
+        # Keep disabled until the first SAM prediction has run
+        self.predict_next_oneframe_btn.setEnabled(False)
+        self.predict_next_batch_btn.setEnabled(False)
         
         # Check if you can create a zarr store for video
         # Creating a zarr store for the video is only possible if a video has been loaded
@@ -1271,6 +1298,9 @@ class octron_widget(QWidget):
                 self.all_zarrs = []
                 # SAM2 
                 self._cleanup_predictor()
+                self._semantic_obj_id_map = {}
+                self._semantic_frame_buffer = None
+                self._pending_annotated_frames = {}
                 self.loaded_model_name = None
                 self.sam_model_list.setCurrentIndex(0)
                 self.sam_model_list.setEnabled(True)
@@ -1283,6 +1313,8 @@ class octron_widget(QWidget):
                 self.hard_reset_layer_btn.setEnabled(False)
                 self.sam3detect_thresh.setEnabled(False)
                 self.threshold_label.setEnabled(False)
+                self.feed_input_to_predictor_btn.setEnabled(False)
+                self.feed_input_to_predictor_btn.setText('')
                 # Re-enable Points option (may have been disabled by SAM3 semantic model)
                 self.layer_type_combobox.model().item(2).setEnabled(True)
                 # Object organizer
