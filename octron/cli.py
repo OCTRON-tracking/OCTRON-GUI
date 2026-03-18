@@ -147,6 +147,10 @@ def predict(
     buffer_size: int = typer.Option(
         500, help="Frame buffer size before writing to zarr."
     ),
+    detailed: bool = typer.Option(
+        False, "--detailed",
+        help="Extract detailed region properties (area, eccentricity, solidity, …) from segmentation masks via scikit-image. Ignored for detection models.",
+    ),
 ):
     """Run YOLO prediction and tracking on one or more videos."""
     from octron.tools.predict import run_predict
@@ -182,6 +186,7 @@ def predict(
         tracker_cfg_path = Path(tracker)
     else:
         tracker_name = tracker
+    from octron.yolo_octron.constants import DEFAULT_REGION_PROPERTIES
     run_predict(
         videos=videos,
         model_path=model_path,
@@ -195,6 +200,7 @@ def predict(
         opening_radius=opening_radius,
         overwrite=overwrite,
         buffer_size=buffer_size,
+        region_properties=DEFAULT_REGION_PROPERTIES if detailed else None,
     )
 
 

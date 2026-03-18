@@ -24,6 +24,7 @@ def run_predict(
     opening_radius=0,
     overwrite=False,
     buffer_size=500,
+    region_properties=None,
 ):
     """
     Run YOLO prediction and tracking on one or more videos.
@@ -60,6 +61,9 @@ def run_predict(
         Overwrite existing prediction results.
     buffer_size : int
         Number of frames buffered before writing to zarr.
+    region_properties : tuple or None
+        Region property names to extract via skimage.measure.regionprops_table.
+        Pass DEFAULT_REGION_PROPERTIES for the standard set, or None to skip.
     """
     from octron.yolo_octron.yolo_octron import YOLO_octron
     from octron.test_gpu import auto_device
@@ -87,6 +91,7 @@ def run_predict(
         opening_radius=opening_radius,
         overwrite=overwrite,
         buffer_size=buffer_size,
+        region_properties=region_properties,
     ):
         stage = progress.get("stage", "")
         if stage == "skipped_video":
