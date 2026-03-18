@@ -260,6 +260,9 @@ def render(
     tracklet_min_frames: int = typer.Option(
         0, "--tracklet-min-frames", help="Skip tracks with fewer than this many frames. 0 = keep all tracks.",
     ),
+    tracklet_interpolate: int = typer.Option(
+        0, "--tracklet-interpolate", help="Fill gaps between track segments with cubic spline interpolation. Value is the maximum gap in frames to bridge. 0 = off.",
+    ),
     bbox_sizes: bool = typer.Option(
         False, "--bbox-sizes",
         help="Report per-track bounding-box sizes to help choose --tracklet-size, then exit.",
@@ -305,6 +308,7 @@ def render(
         tracklet_smooth_cutoff_hz=tracklet_smooth_cutoff_hz,
         tracklet_smooth_order=tracklet_smooth_order,
         tracklet_min_frames=tracklet_min_frames,
+        tracklet_interpolate_max_gap=tracklet_interpolate,
     )
 
 
