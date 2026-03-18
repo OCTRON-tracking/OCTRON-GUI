@@ -167,6 +167,66 @@ def butterworth_smooth_tracklet_positions(pos_lookup, fps, cutoff_hz=2.0, order=
     return pos_lookup
 
 
+def interpolate_tracklet_gaps(pos_lookup, max_gap):
+    """
+    Fill gaps in tracklet centroid trajectories using cubic spline interpolation.
+
+    Only gaps between two known positions are filled (leading and trailing gaps
+    are left as black frames).  Gaps wider than ``max_gap`` frames are left
+    untouched.  Interpolated rows are synthetic copies of the nearest real row
+    with ``pos_x`` / ``pos_y`` replaced by the spline values.
+
+    Applied after Butterworth smoothing so the spline fits the already-smooth
+    trajectory.
+
+    Parameters
+    ----------
+    pos_lookup : dict
+        ``{track_id: {frame_idx: pandas.Series}}`` — modified in-place.
+    max_gap : int
+        Maximum gap width (in frames) to interpolate across.  0 = disabled.
+
+    Returns
+    -------
+    pos_lookup : dict
+        The same dict, modified in-place.
+    """
+    import numpy as np
+    from scipy.interpolate import CubicSpline
+
+    if not max_gap or max_gap <= 0:
+        return pos_lookup
+
+    total_filled = 0
+    for tid in list(pos_lookup.keys()):
+        frames = sorted(pos_lookup[tid].keys())
+        if len(frames) < 2:
+            continue
+
+        xs = np.array([pos_lookup[tid][f]["pos_x"] for f in frames], dtype=float)
+        ys = np.array([pos_lookup[tid][f]["pos_y"] for f in frames], dtype=float)
+        cs_x = CubicSpline(frames, xs)
+        cs_y = CubicSpline(frames, ys)
+
+        for i in range(len(frames) - 1):
+            gap_start = frames[i]
+            gap_end = frames[i + 1]
+            gap = gap_end - gap_start - 1
+            if gap <= 0 or gap > max_gap:
+                continue
+            ref_row = pos_lookup[tid][gap_start]
+            for f in range(gap_start + 1, gap_end):
+                row = ref_row.copy()
+                row["pos_x"] = float(cs_x(f))
+                row["pos_y"] = float(cs_y(f))
+                pos_lookup[tid][f] = row
+                total_filled += 1
+
+    if total_filled:
+        print(f"Tracklet gaps interpolated (cubic spline, max_gap={max_gap}): {total_filled} frame(s) filled")
+    return pos_lookup
+
+
 def _load_results(predictions_path, video_path):
     """Load YOLO_results and optionally override the video path."""
     from octron.yolo_octron.helpers.yolo_results import YOLO_results
@@ -259,6 +319,7 @@ def run_tracklets(
     start=None,
     end=None,
     min_track_frames=0,
+    interpolate_max_gap=0,
 ):
     """
     Render one stabilised crop video per tracked animal.
@@ -370,6 +431,9 @@ def run_tracklets(
         butterworth_smooth_tracklet_positions(
             pos_lookup, fps=fps, cutoff_hz=smooth_cutoff_hz, order=smooth_order,
         )
+
+    if interpolate_max_gap and interpolate_max_gap > 0:
+        interpolate_tracklet_gaps(pos_lookup, max_gap=interpolate_max_gap)
 
     track_colors = {}
     for tid in results.track_ids:
@@ -531,6 +595,7 @@ def run_render(
     tracklet_smooth_cutoff_hz=2.0,
     tracklet_smooth_order=4,
     tracklet_min_frames=0,
+    tracklet_interpolate_max_gap=0,
     alpha=0.4,
     draw_masks=True,
     draw_boxes=True,
@@ -598,6 +663,7 @@ def run_render(
             start=start,
             end=end,
             min_track_frames=tracklet_min_frames,
+            interpolate_max_gap=tracklet_interpolate_max_gap,
         )
         return
 
