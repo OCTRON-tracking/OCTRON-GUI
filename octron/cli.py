@@ -98,6 +98,7 @@ def train(
     train_fraction: float = typer.Option(0.7, "--train", help="Fraction of frames for training (ignored with --no-split)."),
     val_fraction: float = typer.Option(0.15, "--val", help="Fraction of frames for validation (ignored with --no-split)."),
     seed: int = typer.Option(88, "--seed", help="Random seed for the split (ignored with --no-split)."),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite an existing trained model. Default: skip if best.pt already exists."),
 ):
     """Prepare training data and run YOLO model training on an OCTRON project."""
     from octron.tools.train import run_training
@@ -115,6 +116,7 @@ def train(
         train_fraction=train_fraction,
         val_fraction=val_fraction,
         seed=seed,
+        overwrite=overwrite,
     )
 
 
