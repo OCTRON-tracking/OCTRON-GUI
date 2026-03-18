@@ -333,12 +333,21 @@ def run_tracklets(
 
     tracking_data = results.get_tracking_data(interpolate=False)
 
+    from collections import defaultdict
     pos_lookup = {}
     bbox_lookup = {}
+    label_to_tids = defaultdict(list)
     for tid, td in tracking_data.items():
         pos_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["data"].iterrows()}
         bbox_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["features"].iterrows()}
         print(f"  Track {tid} ({td['label']}): {len(pos_lookup[tid])} frames")
+        label_to_tids[td["label"]].append(tid)
+    # Sort each group: longest track first (used as tiebreaker when multiple overlap)
+    for label in label_to_tids:
+        label_to_tids[label].sort(key=lambda t: len(pos_lookup.get(t, {})), reverse=True)
+    if len(label_to_tids) < len(results.track_ids):
+        for label, tids in sorted(label_to_tids.items()):
+            print(f"  → '{label}': merging {len(tids)} track(s) into one video")
 
     if mask_centroids and results.has_masks:
         print("Computing mask centre-of-mass centroids...")
@@ -381,10 +390,9 @@ def run_tracklets(
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writers = {}
-    for tid in results.track_ids:
-        label = results.track_id_label[tid]
-        tp = output_path / f"tracklet_{label}_track{tid}_{preset}.mp4"
-        writers[tid] = cv2.VideoWriter(str(tp), fourcc, fps, (size, size))
+    for label in label_to_tids:
+        tp = output_path / f"tracklet_{label}_{preset}.mp4"
+        writers[label] = cv2.VideoWriter(str(tp), fourcc, fps, (size, size))
 
     # Pre-compute downscale indices for overlay masks
     _y_idx = _x_idx = None
@@ -470,21 +478,34 @@ def run_tracklets(
 
             out_frame = np.clip(overlay, 0, 255).astype(np.uint8)
 
-        # Crop each track
-        for tid in results.track_ids:
-            row = pos_lookup.get(tid, {}).get(frame_idx)
-            if row is not None:
+        # Crop one frame per label (merging all tracks of the same label)
+        for label, tids in label_to_tids.items():
+            best_row = None
+            best_area = -1.0
+            for tid in tids:
+                row = pos_lookup.get(tid, {}).get(frame_idx)
+                if row is None:
+                    continue
+                bbox_row = bbox_lookup.get(tid, {}).get(frame_idx)
+                area = 0.0
+                if bbox_row is not None:
+                    area = (bbox_row["bbox_x_max"] - bbox_row["bbox_x_min"]) * \
+                           (bbox_row["bbox_y_max"] - bbox_row["bbox_y_min"])
+                if area > best_area:
+                    best_area = area
+                    best_row = row
+            if best_row is not None:
                 if also_overlay and out_frame is not None:
-                    cx = float(row["pos_x"]) * scale
-                    cy = float(row["pos_y"]) * scale
+                    cx = float(best_row["pos_x"]) * scale
+                    cy = float(best_row["pos_y"]) * scale
                     crop = cv2.getRectSubPix(out_frame, (size, size), (cx, cy))
                 else:
-                    cx = float(row["pos_x"])
-                    cy = float(row["pos_y"])
+                    cx = float(best_row["pos_x"])
+                    cy = float(best_row["pos_y"])
                     crop = cv2.getRectSubPix(orig_frame, (size, size), (cx, cy))
             else:
                 crop = np.zeros((size, size, 3), dtype=np.uint8)
-            writers[tid].write(crop)
+            writers[label].write(crop)
 
         now = time.time()
         _frame_times.append(now - _t_frame)
@@ -506,7 +527,7 @@ def run_tracklets(
     cap.release()
     for w in writers.values():
         w.release()
-    print(f"Tracklets saved → {output_path}")
+    print(f"Tracklet(s) saved → {output_path}")
 
 
 def run_render(
