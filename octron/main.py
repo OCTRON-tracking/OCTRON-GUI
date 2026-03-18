@@ -3,49 +3,40 @@ OCTRON
 Main GUI file
 
 """
-import os, sys
+import os
+import sys
 from typing import List, Optional
+
 # if using Apple MPS, fall back to CPU for unsupported ops
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import shutil
-from datetime import datetime
 import warnings
+from datetime import datetime
+
 # Suppress specific warnings
 warnings.simplefilter("ignore")
 
 from pathlib import Path
+
 cur_path  = Path(os.path.abspath(__file__)).parent.parent
 base_path = Path(os.path.dirname(__file__)) # Important for example for .svg files
 sys.path.append(cur_path.as_posix()) 
 
 from importlib.metadata import version
+
 __version__ = version("octron")
 octron_version = __version__
 
-# Napari plugin QT components
-from qtpy.QtCore import Qt
-from qtpy.QtWidgets import (
-    QWidget,
-    QDialog,
-    QApplication,
-    QStyleFactory,
-    QFileDialog,
-    QMessageBox,
-    QHeaderView,
-    QLabel,
-    QMenu,
-)
 import napari
-from napari.utils.notifications import (
-    show_info,
-    show_warning,
-    show_error,
-)
 from napari.qt import create_worker
 from napari.utils import DirectLabelColormap
-
+from napari.utils.notifications import show_error, show_info, show_warning
 # Napari PyAV reader 
 from napari_pyav._reader import FastVideoReader
+# Napari plugin QT components
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (QApplication, QDialog, QFileDialog, QHeaderView,
+                            QLabel, QMenu, QMessageBox, QStyleFactory, QWidget)
 
 # GUI 
 from octron.gui_elements import octron_gui_elements
@@ -54,47 +45,42 @@ from octron.gui_tables import ExistingDataTable
 # SAM2 specific 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import numpy as np
-from octron.sam_octron.helpers.video_loader import probe_video, get_vfile_hash
-from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron  
-from octron.sam_octron.helpers.sam2_checks import check_sam2_models
-from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
-from octron.sam_octron.helpers.sam3_checks import check_sam3_models
 import zarr
-from octron.sam_octron.helpers.sam2_zarr import (
-    create_image_zarr,
-    load_image_zarr,
-    get_annotated_frames,
-    mark_frames_annotated,
-)
-# YOLO specific 
-from octron.yolo_octron.gui.yolo_handler import YoloHandler
-from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
-from octron.yolo_octron.yolo_octron import YOLO_octron
-from octron.yolo_octron.constants import TASK_COLORS
 
+# Cotracker
+from octron.cotracker_octron.helpers.build_cotracker import build_cotracker
+from octron.cotracker_octron.helpers.cotracker_checks import \
+    check_cotracker_models
+# Custom dialog boxes
+from octron.gui_dialog_elements import (add_new_label_dialog,
+                                        remove_label_dialog)
+from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron
+from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
+from octron.sam_octron.helpers.sam2_checks import check_sam2_models
+# Annotation layer creation tools
+from octron.sam_octron.helpers.sam2_layer import (add_annotation_projection,
+                                                  add_sam2_mask_layer,
+                                                  add_sam2_points_layer,
+                                                  add_sam2_shapes_layer)
+# Layer callbacks classes
+from octron.sam_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
+from octron.sam_octron.helpers.sam2_zarr import (create_image_zarr,
+                                                 get_annotated_frames,
+                                                 load_image_zarr,
+                                                 mark_frames_annotated)
+from octron.sam_octron.helpers.sam3_checks import check_sam3_models
+from octron.sam_octron.helpers.video_loader import get_vfile_hash, probe_video
+# OCTRON Object organizer
+from octron.sam_octron.object_organizer import Obj, ObjectOrganizer
 # Tracker specific 
 from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
 from octron.tracking.helpers.tracker_vis import create_color_icon
-
-# Annotation layer creation tools
-from octron.sam_octron.helpers.sam2_layer import (
-    add_sam2_mask_layer,
-    add_sam2_shapes_layer,
-    add_sam2_points_layer,
-    add_annotation_projection,
-)                
-
-# Layer callbacks classes
-from octron.sam_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
-
-# OCTRON Object organizer
-from octron.sam_octron.object_organizer import Obj, ObjectOrganizer
-  
-# Custom dialog boxes
-from octron.gui_dialog_elements import (
-    add_new_label_dialog,
-    remove_label_dialog,
-)
+from octron.yolo_octron.constants import TASK_COLORS
+# YOLO specific 
+from octron.yolo_octron.gui.yolo_handler import YoloHandler
+from octron.yolo_octron.helpers.training import (collect_labels,
+                                                 load_object_organizer)
+from octron.yolo_octron.yolo_octron import YOLO_octron
 
 # If there's already a QApplication instance (as may be the case when running as a napari plugin),
 # then set its style explicitly:
@@ -156,6 +142,9 @@ class octron_widget(QWidget):
         self.sam3models_dict = check_sam3_models(checkpoints_dir=sam3_checkpoints_dir,
                                                  force_download=False,
                                                  )
+        # cotracker3 checkpoint from HuggingFace
+        cotracker_checkpoints_dir = self.base_path / 'cotracker_octron'/'checkpoints'
+        self.cotracker_models_dict = check_cotracker_models(checkpoints_dir=cotracker_checkpoints_dir, force_download=False)
         
         # Model yaml for YOLO
         yolo_models_yaml_path = self.base_path / 'yolo_octron/yolo_models.yaml'
@@ -180,12 +169,17 @@ class octron_widget(QWidget):
         # Populate SAM2 dropdown list with available models
         for model_id, model in self.sam2models_dict.items():
             print(f"Adding SAM2 model {model_id}")
-            self.sam_model_list.addItem(model['name'])
+            self.prediction_model_list.addItem(model['name'])
         
         # Populate SAM3 entries in the same dropdown
         for model_id, model in self.sam3models_dict.items():
             print(f"Adding SAM3 model {model_id}")
-            self.sam_model_list.addItem(model['name'])
+            self.prediction_model_list.addItem(model['name'])
+
+        # Populate Cotracker entries in the same dropdown
+        for model_id, model in self.cotracker_models_dict.items():
+            print(f"Adding model {model_id}")
+            self.prediction_model_list.addItem(model['name'])
             
         # Populate YOLO dropdown list with available models
         for model_id, model in self.yolomodels_dict.items():
@@ -322,7 +316,7 @@ class octron_widget(QWidget):
 
     ###### SAM SPECIFIC CALLBACKS ####################################################################
     
-    def _check_model_data_compatibility(self, model_name):
+    def _check_sam_model_data_compatibility(self, model_name):
         """
         Check whether the model being loaded is compatible with existing
         annotation data.  SAM2 models operate at 1024×1024 while SAM3 models
@@ -378,27 +372,37 @@ class octron_widget(QWidget):
     def load_model(self, model_name=''):
         """
         Dispatcher: load the selected model from the dropdown.
-        Delegates to load_sam2model or load_sam3model depending on
-        whether the selected name belongs to SAM2 or SAM3.
+        Delegates to load_sam2model, load_sam3model or load_cotracker_model 
+        depending on whether the selected name is SAM2, SAM3 or cotracker
         """
         if not model_name:
-            index = self.sam_model_list.currentIndex()
+            index = self.prediction_model_list.currentIndex()
             if index == 0:
                 return
-            model_name = self.sam_model_list.currentText()
+            model_name = self.prediction_model_list.currentText()
 
         # Block loading if the model family is incompatible with existing data
-        if not self._check_model_data_compatibility(model_name):
+        # Only for SAM2 vs SAM3 since they have different expected image sizes.
+        # CoTracker models bypass this check entirely.
+        is_cotracker = any(m['name'] == model_name for m in self.cotracker_models_dict.values())
+        if not is_cotracker and not self._check_sam_model_data_compatibility(model_name):
             return
 
-        # Check SAM3 first
+        # Load SAM3 model if selected
         for model_id, model in self.sam3models_dict.items():
             if model['name'] == model_name:
                 self.load_sam3model(model_name=model_name)
                 return
-        # Fall back to SAM2
+        
+        # Load cotracker model if selected
+        for model_id, model in self.cotracker_models_dict.items():
+            if model['name'] == model_name:
+                self.load_cotracker_model(model_name=model_name)
+                return
+            
+        # Fall back to SAM2 otherwise
         self.load_sam2model(model_name=model_name)
-    
+
     def load_sam2model(self, 
                        model_name='',
                        ):
@@ -415,10 +419,10 @@ class octron_widget(QWidget):
         """
         if not model_name:
             # Assuming this is retrievable from current GUI ...             
-            index = self.sam_model_list.currentIndex()
+            index = self.prediction_model_list.currentIndex()
             if index == 0:
                 return
-            model_name = self.sam_model_list.currentText()
+            model_name = self.prediction_model_list.currentText()
         # Reverse lookup model_id
         model_found = False
         for model_id, model in self.sam2models_dict.items():
@@ -450,10 +454,10 @@ class octron_widget(QWidget):
             The name of the SAM3 model to load.
         """
         if not model_name:
-            index = self.sam_model_list.currentIndex()
+            index = self.prediction_model_list.currentIndex()
             if index == 0:
                 return
-            model_name = self.sam_model_list.currentText()
+            model_name = self.prediction_model_list.currentText()
         # Reverse lookup model_id
         model_found = False
         for model_id, model in self.sam3models_dict.items():
@@ -486,15 +490,51 @@ class octron_widget(QWidget):
             self.sam3detect_thresh.setEnabled(True)
             self.threshold_label.setEnabled(True)
 
+    def load_cotracker_model(self, model_name=''): 
+        """Load the selected CoTracker model and enable prediction controls."""
+        # Get model_name from index
+        if not model_name:
+            index = self.prediction_model_list.currentIndex()
+            if index == 0:
+                return
+            model_name = self.prediction_model_list.currentText()
+
+        # Reverse lookup model_id
+        model_found = False
+        for model_id, model in self.cotracker_models_dict.items():
+            if model['name'] == model_name:
+                model_found = True
+                break
+        assert model_found, f"Model '{model_name}' not found in Cotracker models dictionary."
+        
+        # Build model from local checkpoint
+        model = self.cotracker_models_dict[model_id]
+        checkpoint_path = self.base_path / Path(f"cotracker_octron/{model['checkpoint_path']}")
+        self.predictor, self.device = build_cotracker(
+            ckpt_path=checkpoint_path.as_posix(),
+        )
+        self.predictor.is_initialized = False
+        show_info(f"Model {model_name} loaded on {self.device}")
+
+        # Set cache size
+        self.chunk_size = 15
+        self._on_model_loaded(model_name)
+
+        # Disable shapes and bboxes options for cotracker
+        index_to_disable = [1, 3] # shapes, anchors (bboxes)
+        for ind in index_to_disable:  
+            self.layer_type_combobox.model().item(ind).setEnabled(False)
+
+
     def _on_model_loaded(self, model_name):
         """
-        Common post-load setup shared by SAM2 and SAM3.
+        Common post-load setup shared by SAM2, SAM3 and cotracker.
         Disables the dropdown, enables prediction controls, starts zarr prefetcher.
         """
         self.loaded_model_name = model_name
         # Deactivate the dropdown menu upon successful model loading
-        self.sam_model_list.setCurrentIndex(-1)
-        self.sam_model_list.setEnabled(False)
+        self.prediction_model_list.setCurrentIndex(-1)
+        self.prediction_model_list.setEnabled(False)
         self.load_sam_model_btn.setEnabled(False)
         self.load_sam_model_btn.setText(f'{model_name} ✓')
 
@@ -515,7 +555,6 @@ class octron_widget(QWidget):
         # Enable the annotation layer creation tab
         self.annotate_layer_create_groupbox.setEnabled(True)
         
-        
     def _cleanup_predictor(self):
         """
         Fully release the current predictor and free GPU memory.
@@ -535,7 +574,7 @@ class octron_widget(QWidget):
             print(f"Warning: reset_state during cleanup failed: {e}")
         
         # For SAM3_semantic_octron, also release the detector model
-        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron, SAM3_octron
+        from octron.sam_octron.helpers.sam3_octron import SAM3_octron, SAM3_semantic_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
             del self.predictor.detector
             del self.predictor.tracker.model
@@ -1009,8 +1048,8 @@ class octron_widget(QWidget):
         self.object_organizer = ObjectOrganizer()
         # SAM2 
         self.loaded_model_name = None
-        self.sam_model_list.setCurrentIndex(0)
-        self.sam_model_list.setEnabled(True)
+        self.prediction_model_list.setCurrentIndex(0)
+        self.prediction_model_list.setEnabled(True)
         self.load_sam_model_btn.setEnabled(True)
         self.load_sam_model_btn.setText(f'Load model')
         self.predict_next_batch_btn.setText('')
@@ -1054,9 +1093,9 @@ class octron_widget(QWidget):
             saved_model_name = saved_settings.get('model_name')
             if saved_model_name:
                 self.loaded_model_name = saved_model_name
-                idx = self.sam_model_list.findText(saved_model_name)
+                idx = self.prediction_model_list.findText(saved_model_name)
                 if idx >= 0:
-                    self.sam_model_list.setCurrentIndex(idx)
+                    self.prediction_model_list.setCurrentIndex(idx)
         
         # Clear the label list combobox and re-initialize it
         self.label_list_combobox.clear()
@@ -1272,8 +1311,8 @@ class octron_widget(QWidget):
                 # SAM2 
                 self._cleanup_predictor()
                 self.loaded_model_name = None
-                self.sam_model_list.setCurrentIndex(0)
-                self.sam_model_list.setEnabled(True)
+                self.prediction_model_list.setCurrentIndex(0)
+                self.prediction_model_list.setEnabled(True)
                 self.load_sam_model_btn.setEnabled(True)
                 self.load_sam_model_btn.setText(f'Load model')
                 self.predict_next_batch_btn.setText('')
@@ -1478,13 +1517,13 @@ class octron_widget(QWidget):
         
     def init_sam2_model(self):
         """
-        Initialize the SAM2 model for the current session.
-        This function requires a video to be loaded AND a model to be selected / loaded. 
+        Initialize the predictor for the current session.
+        This function requires a video to be loaded AND a model to be selected / loaded.
         It is called only once from within the prefetcher worker.
-        
+
         """
         if not self.predictor:
-            show_warning("Please select a SAM2 model first.")
+            show_warning("Please select a model first.")
             return
         if not self.video_layer:
             print("No video layer found.")
@@ -1492,21 +1531,27 @@ class octron_widget(QWidget):
         if not self.video_zarr:
             show_warning("No video zarr store found.")
             return
-        
-        # Prewarm SAM2 predictor (model)
-        # This needs the zarr store to be initialized first
-        # -> that happens when either the model is loaded or a video layer is found
-        # -> on_changed_layer() and load_sam2model() take care of this
+
         if not self.predictor.is_initialized:
-            self.predictor.init_state(video_data=self.video_layer.data, 
-                                      zarr_store=self.video_zarr,
-                                      )
+            from cotracker.predictor import CoTrackerOnlinePredictor
+            if isinstance(self.predictor, CoTrackerOnlinePredictor):
+                # CoTracker initialises on the first forward call
+                # (is_first_step=True), not via a separate init_state().
+                # TODO: PR3 will handle this.
+                pass
+            else:
+                # Initialise SAM2/SAM3 predictor
+                # This needs the zarr store to be initialized first
+                # -> that happens when either the model is loaded or a video layer is found
+                # -> on_changed_layer() and load_sam2model() take care of this
+                self.predictor.init_state(video_data=self.video_layer.data,
+                                          zarr_store=self.video_zarr,
+                                          )
             self.hard_reset_layer_btn.setEnabled(True)
             self.predictor.is_initialized = True
-            
+
         return
     
-        
     def init_zarr_prefetcher_threaded(self):
         """
         This function deals with storage (temporary and long term).
@@ -1530,24 +1575,30 @@ class octron_widget(QWidget):
         if not self.predictor:
             # only when a model is loaded
             return
-        
+
         # Collect some info about video layer before loading or creating zarr archive
-        metadata =  self.video_layer.metadata
+        metadata = self.video_layer.metadata
         num_frames = metadata['num_frames']
         video_height = metadata['height']
         video_width = metadata['width']    
-        predictor_image_size = self.predictor.image_size # SAM2 model image size
-        largest_edge = max(video_height, video_width) 
 
-        # Resize both (!) edges to the same square size matching the model's expected input.
-        # Use predictor_image_size directly to avoid floating-point rounding errors
-        # (e.g. int(floor(1008/1337*1337)) can yield 1007 instead of 1008).
-        resized_height = predictor_image_size
-        resized_width = predictor_image_size
+        # Resize video frames if required
+        predictor_image_size = self.predictor.image_size 
+        if predictor_image_size is None:
+            # Cotracker does not require the input image to be a certain size,
+            # so we keep the original video dimensions.
+            resized_height = video_height
+            resized_width = video_width
+        else:
+            # For SAM2 and SAM3 models:
+            # Resize both (!) edges to the same square size matching the model's expected input.
+            # Use predictor_image_size directly to avoid floating-point rounding errors
+            # (e.g. int(floor(1008/1337*1337)) can yield 1007 instead of 1008).
+            resized_height = predictor_image_size
+            resized_width = predictor_image_size
         print(f'📐 Resized video dimensions: {resized_height}x{resized_width}')
         
         # Create zarr store for video layer
-        
         video_zarr_path = self.project_path_video / 'video data.zarr'
         status = False
         
@@ -1600,7 +1651,6 @@ class octron_widget(QWidget):
         self.prefetcher_worker.setAutoDelete(False)
         self.prefetcher_worker.start()
         
-    
     def on_label_change(self):
         """
         Callback function for the label list combobox.
