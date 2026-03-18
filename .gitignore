@@ -181,6 +181,9 @@ cython_debug/
 # model files (can be downloaded with shell script )
 *.pt 
 
+# Cotracker specific
+*.pth
+
 # Ignore zarr arrays 
 *.zarr*
 
