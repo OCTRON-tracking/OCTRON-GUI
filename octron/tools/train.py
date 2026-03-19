@@ -54,20 +54,29 @@ def _get_batch_size(model, imgsz, device, cache_path):
     return batch
 
 
+def _normalise_model_name(model, models_yaml_path):
+    """Return the canonical model key from models_yaml (case-insensitive match)."""
+    import yaml
+    with open(models_yaml_path) as f:
+        models_dict = yaml.safe_load(f)
+    match = next((k for k in models_dict if k.lower() == str(model).lower()), None)
+    return match if match is not None else model
+
+
 def run_training(
     project_path,
     model="YOLO26m",
+    train_mode="segment",
     device="auto",
     epochs=250,
     imagesz=640,
     save_period=50,
-    train_mode="segment",
+    overwrite=False,
     resume=False,
     skip_split=False,
     train_fraction=0.7,
     val_fraction=0.15,
     seed=88,
-    overwrite=False,
 ):
     """
     Run the OCTRON/YOLO training pipeline.
@@ -148,6 +157,7 @@ def run_training(
         print(f"Resuming from checkpoint: {last_pt}")
         yolo.load_model(last_pt, train_mode=train_mode)
     else:
+        model = _normalise_model_name(model, _MODELS_YAML)
         print(f"Loading model: {model}...")
         yolo.load_model(model, train_mode=train_mode)
 
