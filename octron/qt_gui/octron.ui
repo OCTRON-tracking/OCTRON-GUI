@@ -596,7 +596,7 @@
               </widget>
              </item>
              <item row="0" column="0" alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QComboBox" name="sam_model_list">
+              <widget class="QComboBox" name="prediction_model_list">
                <property name="minimumSize">
                 <size>
                  <width>87</width>
