@@ -57,10 +57,11 @@ def _get_batch_size(model, imgsz, device, cache_path):
 def _normalise_model_name(model, models_yaml_path):
     """Return the canonical model key from models_yaml (case-insensitive match)."""
     import yaml
+    model_str = model.value if hasattr(model, 'value') else str(model)
     with open(models_yaml_path) as f:
         models_dict = yaml.safe_load(f)
-    match = next((k for k in models_dict if k.lower() == str(model).lower()), None)
-    return match if match is not None else model
+    match = next((k for k in models_dict if k.lower() == model_str.lower()), None)
+    return match if match is not None else model_str
 
 
 def run_training(
@@ -116,6 +117,11 @@ def run_training(
     from octron.yolo_octron.yolo_octron import YOLO_octron
     from octron.test_gpu import auto_device
     from octron.tools.split import run_split
+
+    # Unwrap enums to plain strings so they are never serialised as Python
+    # object tags when written into YAML config files downstream.
+    train_mode = train_mode.value if hasattr(train_mode, 'value') else str(train_mode)
+    device = device.value if hasattr(device, 'value') else str(device)
 
     best_pt = Path(project_path) / "model" / "training" / "weights" / "best.pt"
     last_pt = Path(project_path) / "model" / "training" / "weights" / "last.pt"

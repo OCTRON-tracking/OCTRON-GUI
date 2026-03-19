@@ -48,6 +48,8 @@ def run_split(
     """
     from octron.yolo_octron.yolo_octron import YOLO_octron
 
+    train_mode = train_mode.value if hasattr(train_mode, 'value') else str(train_mode)
+
     yolo = YOLO_octron(
         models_yaml_path=_MODELS_YAML,
         project_path=project_path,
