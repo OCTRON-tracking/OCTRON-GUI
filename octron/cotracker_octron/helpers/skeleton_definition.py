@@ -91,7 +91,6 @@ class SkeletonDefinition(BaseModel):
 
     def save_yaml(self, path) -> None:
         """Save skeleton definition to a YAML file."""
-
         path = Path(path)
         with open(path, "w") as f:
             # .model_dump() returns a dict with keys "keypoint_names" 
@@ -112,5 +111,4 @@ class SkeletonDefinition(BaseModel):
         path = Path(path)
         with open(path) as f:
             data = yaml.safe_load(f)
-
         return cls.model_validate(data)
