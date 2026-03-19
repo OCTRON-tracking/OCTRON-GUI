@@ -926,6 +926,7 @@ class octron_widget(QWidget):
         self.object_organizer.settings = {
             "model_name": self.loaded_model_name,
             "sam3_detect_threshold": self.sam3detect_thresh.text().strip() or None,
+            "skeleton_definition": self.skeleton_definition.model_dump() if self.skeleton_definition else None,
         }
         organizer_path = self.project_path_video  / "object_organizer.json"
         self.object_organizer.save_to_disk(organizer_path)
@@ -1110,6 +1111,14 @@ class octron_widget(QWidget):
             saved_threshold = saved_settings.get('sam3_detect_threshold')
             if saved_threshold is not None:
                 self.sam3detect_thresh.setText(str(saved_threshold))
+            # Restore skeleton definition
+            saved_skeleton = saved_settings.get('skeleton_definition')
+            if saved_skeleton:
+                self.skeleton_definition = SkeletonDefinition.model_validate(saved_skeleton)
+                self._populate_keypoint_combobox()
+                self.setup_skeleton_btn.setText(
+                    f"Skeleton ({self.skeleton_definition.n_keypoints})"
+                )
             # Restore model name — pre-select it in the dropdown
             saved_model_name = saved_settings.get('model_name')
             if saved_model_name:
