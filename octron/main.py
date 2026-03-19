@@ -317,8 +317,11 @@ class octron_widget(QWidget):
             The index of the currently selected tab
         """
         if index == 0 and self.project_path is not None:
-            # When the first tab (project tab, index 0) is clicked,
-            self.refresh_label_table_list(delete_old=False)
+            # Refresh the label table in the background so switching tabs never
+            # blocks the GUI (collect_labels does network I/O).
+            refresh_worker = create_worker(self._collect_labels_for_refresh)
+            refresh_worker.returned.connect(self._on_label_refresh_done)
+            refresh_worker.start()
 
     ###### SAM SPECIFIC CALLBACKS ####################################################################
     
@@ -701,14 +704,35 @@ class octron_widget(QWidget):
         self.predict_video_predict_groupbox.setEnabled(True)
         self.batch_predict_progressbar.setValue(0)
         
-        # Save the object organizer 
-        # ! TODO: Make this more efficient. This slows down everything a lot since 
-        # what we are doing here is creating a video hash from scratch twice (?) and 
-        # load the video data, plus we find out which indices have annotation data in the 
-        # video. So, that is a lot of processing ...
-        status = self.save_object_organizer()
-        self.refresh_label_table_list(delete_old=False)
+        # Save the object organizer (small JSON write — kept on main thread so the
+        # background refresh below sees the up-to-date file immediately).
+        self.save_object_organizer()
         self.batch_predict_progressbar.setMaximum(self.chunk_size)
+
+        # Run the expensive collect_labels() I/O in a background thread so it does
+        # not block the GUI (especially noticeable on network drives).
+        refresh_worker = create_worker(self._collect_labels_for_refresh)
+        refresh_worker.returned.connect(self._on_label_refresh_done)
+        refresh_worker.start()
+
+    def _collect_labels_for_refresh(self):
+        """Background worker: run the collect_labels I/O off the GUI thread.
+
+        verify_hash=False skips the full file read (get_vfile_hash) that would
+        saturate the network link on large video files; internal zarr↔JSON
+        consistency is still checked.
+        """
+        return collect_labels(
+            self.project_path,
+            subfolder=self.current_video_hash,
+            prune_empty_labels=False,
+            min_num_frames=0,
+            verify_hash=False,
+        )
+
+    def _on_label_refresh_done(self, label_dict):
+        """Main-thread callback: apply collect_labels result to the UI."""
+        self.refresh_label_table_list(delete_old=False, label_dict=label_dict)
 
     def init_prediction_threaded(self):
         """
@@ -871,22 +895,25 @@ class octron_widget(QWidget):
         self.object_organizer.save_to_disk(organizer_path)
         return True 
     
-    def refresh_label_table_list(self, delete_old=False):
+    def refresh_label_table_list(self, delete_old=False, label_dict=None):
         """
-        Refresh the label list combobox with the current labels in the object organizer
-        
+        Refresh the label list combobox with the current labels in the object organizer.
+
         Parameter
         ----------
         delete_old : bool
             If True, delete the old entries from the combobox
-        
+        label_dict : dict or None
+            Pre-computed result from collect_labels(). If None the call is made
+            synchronously here (may block on network drives).
         """
         # Check this folder for existing project data
-        label_dict = collect_labels(self.project_path, 
-                                    subfolder=self.current_video_hash, 
-                                    prune_empty_labels=False,  
-                                    min_num_frames=0
-                                    )  
+        if label_dict is None:
+            label_dict = collect_labels(self.project_path,
+                                        subfolder=self.current_video_hash,
+                                        prune_empty_labels=False,
+                                        min_num_frames=0
+                                        )
         if not label_dict:
             # Clear the table if a model already exists (e.g. switching projects)
             if hasattr(self, 'label_table_model'):
@@ -1141,8 +1168,14 @@ class octron_widget(QWidget):
         
         self.project_path = folder
         self.project_video_drop_groupbox.setEnabled(True)
-        self.refresh_label_table_list(delete_old=True)
         self.yolo_handler.refresh_trained_model_list()
+        # Run the expensive collect_labels scan in the background so opening a
+        # project folder on a network drive doesn't freeze the GUI.
+        refresh_worker = create_worker(self._collect_labels_for_refresh)
+        refresh_worker.returned.connect(
+            lambda ld: self.refresh_label_table_list(delete_old=True, label_dict=ld)
+        )
+        refresh_worker.start()
         return
 
     def open_project_folder_dialog(self):
