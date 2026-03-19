@@ -55,7 +55,9 @@ from octron.cotracker_octron.helpers.cotracker_checks import \
     check_cotracker_models
 # Custom dialog boxes
 from octron.gui_dialog_elements import (add_new_label_dialog,
-                                        remove_label_dialog)
+                                        remove_label_dialog,
+                                        skeleton_setup_dialog)
+from octron.cotracker_octron.helpers.skeleton_definition import SkeletonDefinition
 from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron
 from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
 from octron.sam_octron.helpers.sam2_checks import check_sam2_models
@@ -125,6 +127,7 @@ class octron_widget(QWidget):
         self.predictor, self.device = None, None
         self.loaded_model_name = None # Name of the currently loaded SAM model
         self.object_organizer = ObjectOrganizer() # Initialize top level object organizer
+        self.skeleton_definition = None # SkeletonDefinition section for CoTracker pose tracking
         self.remove_current_layer = False # Removal of layer yes/no
         self.layer_to_remove_idx = None # Index of layer to remove
         self.layer_to_remove = None # The actual layer to remove
@@ -132,6 +135,7 @@ class octron_widget(QWidget):
         self.chunk_size = 15 # Global parameter valid for both creation of zarr array and batch prediction 
                              # For zarr arrays I set the minimum to ~50 frames for now
         self.skip_frames = 1 # Skip frames for prefetching images
+        self._skeleton_groupbox_height = 90 # Height adjustment for skeleton groupbox visibility toggle
     
         # Model yaml for SAM2
         sam2models_yaml_path = self.base_path / 'sam_octron/sam2_models.yaml'
@@ -234,6 +238,8 @@ class octron_widget(QWidget):
         self.annotation_jump_next_btn.clicked.connect(self.jump_to_next_annotated_frame)
         self.hard_reset_layer_btn.clicked.connect(self.reset_predictor)
         self.hard_reset_layer_btn.setEnabled(False)
+        # ... Skeleton (CoTracker)
+        self.setup_skeleton_btn.clicked.connect(self.on_setup_skeleton)
         # ... YOLO
         self.generate_training_data_btn.setText('')
         self.start_stop_training_btn.setText('')
@@ -528,6 +534,13 @@ class octron_widget(QWidget):
         for ind in index_to_disable:  
             self.layer_type_combobox.model().item(ind).setEnabled(False)
 
+        # Show skeleton setup UI 
+        self.skeleton_groupbox.setVisible(True)
+        
+        # Expand the annotate layout container to fit the skeleton groupbox
+        rect = self.verticalLayoutWidget_2.geometry()
+        self.verticalLayoutWidget_2.setGeometry(rect.adjusted(0, 0, 0, self._skeleton_groupbox_height))
+
 
     def _on_model_loaded(self, model_name):
         """
@@ -535,6 +548,11 @@ class octron_widget(QWidget):
         Disables the dropdown, enables prediction controls, starts zarr prefetcher.
         """
         self.loaded_model_name = model_name
+        # Hide skeleton UI by default (CoTracker shows it after this call)
+        if self.skeleton_groupbox.isVisible():
+            rect = self.verticalLayoutWidget_2.geometry()
+            self.verticalLayoutWidget_2.setGeometry(rect.adjusted(0, 0, 0, -self._skeleton_groupbox_height))
+        self.skeleton_groupbox.setVisible(False)
         # Deactivate the dropdown menu upon successful model loading
         self.prediction_model_list.setCurrentIndex(-1)
         self.prediction_model_list.setEnabled(False)
@@ -1174,6 +1192,9 @@ class octron_widget(QWidget):
             
         # Reset variables for a clean start
         self.object_organizer = ObjectOrganizer()
+        self.skeleton_definition = None
+        self.keypoint_combobox.clear()
+        self.keypoint_combobox.setEnabled(False)
         self.label_list_combobox.clear()
         self.label_list_combobox.addItem("Label ...")
         self.label_list_combobox.addItem(u"\u2295 Create")
@@ -1955,6 +1976,75 @@ class octron_widget(QWidget):
             prev_idx = max(indices)
             self._viewer.dims.set_point(0, prev_idx)
         return
+
+    ###################################################################################################
+    # Skeleton / Keypoint methods (CoTracker)
+    ###################################################################################################
+
+    def on_setup_skeleton(self):
+        """Open the skeleton setup dialog and create a SkeletonDefinition."""
+        # Get existing keypoint names if defined
+        existing_kpts = None
+        if self.skeleton_definition is not None:
+            existing_kpts = self.skeleton_definition.keypoint_names
+
+        # Open the skeleton setup dialog
+        dialog = skeleton_setup_dialog(self, existing_names=existing_kpts)
+        dialog.exec_()
+        if dialog.result() != QDialog.Accepted:
+            return
+
+        # Parse keypoint names from text area
+        input_names = dialog.get_keypoint_names()
+        if not input_names:
+            show_warning("No keypoint names provided.")
+            return
+
+        # Parse connectivity
+        input_connectivity = dialog.get_connectivity()
+
+        # Create the skeleton definition from the input
+        # data (validates via pydantic)
+        try:
+            self.skeleton_definition = SkeletonDefinition(
+                keypoint_names=input_names,
+                connectivity=input_connectivity,
+            )
+        except Exception as e:
+            show_error(f"Invalid skeleton definition: {e}")
+            return
+
+        # Populate the keypoint combobox
+        self._populate_keypoint_combobox()
+
+        show_info(f"Skeleton defined with {self.skeleton_definition.n_keypoints} keypoints")
+        self.setup_skeleton_btn.setText(
+            f"Skeleton ({self.skeleton_definition.n_keypoints})"
+        )
+
+    def _populate_keypoint_combobox(self):
+        """Fill the keypoint combobox from the current skeleton definition."""
+        self.keypoint_combobox.clear()
+        if self.skeleton_definition is None:
+            self.keypoint_combobox.setEnabled(False)
+            return
+
+        for i, name in enumerate(self.skeleton_definition.keypoint_names):
+            self.keypoint_combobox.addItem(f"{i}: {name}")
+
+        self.keypoint_combobox.setCurrentIndex(0)
+        self.keypoint_combobox.setEnabled(True)
+
+    def advance_keypoint_combobox(self):
+        """Advance the keypoint combobox to the next keypoint (wraps around).
+        
+        Meant to be connected to point click callback.
+        """
+        if self.skeleton_definition is None:
+            return
+        current = self.keypoint_combobox.currentIndex()
+        next_idx = (current + 1) % self.skeleton_definition.n_keypoints
+        self.keypoint_combobox.setCurrentIndex(next_idx)
 
 ###############################################################################################################
 ###############################################################################################################
