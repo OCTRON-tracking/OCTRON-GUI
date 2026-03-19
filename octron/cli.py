@@ -18,7 +18,36 @@ Subcommands
 
 from typing import List, Optional
 from pathlib import Path
+from enum import Enum
 import typer
+
+
+class YOLOModel(str, Enum):
+    yolo11m = "yolo11m"
+    yolo11l = "yolo11l"
+    yolo26m = "yolo26m"
+    yolo26l = "yolo26l"
+
+
+class TrainMode(str, Enum):
+    segment = "segment"
+    detect = "detect"
+
+
+class TrackerName(str, Enum):
+    bytetrack = "bytetrack"
+    ocsort = "ocsort"
+    botsort = "botsort"
+    docsort = "d-ocsort"
+    hybridsort = "hybridsort"
+    boosttrack = "boosttrack"
+
+
+class Device(str, Enum):
+    auto = "auto"
+    cpu = "cpu"
+    cuda = "cuda"
+    mps = "mps"
 
 app = typer.Typer(
     name="octron",
@@ -54,13 +83,11 @@ def gpu_test():
 
 @app.command()
 def split(
-    project_path: Path = typer.Argument(
-        ..., help="Path to the OCTRON project directory."
-    ),
+    project_path: Path = typer.Argument(..., help="Path to the OCTRON project directory."),
+    train_mode: TrainMode = typer.Option(TrainMode.segment, "--mode", help="Training mode."),
     train_fraction: float = typer.Option(0.7, "--train", help="Fraction of frames for training."),
     val_fraction: float = typer.Option(0.15, "--val", help="Fraction of frames for validation. The remainder becomes the test split."),
     seed: int = typer.Option(88, "--seed", help="Random seed for reproducibility."),
-    train_mode: str = typer.Option("segment", "--mode", help="'segment' or 'detect'."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print split sizes without writing files."),
 ):
     """Prepare and export train/val/test data from an OCTRON project."""
@@ -78,27 +105,19 @@ def split(
 
 @app.command()
 def train(
-    project_path: Path = typer.Argument(
-        ..., help="Path to the OCTRON project directory."
-    ),
-    model: str = typer.Option("YOLO26m", help="YOLO model name or path to a .pt file."),
-    train_mode: str = typer.Option("segment", "--mode", help="'segment' or 'detect'."),
-    device: str = typer.Option(
-        "auto", help="Device to train on ('auto', 'cpu', 'cuda', 'mps')."
-    ),
+    project_path: Path = typer.Argument(..., help="Path to the OCTRON project directory."),
+    model: YOLOModel = typer.Option(YOLOModel.yolo26m, help="YOLO model to train."),
+    train_mode: TrainMode = typer.Option(TrainMode.segment, "--mode", help="Training mode."),
+    device: Device = typer.Option(Device.auto, help="Device to train on."),
     epochs: int = typer.Option(250, help="Number of training epochs."),
     imagesz: int = typer.Option(640, help="Input image size."),
     save_period: int = typer.Option(50, help="Save a checkpoint every N epochs."),
-    resume: bool = typer.Option(
-        False, help="Resume from an existing last.pt checkpoint."
-    ),
-    no_split: bool = typer.Option(
-        False, "--no-split", help="Skip data preparation. Use when 'octron split' has already been run."
-    ),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite an existing trained model. Default: skip if best.pt already exists."),
+    resume: bool = typer.Option(False, help="Resume from an existing last.pt checkpoint."),
+    no_split: bool = typer.Option(False, "--no-split", help="Skip data preparation. Use when 'octron split' has already been run."),
     train_fraction: float = typer.Option(0.7, "--train", help="Fraction of frames for training (ignored with --no-split)."),
     val_fraction: float = typer.Option(0.15, "--val", help="Fraction of frames for validation (ignored with --no-split)."),
     seed: int = typer.Option(88, "--seed", help="Random seed for the split (ignored with --no-split)."),
-    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite an existing trained model. Default: skip if best.pt already exists."),
 ):
     """Prepare training data and run YOLO model training on an OCTRON project."""
     from octron.tools.train import run_training
@@ -106,53 +125,35 @@ def train(
     run_training(
         project_path=project_path,
         model=model,
+        train_mode=train_mode,
         device=device,
         epochs=epochs,
         imagesz=imagesz,
         save_period=save_period,
-        train_mode=train_mode,
+        overwrite=overwrite,
         resume=resume,
         skip_split=no_split,
         train_fraction=train_fraction,
         val_fraction=val_fraction,
         seed=seed,
-        overwrite=overwrite,
     )
 
 
 @app.command()
 def predict(
     videos: List[Path] = typer.Argument(..., help="One or more video file paths."),
-    model_path: Path = typer.Option(
-        ..., "--model", help="Path to a trained YOLO .pt file."
-    ),
-    device: str = typer.Option(
-        "auto", help="Device to run inference on ('auto', 'cpu', 'cuda', 'mps')."
-    ),
-    tracker: str = typer.Option(
-        "ByteTrack",
-        "--tracker",
-        help="Tracker name (e.g. 'ByteTrack', 'BotSort') or path to a tracker config YAML.",
-    ),
-    skip_frames: int = typer.Option(
-        0, help="Number of frames to skip between predictions."
-    ),
-    one_object_per_label: bool = typer.Option(
-        False, help="Track only the top-confidence detection per label."
-    ),
-    iou_thresh: float = typer.Option(0.7, help="IOU threshold for detection."),
+    model_path: Path = typer.Option(..., "--model", help="Path to a trained YOLO .pt file."),
+    tracker: TrackerName = typer.Option(TrackerName.bytetrack, "--tracker", help="Tracker algorithm."),
+    tracker_config: Optional[Path] = typer.Option(None, "--tracker-config", help="Path to a custom tracker config YAML (overrides --tracker)."),
+    device: Device = typer.Option(Device.auto, help="Device to run inference on."),
     conf_thresh: float = typer.Option(0.5, help="Confidence threshold for detection."),
-    opening_radius: int = typer.Option(
-        0, help="Morphological opening radius applied to masks."
-    ),
+    iou_thresh: float = typer.Option(0.7, help="IOU threshold for NMS."),
+    skip_frames: int = typer.Option(0, help="Number of frames to skip between predictions."),
+    one_object_per_label: bool = typer.Option(False, help="Track only the top-confidence detection per label."),
+    opening_radius: int = typer.Option(0, help="Morphological opening radius applied to masks."),
     overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite existing prediction results. Default: skip videos that already have predictions."),
-    buffer_size: int = typer.Option(
-        500, help="Frame buffer size before writing to zarr."
-    ),
-    detailed: bool = typer.Option(
-        False, "--detailed",
-        help="Extract detailed region properties (area, eccentricity, solidity, …) from segmentation masks via scikit-image. Ignored for detection models.",
-    ),
+    detailed: bool = typer.Option(False, "--detailed", help="Extract detailed region properties (area, eccentricity, solidity, …) from segmentation masks via scikit-image. Ignored for detection models."),
+    buffer_size: int = typer.Option(500, help="Frame buffer size before writing to zarr."),
 ):
     """Run YOLO prediction and tracking on one or more videos."""
     from octron.tools.predict import run_predict
@@ -182,12 +183,12 @@ def predict(
 
     if device == "auto":
         device = auto_device()
-    tracker_name = None
-    tracker_cfg_path = None
-    if tracker.endswith((".yaml", ".yml")):
-        tracker_cfg_path = Path(tracker)
+    if tracker_config is not None:
+        tracker_name = None
+        tracker_cfg_path = tracker_config
     else:
-        tracker_name = tracker
+        tracker_name = tracker.value
+        tracker_cfg_path = None
     from octron.yolo_octron.constants import DEFAULT_REGION_PROPERTIES
     run_predict(
         videos=videos,
