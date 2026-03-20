@@ -1,6 +1,7 @@
 from pathlib import Path
 import cv2
 import numpy as np
+from loguru import logger
 
 def interpolate_masks(mask1, 
                       mask2, 
@@ -174,5 +175,5 @@ if __name__ == "__main__":
     # Save the frames as a .gif file with looping
     output_gif_path = output_dir / "interpolated_masks.gif"
     imageio.v2.mimwrite(output_gif_path.as_posix(), frames, duration=0.2, loop=0)
-    print(f"GIF saved at: {output_gif_path}")
+    logger.info(f"GIF saved at: {output_gif_path}")
 

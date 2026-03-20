@@ -19,8 +19,30 @@ base_path = Path(os.path.dirname(__file__)) # Important for example for .svg fil
 sys.path.append(cur_path.as_posix()) 
 
 from importlib.metadata import version
+from loguru import logger
 __version__ = version("octron")
 octron_version = __version__
+
+# torch must be imported before any Qt bindings (pytorch/pytorch#166628)
+# (PYTORCH_ENABLE_MPS_FALLBACK already set above)
+import numpy as np
+from octron.sam_octron.helpers.video_loader import probe_video, get_vfile_hash
+from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron
+from octron.sam_octron.helpers.sam2_checks import check_sam2_models
+from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
+from octron.sam_octron.helpers.sam3_checks import check_sam3_models
+import zarr
+from octron.sam_octron.helpers.sam2_zarr import (
+    create_image_zarr,
+    load_image_zarr,
+    get_annotated_frames,
+    mark_frames_annotated,
+)
+# YOLO specific
+from octron.yolo_octron.gui.yolo_handler import YoloHandler
+from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
+from octron.yolo_octron.yolo_octron import YOLO_octron
+from octron.yolo_octron.constants import TASK_COLORS
 
 # Napari plugin QT components
 from qtpy.QtCore import Qt
@@ -44,33 +66,12 @@ from napari.utils.notifications import (
 from napari.qt import create_worker
 from napari.utils import DirectLabelColormap
 
-# Napari PyAV reader 
+# Napari PyAV reader
 from napari_pyav._reader import FastVideoReader
 
-# GUI 
+# GUI
 from octron.gui_elements import octron_gui_elements
 from octron.gui_tables import ExistingDataTable
-
-# SAM2 specific 
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-import numpy as np
-from octron.sam_octron.helpers.video_loader import probe_video, get_vfile_hash
-from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron  
-from octron.sam_octron.helpers.sam2_checks import check_sam2_models
-from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
-from octron.sam_octron.helpers.sam3_checks import check_sam3_models
-import zarr
-from octron.sam_octron.helpers.sam2_zarr import (
-    create_image_zarr,
-    load_image_zarr,
-    get_annotated_frames,
-    mark_frames_annotated,
-)
-# YOLO specific 
-from octron.yolo_octron.gui.yolo_handler import YoloHandler
-from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
-from octron.yolo_octron.yolo_octron import YOLO_octron
-from octron.yolo_octron.constants import TASK_COLORS
 
 # Tracker specific 
 from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
@@ -179,23 +180,23 @@ class octron_widget(QWidget):
         
         # Populate SAM2 dropdown list with available models
         for model_id, model in self.sam2models_dict.items():
-            print(f"Adding SAM2 model {model_id}")
+            logger.info(f"Adding SAM2 model {model_id}")
             self.sam_model_list.addItem(model['name'])
-        
+
         # Populate SAM3 entries in the same dropdown
         for model_id, model in self.sam3models_dict.items():
-            print(f"Adding SAM3 model {model_id}")
+            logger.info(f"Adding SAM3 model {model_id}")
             self.sam_model_list.addItem(model['name'])
-            
+
         # Populate YOLO dropdown list with available models
         for model_id, model in self.yolomodels_dict.items():
-            print(f"Adding YOLO model {model_id}")
+            logger.info(f"Adding YOLO model {model_id}")
             self.yolomodel_list.addItem(model['name'])
-   
+
         # Populate Tracker dropdown list with available boxmot trackers
         for tracker in self.trackers_dict:
             if self.trackers_dict[tracker]['available']:
-                print(f'Adding tracker {self.trackers_dict[tracker]["name"]}')
+                logger.info(f'Adding tracker {self.trackers_dict[tracker]["name"]}')
                 color = self.trackers_dict[tracker]['color']
                 square_icon = create_color_icon(color) # Creates color icon to show computational demands
                 self.yolomodel_tracker_list.addItem(square_icon, self.trackers_dict[tracker]['name']+ " ")
@@ -204,7 +205,7 @@ class octron_widget(QWidget):
         self.gui_callback_functions()
         # Connect layer specific callbacks
         self.octron_sam2_callbacks = sam2_octron_callbacks(self)
-        print(f'OCTRON GUI v{octron_version} initialized')
+        logger.info(f'OCTRON GUI v{octron_version} initialized')
 
     ###################################################################################################
     
@@ -305,7 +306,7 @@ class octron_widget(QWidget):
             self.train_generate_groupbox.setTitle('Generate training data (Mode: Detection)')
             self.train_train_groupbox.setTitle('Train (Mode: Detection)')
             self._update_train_mode_indicators(TASK_COLORS['detect'])
-        print(f'Train mode set to: {self.train_mode}')
+        logger.info(f'Train mode set to: {self.train_mode}')
 
     def on_toolbox_tab_changed(self, index):
         """
@@ -359,7 +360,7 @@ class octron_widget(QWidget):
             # shape: (num_frames, num_ch, image_height, image_width)
             existing_image_size = existing_shape[2]
         except Exception as e:
-            print(f"Warning: could not read existing zarr for compatibility check: {e}")
+            logger.warning(f"Warning: could not read existing zarr for compatibility check: {e}")
             return True
 
         if existing_image_size == new_image_size:
@@ -427,7 +428,7 @@ class octron_widget(QWidget):
                 break
         assert model_found, f"Model '{model_name}' not found in SAM2 models dictionary."
         
-        print(f"Loading SAM2 model {model_id}")
+        logger.info(f"Loading SAM2 model {model_id}")
         self._cleanup_predictor()
         model = self.sam2models_dict[model_id]
         config_path = Path(model['config_path'])
@@ -462,7 +463,7 @@ class octron_widget(QWidget):
                 break
         assert model_found, f"Model '{model_name}' not found in SAM3 models dictionary."
         
-        print(f"Loading SAM3 model {model_id}")
+        logger.info(f"Loading SAM3 model {model_id}")
         self._cleanup_predictor()
         model = self.sam3models_dict[model_id]
         checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
@@ -532,7 +533,7 @@ class octron_widget(QWidget):
             if getattr(self.predictor, 'is_initialized', False):
                 self.predictor.reset_state()
         except Exception as e:
-            print(f"Warning: reset_state during cleanup failed: {e}")
+            logger.warning(f"Warning: reset_state during cleanup failed: {e}")
         
         # For SAM3_semantic_octron, also release the detector model
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron, SAM3_octron
@@ -556,7 +557,7 @@ class octron_widget(QWidget):
         elif device is not None and device.type == "cuda":
             torch.cuda.empty_cache()
         
-        print("🧹 Predictor cleaned up, GPU memory freed.")
+        logger.info("Predictor cleaned up, GPU memory freed.")
     
     def reset_predictor(self):
         """
@@ -843,7 +844,7 @@ class octron_widget(QWidget):
                 store = zarr_store.store
                 if hasattr(store, 'close'):
                     store.close()
-                    print(f"Zarr {zarr_store} store closed.")
+                    logger.info(f"Zarr {zarr_store} store closed.")
         # Clean up the prefetcher worker
         if self.prefetcher_worker is not None:
             self.prefetcher_worker.quit()
@@ -860,7 +861,7 @@ class octron_widget(QWidget):
         status : boolean : True if saving went through, False if no project was found 
         """
         if self.project_path_video is None or not self.project_path_video.exists():
-            print("No project video path set or found. Not exporting object organizer.")
+            logger.info("No project video path set or found. Not exporting object organizer.")
             return False
         # Populate project-level settings before saving
         self.object_organizer.settings = {
@@ -921,7 +922,7 @@ class octron_widget(QWidget):
         
         # Enable training tab if data is available
         if label_dict and any(v for k, v in label_dict.items() if k != 'video' and k != 'video_file_path'):
-            print("Data available, enabling training tab.")
+            logger.info("Data available, enabling training tab.")
             self.main_toolbox.widget(2).setEnabled(True)  # Training
             self.segmentation_bbox_decision_groupbox.setEnabled(True)
             self.train_generate_groupbox.setEnabled(True)
@@ -1069,7 +1070,7 @@ class octron_widget(QWidget):
         # Loop over all objects in the object organizer data
         # and re-create the layers
         for obj_id, obj_data in object_organizer_data['entries'].items():
-            print(f"Loading object with ID {obj_id}")
+            logger.debug(f"Loading object with ID {obj_id}")
             obj_id = int(obj_id)
             label = obj_data.get('label', '')
             suffix = obj_data.get('suffix', '')
@@ -1091,7 +1092,7 @@ class octron_widget(QWidget):
             if not layer_type:  
                 layer_type = 'Points' # Default to Points if not specified
              # Create layers with the reconstructed information
-            print(f"Recreating layer: {label} {suffix} (ID: {obj_id}, Type: {layer_type})")
+            logger.debug(f"Recreating layer: {label} {suffix} (ID: {obj_id}, Type: {layer_type})")
             self.create_annotation_layers(
                 recreate=True,
                 label=label,
@@ -1157,10 +1158,10 @@ class octron_widget(QWidget):
         # Open a directory selection dialog
         folder = QFileDialog.getExistingDirectory(self, "Select Base Folder", str(Path.home()))
         if folder:
-            print(f"Project base folder selected: {folder}")
-            self.set_project_folder(folder)            
+            logger.info(f"Project base folder selected: {folder}")
+            self.set_project_folder(folder)
         else:
-            print("No folder selected.")
+            logger.info("No folder selected.")
         return 
 
     def remove_all_layers(self, spare=[]):
@@ -1174,7 +1175,7 @@ class octron_widget(QWidget):
         """
         if not isinstance(spare, list):
             spare = [spare]
-        print(f'🗑️  Deleting all layers except "{spare}"')
+        logger.info(f'Deleting all layers except "{spare}"')
         # First remove mask layers (to avoid dependencies with annotation layers)
         mask_layers = []
         other_layers = []
@@ -1198,7 +1199,7 @@ class octron_widget(QWidget):
                 
         total_deleted = len(mask_layers) + len(other_layers)
         if total_deleted:
-            print(f"🗑️ Auto-deleted {total_deleted} layers")
+            logger.info(f"Auto-deleted {total_deleted} layers")
 
 
     def on_layer_removed(self, event):
@@ -1215,7 +1216,7 @@ class octron_widget(QWidget):
             self._viewer.layers.selection.active = new_old_layer
             self._viewer.layers.selection.active.mode = 'pan_zoom'
         else:
-            print(f"❌ Removed layer {self.layer_to_remove.name}")
+            logger.info(f"Removed layer {self.layer_to_remove.name}")
             # What else do you need to remove? 
             # Three cases:
             # 1. The layer is a mask layer
@@ -1239,10 +1240,10 @@ class octron_widget(QWidget):
                 # Remove obj_id from current SAM2 predictor
                 try:
                     self.predictor.remove_object(obj_id, strict=True)
-                    print(f"Removed object with ID{obj_id} from organizer and predictor")
+                    logger.info(f"Removed object with ID{obj_id} from organizer and predictor")
                 except (RuntimeError, AttributeError) as e:
-                    print(f"Error when removing object from SAM2 predictor: {e}")
-                    print("This is likely due to the SAM2 model not being loaded and can be ignored.")
+                    logger.error(f"Error when removing object from SAM2 predictor: {e} "
+                                 "(This is likely due to the SAM2 model not being loaded and can be ignored.)")
                 
                 # Finally, trigger removal of the annotation layer
                 if annotation_layer is not None:
@@ -1394,7 +1395,7 @@ class octron_widget(QWidget):
             # AND a model has been loaded
             self.init_zarr_prefetcher_threaded()
             
-            print(f"VIDEO LAYER >>> {layer_name}")
+            logger.debug(f"VIDEO LAYER >>> {layer_name}")
             self.main_toolbox.widget(1).setEnabled(True) 
             self.main_toolbox.setItemText(1, f"Generate annotation data for: {self.current_video_hash}")
 
@@ -1487,7 +1488,7 @@ class octron_widget(QWidget):
             show_warning("Please select a SAM2 model first.")
             return
         if not self.video_layer:
-            print("No video layer found.")
+            logger.warning("No video layer found.")
             return
         if not self.video_zarr:
             show_warning("No video zarr store found.")
@@ -1544,7 +1545,7 @@ class octron_widget(QWidget):
         # (e.g. int(floor(1008/1337*1337)) can yield 1007 instead of 1008).
         resized_height = predictor_image_size
         resized_width = predictor_image_size
-        print(f'📐 Resized video dimensions: {resized_height}x{resized_width}')
+        logger.info(f'Resized video dimensions: {resized_height}x{resized_width}')
         
         # Create zarr store for video layer
         
@@ -1587,11 +1588,11 @@ class octron_widget(QWidget):
                 f.write(f"Number of frames: {num_frames}\n")
                 f.write(f"Original resolution (hxw): {video_height}x{video_width}\n")
                 f.write(f"Info file created on: {datetime.now()}\n")
-            print(f'💾 New video zarr archive created "{video_zarr_path.as_posix()}"')
-            print(f'📝 Video info saved to "{video_info_path.as_posix()}"')
+            logger.info(f'New video zarr archive created "{video_zarr_path.as_posix()}"')
+            logger.info(f'Video info saved to "{video_info_path.as_posix()}"')
         else:
             self.video_zarr = video_zarr
-            print(f'📖 Video zarr archive loaded "{video_zarr_path.as_posix()}"')
+            logger.info(f'Video zarr archive loaded "{video_zarr_path.as_posix()}"')
         
         # Add to list of zarrs for cleanup upon closing
         self.all_zarrs.append(self.video_zarr)
@@ -1653,7 +1654,7 @@ class octron_widget(QWidget):
                 self.label_list_combobox.setCurrentIndex(0)
                 return
         else:
-            print(f'Selected label {current_text}')   
+            logger.debug(f'Selected label {current_text}')   
    
    
     def create_annotation_layers(self,
@@ -1807,7 +1808,7 @@ class octron_widget(QWidget):
             organizer_entry.annotation_layer = annotation_layer
             # Connect callback
             annotation_layer.events.data.connect(self.octron_sam2_callbacks.on_shapes_changed)
-            print(f"Created new mask + annotation layer '{layer_name}'")
+            logger.info(f"Created new mask + annotation layer '{layer_name}'")
             
             
         elif layer_type == 'Points':
@@ -1824,7 +1825,7 @@ class octron_widget(QWidget):
             # Connect callback
             annotation_layer.mouse_drag_callbacks.append(self.octron_sam2_callbacks.on_mouse_press)
             annotation_layer.events.data.connect(self.octron_sam2_callbacks.on_points_changed)
-            print(f"Created new mask + annotation layer '{layer_name}'")
+            logger.info(f"Created new mask + annotation layer '{layer_name}'")
             
             
         else: 
@@ -1917,11 +1918,14 @@ class octron_widget(QWidget):
 def octron_gui():
     """
     This is the main entry point for the GUI call
-    defined in the pyproject.toml file as 
+    defined in the pyproject.toml file as
     #      [project.gui-scripts]
     #      octron-gui = "octron.main:octron_gui"
 
     """
+    from octron._logging import setup_logging
+    setup_logging()
+
     viewer = napari.Viewer()
     
     # If there's already a QApplication instance (as may be the case when running as a napari plugin),

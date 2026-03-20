@@ -1,8 +1,9 @@
 # Code for checking the availability of the SAM2 model configurations and checkpoints
-import os 
+import os
 from pathlib import Path
 import requests
 import yaml
+from loguru import logger
 from octron.url_check import check_url_availability
 
 
@@ -29,17 +30,17 @@ def download_sam2_checkpoint(url,
     assert output_folder.is_dir(), f"Destination folder '{output_folder}' does not exist"
 
     if fpath.exists() and not overwrite:
-        print(f"File '{fpath}' exists. Skipping download.")
+        logger.info(f"File '{fpath}' exists. Skipping download.")
         return
     else:
-        print(f"Downloading model from {url}")
+        logger.info(f"Downloading model from {url}")
         response = requests.get(url, stream=True)
         if response.status_code == 200:
             with open(fpath, 'wb') as f:
                 for chunk in response.iter_content(1024):
                     f.write(chunk)
             
-            print(f"💾 Saved SAM2 model to {fpath}")  
+            logger.info(f"💾 Saved SAM2 model to {fpath}")  
         else:
             pass
             
@@ -115,9 +116,9 @@ def check_sam2_models(SAM2p1_BASE_URL,
         
         # Check if the checkpoint file exists. If not, download it.
         if model_checkpt_path.exists() and not force_download:
-            print(f"Checkpoint file {model_checkpt_path} exists. Skipping download.")
+            logger.info(f"Checkpoint file {model_checkpt_path} exists. Skipping download.")
         else:
-            print(f'Trying to download the checkpoint file (force_download={force_download})')
+            logger.info(f'Trying to download the checkpoint file (force_download={force_download})')
             checkpoint_path = model_checkpt_path
             checkpoint_name = checkpoint_path.name
             for download_url in SAM2p1_BASE_URLs:

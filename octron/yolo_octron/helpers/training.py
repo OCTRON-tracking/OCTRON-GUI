@@ -1,7 +1,8 @@
 # YOLO training related helpers
 from pathlib import Path
 import json
-import numpy as np                                         
+import numpy as np
+from loguru import logger                                         
                 
 def find_files_with_depth_limit(base_path, pattern, max_depth=1):
     """
@@ -57,18 +58,18 @@ def load_object_organizer(file_path):
     """
     file_path = Path(file_path)
     if not file_path.exists():
-        print(f"No organizer file found at {file_path}")
+        logger.warning(f"No organizer file found at {file_path}")
         return
-    if not file_path.suffix == '.json': 
-        print(f"❌ File is not a json file: {file_path}")
+    if not file_path.suffix == '.json':
+        logger.error(f"File is not a json file: {file_path}")
         return
     try:
         with open(file_path, 'r') as f:
             data = json.load(f)
-        print(f"📖 Octron object organizer loaded from {file_path.as_posix()}")
+        logger.info(f"Octron object organizer loaded from {file_path.as_posix()}")
         return data
     except Exception as e:
-        print(f"❌ Error loading json: {e}")
+        logger.error(f"Error loading json: {e}")
         return 
 
 
@@ -209,7 +210,7 @@ def collect_labels(project_path,
     current_label_id = 0
     
     for object_organizer in find_files_with_depth_limit(json_parent_path, 'object_organizer.json', 1):
-        if verbose: print(object_organizer.parent)
+        if verbose: logger.debug(object_organizer.parent)
         organizer_dict = load_object_organizer(object_organizer)  
         labels = {}
         video_hash_dict = {}   
@@ -223,15 +224,15 @@ def collect_labels(project_path,
             if label in label_id_map:
                 # Use existing ID for consistency
                 label_id = label_id_map[label]
-                if verbose: print(f'Using existing ID {label_id} for label {label}')
+                if verbose: logger.debug(f'Using existing ID {label_id} for label {label}')
             else:
                 # Assign a new ID and update mapping
                 label_id = current_label_id
                 label_id_map[label] = label_id
                 current_label_id += 1
-                if verbose: print(f'Created new ID {label_id} for label {label}')
-            
-            if verbose: print(f'Found label {label} with id {label_id}')   
+                if verbose: logger.debug(f'Created new ID {label_id} for label {label}')
+
+            if verbose: logger.debug(f'Found label {label} with id {label_id}')   
             if label_id in labels:
                 assert labels[label_id]['label'] == label, 'Label name vs. id do not match'
             else:
@@ -266,7 +267,7 @@ def collect_labels(project_path,
             # Extract annotated frame indices from zarr attribute (fast path)
             annotated_indices = get_annotated_frames(loaded_masks)
             if verbose:
-                print(f'Found {len(annotated_indices)} annotated frames for label {label} in {object_organizer.parent.name}')
+                logger.info(f'Found {len(annotated_indices)} annotated frames for label {label} in {object_organizer.parent.name}')
             # if prune_empty_labels:
                 
             #     # Also get rid of frames where the mask is all zeros
@@ -294,15 +295,15 @@ def collect_labels(project_path,
         for label_id in labels:
             _, i = np.unique(labels[label_id]['frames'], return_index=True)
             labels[label_id]['frames'] = np.array(labels[label_id]['frames'])[np.sort(i)]
-            if verbose: print(f'Label {labels[label_id]["label"]} has {len(labels[label_id]["frames"])} annotated frames')
+            if verbose: logger.debug(f'Label {labels[label_id]["label"]} has {len(labels[label_id]["frames"])} annotated frames')
         
         # Prune frames that do not have annotation across all labels
         if prune_empty_labels:
             common_frames = find_common_frames([f['frames'] for f in labels.values()])
             for label_id in labels:
                 labels[label_id]['frames'] = common_frames
-                if verbose: 
-                    print(f'PRUNING: Label {labels[label_id]["label"]} has {len(labels[label_id]["frames"])} common frames') 
+                if verbose:
+                    logger.debug(f'PRUNING: Label {labels[label_id]["label"]} has {len(labels[label_id]["frames"])} common frames') 
         
         # Assert that there is a minimum number of frames available for training data generation
         if min_num_frames > 0: 
@@ -367,21 +368,21 @@ def draw_polygons(labels,
     """
     # Check if cv2 is installed correctly
     try:
-        import cv2 
+        import cv2
     except ModuleNotFoundError:
-        print('Please install cv2 first, via pip install opencv-python')
+        logger.error('Please install cv2 first, via pip install opencv-python')
         return
     # ... and matplotlib
     try:
         import matplotlib.pyplot as plt
     except ModuleNotFoundError:
-        print('Please install matplotlib first, via pip install matplotlib')
+        logger.error('Please install matplotlib first, via pip install matplotlib')
         return
 
     if max_to_plot < 1:
         max_to_plot = 1
-    print(f'Drawing polygons for {len(labels)} labels.')
-    print(f'Max {max_to_plot} frame(s) per label will be plotted.')
+    logger.info(f'Drawing polygons for {len(labels)} labels.')
+    logger.info(f'Max {max_to_plot} frame(s) per label will be plotted.')
     # Draw the polygons on the video frames
     for entry in labels:
         if entry == 'video' or entry == 'video_file_path':
@@ -487,11 +488,10 @@ def train_test_val(frame_indices,
     test_frames = frame_indices[test_indices]
 
     if verbose:
-        # Print sizes
-        print(f"Total frames: {len(frame_indices)}")
-        print(f"Training set: {len(train_frames)} frames")
-        print(f"Validation set: {len(val_frames)} frames")
-        print(f"Test set: {len(test_frames)} frames")
+        logger.info(f"Total frames: {len(frame_indices)}")
+        logger.info(f"Training set: {len(train_frames)} frames")
+        logger.info(f"Validation set: {len(val_frames)} frames")
+        logger.info(f"Test set: {len(test_frames)} frames")
         
     split_dict = {
         'train': train_frames,
