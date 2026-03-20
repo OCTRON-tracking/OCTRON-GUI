@@ -60,6 +60,9 @@ app = typer.Typer(
 def default(ctx: typer.Context):
     """Launch the OCTRON napari GUI (default), or run a subcommand."""
     if ctx.invoked_subcommand is None:
+        from octron._logging import setup_logging, print_welcome
+        setup_logging()
+        print_welcome()
         from octron.main import octron_gui
 
         octron_gui()
@@ -68,6 +71,9 @@ def default(ctx: typer.Context):
 @app.command()
 def gui():
     """Launch the OCTRON napari GUI."""
+    from octron._logging import setup_logging, print_welcome
+    setup_logging()
+    print_welcome()
     from octron.main import octron_gui
 
     octron_gui()

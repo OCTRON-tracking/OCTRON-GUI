@@ -1955,9 +1955,8 @@ def octron_gui():
     #      octron-gui = "octron.main:octron_gui"
 
     """
-    from octron._logging import setup_logging, print_welcome
+    from octron._logging import setup_logging
     setup_logging()
-    print_welcome()
 
     viewer = napari.Viewer()
     
