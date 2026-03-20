@@ -64,6 +64,7 @@ def default(ctx: typer.Context):
         from octron._logging import setup_logging, print_welcome
         setup_logging()
         print_welcome()
+        logger.info("Loading libraries (this may take a moment)...")
         from octron.main import octron_gui
 
         octron_gui()
@@ -75,6 +76,7 @@ def gui():
     from octron._logging import setup_logging, print_welcome
     setup_logging()
     print_welcome()
+    logger.info("Loading libraries (this may take a moment)...")
     from octron.main import octron_gui
 
     octron_gui()
