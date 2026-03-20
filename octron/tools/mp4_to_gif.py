@@ -4,6 +4,7 @@ import subprocess
 import time
 from pathlib import Path
 from typing import List
+from loguru import logger
 
 from qtpy.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -366,9 +367,9 @@ class MP4ToGifConverter(QMainWindow):
                         total_frames = 0
                         duration = 0
                     
-                    print(f"Video duration {duration}s")
+                    logger.debug(f"Video duration {duration}s")
                 except Exception as e:
-                    print(f"Error getting video info: {e}")
+                    logger.warning(f"Error getting video info: {e}")
                     total_frames = 0
                 
                 # Extract frames based on skip_frames setting
@@ -422,7 +423,7 @@ class MP4ToGifConverter(QMainWindow):
                 if num_frames == 0:
                     raise Exception("No frames were extracted")
                 
-                print(f"Successfully extracted {num_frames} frames to {temp_dir}")
+                logger.info(f"Successfully extracted {num_frames} frames to {temp_dir}")
                 
                 # Update status
                 self.status_label.setText(f"Creating GIF from {num_frames} frames...")
@@ -471,26 +472,25 @@ class MP4ToGifConverter(QMainWindow):
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception as e:
-                    print(f"Error cleaning up temp directory: {e}")
+                    logger.warning(f"Error cleaning up temp directory: {e}")
                 
                 # Check if output file exists and has size
                 if output_path.exists() and output_path.stat().st_size > 0:
-                    print(f"🚀 Successfully created GIF: {output_path}")
                     elapsed_time = time.time() - start_time
                     input_size = input_path.stat().st_size / (1024 * 1024)  # MB
                     output_size = output_path.stat().st_size / (1024 * 1024)  # MB
-                    
+                    logger.info(f"Successfully created GIF: {output_path}")
+                    logger.info(f"From {input_size:.1f}MB to {output_size:.1f}MB")
                     self.status_label.setText(
                         f"Converted {input_path.name} in {elapsed_time:.1f}s - "
                         f"From {input_size:.1f}MB to {output_size:.1f}MB"
                     )
-                    print(f'From {input_size:.1f}MB to {output_size:.1f}MB')
                     successful += 1
                 else:
                     self.status_label.setText(f"Error: Output file is empty or missing for {input_path.name}")
                 
             except subprocess.CalledProcessError as e:
-                print(e)
+                logger.exception(e)
                 self.status_label.setText(f"Error converting {input_path.name}: {str(e)}")
             
             # Update progress

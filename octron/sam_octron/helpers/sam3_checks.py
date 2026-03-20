@@ -1,6 +1,7 @@
 # Code for checking the availability of the SAM3 model checkpoint and config
 import os
 from pathlib import Path
+from loguru import logger
 
 
 SAM3_HF_REPO = "facebook/sam3"
@@ -35,17 +36,17 @@ def download_sam3_file(filename, local_dir, overwrite=False):
     local_path = local_dir / filename
 
     if local_path.exists() and not overwrite:
-        print(f"File '{local_path}' exists. Skipping download.")
+        logger.info(f"File '{local_path}' exists. Skipping download.")
         return local_path
 
-    print(f"Downloading {filename} from {SAM3_HF_REPO} ...")
+    logger.info(f"Downloading {filename} from {SAM3_HF_REPO} ...")
     cached_path = hf_hub_download(
         repo_id=SAM3_HF_REPO,
         filename=filename,
         local_dir=local_dir,
         local_dir_use_symlinks=False,
     )
-    print(f"💾 Saved {filename} to {cached_path}")
+    logger.info(f"💾 Saved {filename} to {cached_path}")
     return Path(cached_path)
 
 
@@ -83,8 +84,8 @@ def check_sam3_models(checkpoints_dir, force_download=False):
                 overwrite=force_download,
             )
     except Exception as e:
-        print(f"⚠️  Could not download SAM3 files: {e}")
-        print("   Make sure you have accepted the licence at "
+        logger.warning(f"⚠️  Could not download SAM3 files: {e}")
+        logger.warning("   Make sure you have accepted the licence at "
               "https://huggingface.co/facebook/sam3 and run "
               "`huggingface-cli login`.")
         return {}
@@ -92,7 +93,7 @@ def check_sam3_models(checkpoints_dir, force_download=False):
     # Verify the checkpoint actually landed
     ckpt_path = checkpoints_dir / "sam3.pt"
     if not ckpt_path.exists():
-        print("⚠️  sam3.pt not found after download attempt.")
+        logger.warning("⚠️  sam3.pt not found after download attempt.")
         return {}
 
     # Build the models dict (relative to sam_octron/)
