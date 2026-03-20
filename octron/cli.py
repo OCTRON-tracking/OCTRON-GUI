@@ -172,12 +172,17 @@ def predict(
     videos = expanded
 
     if model_path.is_dir():
-        candidate = model_path / "weights" / "best.pt"
-        if candidate.exists():
-            model_path = candidate
+        candidates = [
+            model_path / "weights" / "best.pt",
+            model_path / "training" / "weights" / "best.pt",
+            model_path / "model" / "training" / "weights" / "best.pt",
+        ]
+        found = next((c for c in candidates if c.exists()), None)
+        if found:
+            model_path = found
         else:
             raise typer.BadParameter(
-                f"Directory given but no weights/best.pt found inside: {model_path}",
+                f"Directory given but no best.pt found inside: {model_path}",
                 param_hint="'--model'",
             )
 
