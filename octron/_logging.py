@@ -7,7 +7,6 @@ The CLI branch can pass `debug=True` to enable DEBUG-level output.
 """
 
 import sys
-import logging
 from loguru import logger
 
 from octron._version import version as octron_version
@@ -25,17 +24,6 @@ _LOG_FORMAT_DEBUG = (
     "<dim>{name}:{line}</dim> | "
     "{message}"
 )
-
-_THIRD_PARTY_QUIET = [
-    "ultralytics",
-    "boxmot",
-    "PIL",
-    "matplotlib",
-    "torch",
-    "napari",
-    "transformers",
-    "huggingface_hub",
-]
 
 
 def setup_logging(debug: bool = False) -> None:
@@ -62,10 +50,6 @@ def setup_logging(debug: bool = False) -> None:
         colorize=True,
         enqueue=False,
     )
-
-    # Silence chatty third-party loggers that use the stdlib logging module
-    for name in _THIRD_PARTY_QUIET:
-        logging.getLogger(name).setLevel(logging.WARNING)
 
     if debug:
         logger.debug("Debug logging enabled")
