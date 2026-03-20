@@ -1,6 +1,7 @@
-# General URL checking 
+# General URL checking
 
-import requests 
+import requests
+from loguru import logger
 
 def check_url_availability(url, verbose=False):
     """
@@ -26,18 +27,18 @@ def check_url_availability(url, verbose=False):
         response = requests.head(url)
         if response.status_code == 200:
             if verbose:
-                print(f"URL {url} is available.")
+                logger.info(f"URL {url} is available.")
             available = True
         elif response.status_code == 302:
-            if verbose: 
-                print(f"URL {url} is redirecting, but available.")
+            if verbose:
+                logger.info(f"URL {url} is redirecting, but available.")
             available = True
         else:
-            if verbose: 
-                print(f"URL {url} returned status code {response.status_code}.")
+            if verbose:
+                logger.warning(f"URL {url} returned status code {response.status_code}.")
             available = False
     except requests.exceptions.RequestException as e:
-        if verbose: 
-            print(f"URL {url} is not available. Exception: {e}")
+        if verbose:
+            logger.warning(f"URL {url} is not available. Exception: {e}")
         available = False
     return available

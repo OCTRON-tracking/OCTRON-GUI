@@ -1,6 +1,7 @@
 from pathlib import Path
 import hashlib
 import av
+from loguru import logger
 
 
 def probe_video(file_path, verbose=True):
@@ -42,12 +43,12 @@ def probe_video(file_path, verbose=True):
     duration = float(num_frames) / fps
 
     if verbose:
-        print(f'File: {Path(file_path).name}')
-        print(f"Codec: {codec}")
-        print(f"Resolution: {width} x {height}")
-        print(f"Frame Rate: {fps:.2f} fps")
-        print(f"Number of frames: {num_frames}")
-        print(f"Duration: {duration:.2f} seconds")
+        logger.info(f'File: {Path(file_path).name}')
+        logger.info(f"Codec: {codec}")
+        logger.info(f"Resolution: {width} x {height}")
+        logger.info(f"Frame Rate: {fps:.2f} fps")
+        logger.info(f"Number of frames: {num_frames}")
+        logger.info(f"Duration: {duration:.2f} seconds")
     container.close()
     
     video_dict = {'codec': codec,

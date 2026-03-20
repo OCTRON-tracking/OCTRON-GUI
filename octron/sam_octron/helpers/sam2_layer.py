@@ -1,10 +1,11 @@
 # This file contains helper functions to add layers to the napari viewer through OCTRON
 from pathlib import Path
 import numpy as np
+from loguru import logger
 from napari.utils import Colormap
 from napari.utils.notifications import show_info, show_error
 from octron.sam_octron.helpers.sam2_zarr import create_image_zarr, load_image_zarr, get_annotated_frames
-import warnings 
+import warnings
 warnings.simplefilter("ignore")
 
 def add_sam2_mask_layer(viewer,
@@ -68,7 +69,7 @@ def add_sam2_mask_layer(viewer,
                                                 video_hash_abrrev=video_hash_abrrev,
                                                 )
             if status:
-                print(f"Prediction (mask) layer data found at {zarr_file_path.as_posix()}")
+                logger.info(f"Prediction (mask) layer data found at {zarr_file_path.as_posix()}")
             else:
                 show_error(f"Failed to load Zarr array from {zarr_file_path.as_posix()}")
         if not zarr_file_path.exists() or not status:

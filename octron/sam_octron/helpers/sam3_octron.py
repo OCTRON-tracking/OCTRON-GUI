@@ -2,13 +2,14 @@
 # This wraps the ultralytics SAM3Model (which extends SAM2Model) with 
 # the same OCTRON interface as SAM2_octron, using OctoZarr for image loading.
 
-import os 
+import os
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 from collections import OrderedDict
 import torch
 import torch.nn.functional as F
 import numpy as np
+from loguru import logger
 
 from kornia.morphology import closing as kornia_closing
 from torch import tensor as torch_tensor
@@ -181,7 +182,7 @@ class SAM3_octron:
         
         # Warm up backbone on frame 0
         self._get_image_feature(inference_state, frame_idx=0, batch_size=1)
-        print('🚀 Initialized SAM3 model')
+        logger.info('🚀 Initialized SAM3 model')
         
         self.video_data = video_data
         
@@ -415,9 +416,9 @@ class SAM3_octron:
             }
             return obj_idx
         else:
-            print(f"⚠️ Cannot add a new label (id={obj_id}) after batch prediction has already run.")
-            print(f"You can only annotate existing labels: {self.inference_state['obj_ids']}")
-            print(f"To add additional labels, reset the predictor first (click 'Reset').")
+            logger.warning(f"⚠️ Cannot add a new label (id={obj_id}) after batch prediction has already run.")
+            logger.warning(f"You can only annotate existing labels: {self.inference_state['obj_ids']}")
+            logger.warning(f"To add additional labels, reset the predictor first (click 'Reset').")
             return None
     
     def _get_obj_num(self):
@@ -966,7 +967,7 @@ class SAM3_octron:
             self.propagate_in_video_preflight()
         except Exception as e:
             import traceback
-            print(f"❌ SAM3 propagate_in_video_preflight failed: {e}")
+            logger.error(f"❌ SAM3 propagate_in_video_preflight failed: {e}")
             traceback.print_exc()
             return
         t_preflight_end = _time.perf_counter()
@@ -1020,7 +1021,7 @@ class SAM3_octron:
             for k in [k for k in global_nc if k < stale_cutoff]:
                 global_nc.pop(k)
         
-        print(f"🚀 SAM3 propagation: {batch_size} objects (per-object), "
+        logger.info(f"🚀 SAM3 propagation: {batch_size} objects (per-object), "
               f"preflight {t_preflight_end - t_preflight_start:.2f}s, "
               f"backbone cache {len(self.inference_state['cached_features'])} frames, "
               f"memory bank {self._max_memory_frames} frames, "
@@ -1097,14 +1098,14 @@ class SAM3_octron:
                 yield frame_idx, obj_ids, video_res_masks
         except Exception as e:
             import traceback
-            print(f"❌ SAM3 propagate_in_video error at frame {frame_idx}: {e}")
+            logger.error(f"❌ SAM3 propagate_in_video error at frame {frame_idx}: {e}")
             traceback.print_exc()
         
         t_loop_end = _time.perf_counter()
         if frame_count > 0:
             avg_total = (t_loop_end - t_loop_start) / frame_count * 1000
             avg_inf = total_inference_ms / frame_count
-            print(f"📊 SAM3 propagation done: {frame_count} frames, "
+            logger.info(f"📊 SAM3 propagation done: {frame_count} frames, "
                   f"avg {avg_total:.0f}ms/frame "
                   f"(inference {avg_inf:.0f}ms, "
                   f"{avg_inf / batch_size:.0f}ms/object)")
@@ -1171,7 +1172,7 @@ class SAM3_octron:
         try:
             old_obj_idx_to_rm = self.inference_state["obj_id_to_idx"].get(obj_id, None)
         except AttributeError as e:
-            print(e)
+            logger.exception(e)
             return
         
         updated_frames = []
@@ -1335,7 +1336,7 @@ class SAM3_semantic_octron:
         
         from ultralytics.models.sam.build_sam3 import build_sam3_image_model
         
-        print("♻️ Reloading SAM3 detector for clean state...")
+        logger.info("♻️ Reloading SAM3 detector for clean state...")
         self.detector = build_sam3_image_model(self.detector_ckpt_path)
         self.detector = self.detector.to(self.device)
         self.detector.eval()
@@ -1475,7 +1476,7 @@ class SAM3_semantic_octron:
         )[:, None].expand_as(pred_scores)
         
         # Diagnostic output: show score distribution before filtering
-        print(f"🔍 SAM3 detection: {pred_scores.numel()} raw queries, "
+        logger.debug(f"🔍 SAM3 detection: {pred_scores.numel()} raw queries, "
               f"max score={pred_scores.max().item():.3f}, "
               f"scores > 0.1: {(pred_scores > 0.1).sum().item()}, "
               f"scores > 0.25: {(pred_scores > 0.25).sum().item()}, "
@@ -1487,7 +1488,7 @@ class SAM3_semantic_octron:
         pred_scores = pred_scores[keep]
         pred_cls = pred_cls[keep]
         
-        print(f"🔍 Kept {pred_masks.shape[0]} detections above threshold {conf_threshold}")
+        logger.debug(f"🔍 Kept {pred_masks.shape[0]} detections above threshold {conf_threshold}")
         
         if pred_masks.shape[0] == 0:
             return None, None, None

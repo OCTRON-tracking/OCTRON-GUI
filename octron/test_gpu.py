@@ -1,21 +1,26 @@
 # Simple script to check the availability of a GPU on the system.
 import torch
+from loguru import logger
+from octron._logging import setup_logging, print_welcome
+
 
 def check_gpu_access():
+    setup_logging()
+    print_welcome()
     if torch.cuda.is_available():
-        print("CUDA GPU is available.")
-        print(f"Number of CUDA GPUs: {torch.cuda.device_count()}")
+        logger.info("CUDA GPU is available.")
+        logger.info(f"Number of CUDA GPUs: {torch.cuda.device_count()}")
         for i in range(torch.cuda.device_count()):
-            print(f"CUDA GPU {i}: {torch.cuda.get_device_name(i)}")
+            logger.info(f"CUDA GPU {i}: {torch.cuda.get_device_name(i)}")
     else:
-        print("CUDA GPU is not available.")
+        logger.info("CUDA GPU is not available.")
 
     if torch.backends.mps.is_available():
-        print("MPS (Metal Performance Shaders) GPU is available.")
+        logger.info("MPS (Metal Performance Shaders) GPU is available.")
         # Note: MPS typically refers to a single GPU on Apple Silicon devices
-        print("MPS GPU: Apple Silicon GPU")
+        logger.info("MPS GPU: Apple Silicon GPU")
     else:
-        print("MPS GPU is not available.")
+        logger.info("MPS GPU is not available.")
 
 if __name__ == "__main__":
     check_gpu_access()
