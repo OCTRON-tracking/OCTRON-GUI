@@ -7,9 +7,10 @@ from pathlib import Path
 import numpy as np
 import zarr
 import torch
+from loguru import logger
 from torchvision.transforms import Resize
 
-import warnings 
+import warnings
 warnings.simplefilter("ignore")
 from ultralytics.data.loaders import SourceTypes
 
@@ -190,8 +191,8 @@ def create_image_zarr(zarr_path,
     image_zarr.attrs['video_hash'] = video_hash_abbrev
     image_zarr.attrs['annotated_frames'] = []
     if verbose:
-        print('Zarr store info:')
-        print(image_zarr.info)
+        logger.debug('Zarr store info:')
+        logger.debug(image_zarr.info)
 
     return image_zarr
 
@@ -247,11 +248,11 @@ def load_image_zarr(zarr_path,
     # Open the LocalStore and check if the group 'masks' exists
     store = zarr.storage.LocalStore(zarr_path, read_only=False)  
     root = zarr.open_group(store=store, mode='a')
-    if verbose: 
-        print("Existing keys in zarr archive:", list(root.array_keys()))
+    if verbose:
+        logger.debug("Existing keys in zarr archive: %s", list(root.array_keys()))
     # Attempt to load the array named 'masks'
     if 'masks' not in root:
-        print(f"Array 'masks' not found in {zarr_path.as_posix()}")
+        logger.warning(f"Array 'masks' not found in {zarr_path.as_posix()}")
         return None, False
     else:
         image_zarr = root['masks']
@@ -261,7 +262,7 @@ def load_image_zarr(zarr_path,
     else:
         expected_shape = (num_frames, image_height, image_width)
     if image_zarr.shape != expected_shape:
-        print(f"Shape mismatch: expected {expected_shape}, got {image_zarr.shape}")
+        logger.warning(f"Shape mismatch: expected {expected_shape}, got {image_zarr.shape}")
         return None, False
     
     # if num_ch is not None:
@@ -276,21 +277,21 @@ def load_image_zarr(zarr_path,
     if video_hash_abrrev is not None:
         stored_hash = image_zarr.attrs.get('video_hash', None)
         if stored_hash != video_hash_abrrev:
-            print(f"❌ Video hash mismatch: expected {video_hash_abrrev}, got {stored_hash}")
+            logger.error(f"❌ Video hash mismatch: expected {video_hash_abrrev}, got {stored_hash}")
             return None, False
         elif verbose:
-            print(f"🔒 Video hash verified: {video_hash_abrrev}")
+            logger.debug(f"🔒 Video hash verified: {video_hash_abrrev}")
     
     # One-time migration: populate annotated_frames attr for old zarr files
     if image_zarr.attrs.get('annotated_frames', None) is None:
         migrated = np.where(image_zarr[:, 0, 0] >= 0)[0]
         image_zarr.attrs['annotated_frames'] = migrated.tolist()
         if verbose:
-            print(f"Migrated annotated_frames attribute ({len(migrated)} frames)")
+            logger.info(f"Migrated annotated_frames attribute ({len(migrated)} frames)")
 
     if verbose:
-        print('Zarr store info:')
-        print(image_zarr.info) 
+        logger.debug('Zarr store info:')
+        logger.debug(image_zarr.info)
     return image_zarr, True
 
 

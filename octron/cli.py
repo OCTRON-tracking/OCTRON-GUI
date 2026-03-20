@@ -20,6 +20,7 @@ from typing import List, Optional
 from pathlib import Path
 from enum import Enum
 import typer
+from loguru import logger
 
 
 class YOLOModel(str, Enum):
@@ -165,7 +166,7 @@ def predict(
             found = sorted(f for f in p.iterdir() if f.suffix.lower() == ".mp4")
             if not found:
                 raise typer.BadParameter(f"No .mp4 files found in directory: {p}", param_hint="videos")
-            print(f"Found {len(found)} video(s) in {p}")
+            logger.info(f"Found {len(found)} video(s) in {p}")
             expanded.extend(found)
         else:
             expanded.append(p)

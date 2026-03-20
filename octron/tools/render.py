@@ -13,6 +13,8 @@ report_bbox_sizes : Report bounding-box sizes to help choose tracklet crop size.
 
 from pathlib import Path
 
+from loguru import logger
+
 PRESETS = {
     "preview": {"scale": 0.25},
     "draft": {"scale": 0.5},
@@ -98,10 +100,8 @@ def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsam
             pct = batch_idx / total_batches
             filled = int(_bar_width * pct)
             bar = "█" * filled + "░" * (_bar_width - filled)
-            print(f"  [{bar}] track {tid} | {batch_start}-{batch_end} | {pct:.0%}",
-                  end="\r")
+            logger.debug(f"  [{bar}] track {tid} | {batch_start}-{batch_end} | {pct:.0%}")
 
-    print()
     return centroids
 
 
@@ -142,7 +142,7 @@ def butterworth_smooth_tracklet_positions(pos_lookup, fps, cutoff_hz=2.0, order=
     nyquist = fps / 2.0
     cutoff_norm = cutoff_hz / nyquist
     if cutoff_norm >= 1.0:
-        print(f"Warning: cutoff_hz={cutoff_hz} exceeds Nyquist ({nyquist:.1f} Hz); skipping smoothing.")
+        logger.warning(f"Warning: cutoff_hz={cutoff_hz} exceeds Nyquist ({nyquist:.1f} Hz); skipping smoothing.")
         return pos_lookup
 
     b, a = butter(order, cutoff_norm, btype="low")
@@ -163,7 +163,7 @@ def butterworth_smooth_tracklet_positions(pos_lookup, fps, cutoff_hz=2.0, order=
             row["pos_y"] = ys_smooth[i]
             pos_lookup[tid][f] = row
 
-    print(f"Tracklet centroids smoothed (Butterworth order={order}, cutoff={cutoff_hz} Hz)")
+    logger.info(f"Tracklet centroids smoothed (Butterworth order={order}, cutoff={cutoff_hz} Hz)")
     return pos_lookup
 
 
@@ -223,7 +223,7 @@ def interpolate_tracklet_gaps(pos_lookup, max_gap):
                 total_filled += 1
 
     if total_filled:
-        print(f"Tracklet gaps interpolated (cubic spline, max_gap={max_gap}): {total_filled} frame(s) filled")
+        logger.info(f"Tracklet gaps interpolated (cubic spline, max_gap={max_gap}): {total_filled} frame(s) filled")
     return pos_lookup
 
 
@@ -289,10 +289,10 @@ def report_bbox_sizes(predictions_path):
 
     overall_max = max((max(s["max_w"], s["max_h"]) for s in stats.values()), default=0)
 
-    print("Bounding-box size report:")
+    logger.info("Bounding-box size report:")
     for tid, s in sorted(stats.items()):
-        print(f"  Track {tid} ({s['label']}): max {s['max_w']}×{s['max_h']} px (w×h)")
-    print(
+        logger.info(f"  Track {tid} ({s['label']}): max {s['max_w']}×{s['max_h']} px (w×h)")
+    logger.info(
         f"→ Recommended minimum tracklet size: {overall_max} px "
         f"(add padding as desired, default is 160 px)"
     )
@@ -402,17 +402,17 @@ def run_tracklets(
         bbox_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["features"].iterrows()}
         n = len(pos_lookup[tid])
         skipped = " (skipped)" if min_track_frames > 0 and n < min_track_frames else ""
-        print(f"  Track {tid} ({td['label']}): {n} frames{skipped}")
+        logger.info(f"  Track {tid} ({td['label']}): {n} frames{skipped}")
 
     render_tids = [
         tid for tid in results.track_ids
         if min_track_frames <= 0 or len(pos_lookup.get(tid, {})) >= min_track_frames
     ]
     if min_track_frames > 0:
-        print(f"  Keeping {len(render_tids)}/{len(results.track_ids)} tracks with ≥{min_track_frames} frames")
+        logger.info(f"  Keeping {len(render_tids)}/{len(results.track_ids)} tracks with ≥{min_track_frames} frames")
 
     if mask_centroids and results.has_masks:
-        print("Computing mask centre-of-mass centroids...")
+        logger.info("Computing mask centre-of-mass centroids...")
         mask_cent = compute_mask_centroids(
             results.zarr_root, results.track_ids, frame_start, frame_end,
         )
@@ -425,7 +425,7 @@ def run_tracklets(
                     row["pos_y"] = cy
                     pos_lookup[tid][frame_idx] = row
                     replaced += 1
-        print(f"  Replaced {replaced} centroid(s) with mask CoM")
+        logger.info(f"  Replaced {replaced} centroid(s) with mask CoM")
 
     if smooth_cutoff_hz and smooth_cutoff_hz > 0:
         butterworth_smooth_tracklet_positions(
@@ -447,7 +447,7 @@ def run_tracklets(
         max_w = int(np.ceil((feats["bbox_x_max"] - feats["bbox_x_min"]).max()))
         max_h = int(np.ceil((feats["bbox_y_max"] - feats["bbox_y_min"]).max()))
         if max(max_w, max_h) > size:
-            print(
+            logger.info(
                 f"Warning: track {tid} ({td['label']}) has bounding boxes up to "
                 f"{max_w}×{max_h} px, which exceeds size={size}. "
                 f"Consider --tracklet-size {max(max_w, max_h) + 20}."
@@ -475,7 +475,7 @@ def run_tracklets(
     _batch_masks = {}
     _batch_start = None
 
-    print(f"Rendering {n_frames} tracklet frames | preset={preset} | size={size}px")
+    logger.info(f"Rendering {n_frames} tracklet frames | preset={preset} | size={size}px")
     cap = cv2.VideoCapture(str(src_path))
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start)
 
@@ -486,7 +486,7 @@ def run_tracklets(
     for i, frame_idx in enumerate(range(frame_start, frame_end)):
         ok, orig_frame = cap.read()
         if not ok:
-            print(f"\nWarning: could not read frame {frame_idx}, stopping early.")
+            logger.warning(f"Warning: could not read frame {frame_idx}, stopping early.")
             break
 
         # Lazy-load overlay mask batches when needed
@@ -571,16 +571,14 @@ def run_tracklets(
         pct = (i + 1) / n_frames
         filled = int(_bar_width * pct)
         bar = "█" * filled + "░" * (_bar_width - filled)
-        print(
-            f"  [{bar}] {i + 1}/{n_frames} | {pct:.0%} | {fps_disp:.1f} fps | ETA {eta_str}",
-            end="\r",
+        logger.debug(
+            f"  [{bar}] {i + 1}/{n_frames} | {pct:.0%} | {fps_disp:.1f} fps | ETA {eta_str}"
         )
 
-    print()
     cap.release()
     for w in writers.values():
         w.release()
-    print(f"Tracklet(s) saved → {output_path}")
+    logger.info(f"Tracklet(s) saved → {output_path}")
 
 
 def run_render(
@@ -700,7 +698,7 @@ def run_render(
     bbox_lookup = {}
     for tid, td in tracking_data.items():
         bbox_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["features"].iterrows()}
-        print(f"  Track {tid} ({td['label']}): {len(bbox_lookup[tid])} frames with bbox data")
+        logger.debug(f"  Track {tid} ({td['label']}): {len(bbox_lookup[tid])} frames with bbox data")
 
     track_colors = {}
     for tid in results.track_ids:
@@ -727,7 +725,7 @@ def run_render(
     _batch_masks = {}
     _batch_start = None
 
-    print(
+    logger.info(
         f"Rendering {n_frames} frames | preset={preset} | scale={scale:.0%} "
         f"| output {out_w}×{out_h} px"
     )
@@ -741,7 +739,7 @@ def run_render(
     for i, frame_idx in enumerate(range(frame_start, frame_end)):
         ok, orig_frame = cap.read()
         if not ok:
-            print(f"\nWarning: could not read frame {frame_idx}, stopping early.")
+            logger.warning(f"Warning: could not read frame {frame_idx}, stopping early.")
             break
 
         if draw_masks and results.has_masks \
@@ -814,12 +812,10 @@ def run_render(
         pct = (i + 1) / n_frames
         filled = int(_bar_width * pct)
         bar = "█" * filled + "░" * (_bar_width - filled)
-        print(
-            f"  [{bar}] {i + 1}/{n_frames} | {pct:.0%} | {fps_disp:.1f} fps | ETA {eta_str}",
-            end="\r",
+        logger.debug(
+            f"  [{bar}] {i + 1}/{n_frames} | {pct:.0%} | {fps_disp:.1f} fps | ETA {eta_str}"
         )
 
-    print()
     cap.release()
     writer.release()
-    print(f"Overlay saved → {overlay_out}")
+    logger.info(f"Overlay saved → {overlay_out}")

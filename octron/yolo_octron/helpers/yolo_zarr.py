@@ -3,6 +3,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 import zarr
+from loguru import logger
 
 MIN_ZARR_CHUNK_SIZE = 50 # Setting minimum chunk size for zarr arrays
                          # to avoid excessive chunking for small arrays
@@ -94,7 +95,6 @@ def create_prediction_zarr(store,
     image_zarr.attrs['video_hash'] = video_hash
     image_zarr.attrs['annotated_frames'] = []
     if verbose:
-        print('Zarr array info:')
-        print(image_zarr.info)
+        logger.debug("Zarr array info: %s", image_zarr.info)
         
     return image_zarr

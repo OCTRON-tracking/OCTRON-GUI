@@ -8,6 +8,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from loguru import logger
+
 
 VIDEO_EXTENSIONS = {
     ".avi", ".mov", ".mj2", ".mpg", ".mpeg", ".mjpeg", ".mjpg",
@@ -49,16 +51,16 @@ def run_transcode(
                 if f.suffix.lower() in VIDEO_EXTENSIONS
             )
             if not found:
-                print(f"No video files found in directory: {v}")
+                logger.warning(f"No video files found in directory: {v}")
             else:
-                print(f"Found {len(found)} video(s) in {v}")
+                logger.info(f"Found {len(found)} video(s) in {v}")
                 expanded.extend(found)
         else:
             expanded.append(v)
     videos = expanded
 
     if not videos:
-        print("No videos to transcode.")
+        logger.info("No videos to transcode.")
         return
 
     # Resolve output directory
@@ -72,14 +74,14 @@ def run_transcode(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Transcoding {len(videos)} video(s) → {output_dir}  (CRF={crf})")
+    logger.info(f"Transcoding {len(videos)} video(s) → {output_dir}  (CRF={crf})")
     successful = 0
     for i, video in enumerate(videos, 1):
         out = output_dir / f"{video.stem}.mp4"
-        print(f"  [{i}/{len(videos)}] {video.name} → {out.name}")
+        logger.info(f"  [{i}/{len(videos)}] {video.name} → {out.name}")
 
         if not overwrite and out.exists():
-            print("(skipped — already exists)")
+            logger.info("(skipped — already exists)")
             continue
 
         cmd = [
@@ -103,9 +105,9 @@ def run_transcode(
             in_mb = video.stat().st_size / 1_048_576
             out_mb = out.stat().st_size / 1_048_576
             reduction = 100 * (1 - out_mb / in_mb) if in_mb > 0 else 0
-            print(f"  Done in {elapsed:.1f}s | {in_mb:.1f} MB → {out_mb:.1f} MB ({reduction:.0f}% smaller)")
+            logger.info(f"  Done in {elapsed:.1f}s | {in_mb:.1f} MB → {out_mb:.1f} MB ({reduction:.0f}% smaller)")
             successful += 1
         except subprocess.CalledProcessError:
-            print(f"  FAILED (see ffmpeg output above)")
+            logger.error(f"  FAILED (see ffmpeg output above)")
 
-    print(f"Done. {successful}/{len(videos)} transcoded successfully.")
+    logger.info(f"Done. {successful}/{len(videos)} transcoded successfully.")

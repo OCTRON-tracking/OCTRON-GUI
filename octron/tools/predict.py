@@ -9,6 +9,8 @@ from collections import deque
 from pathlib import Path
 import time
 
+from loguru import logger
+
 
 def run_predict(
     videos,
@@ -74,7 +76,7 @@ def run_predict(
 
     yolo = YOLO_octron()
 
-    print(f"Running prediction with model: {model_path}")
+    logger.info(f"Running prediction with model: {model_path}")
     _wall_start = time.time()
     frame_time = 0.0
     _frame_times = deque(maxlen=30)
@@ -96,7 +98,7 @@ def run_predict(
     ):
         stage = progress.get("stage", "")
         if stage == "skipped_video":
-            print(f"\n  [skipped] {progress.get('video_name', '')} — predictions exist, use --overwrite to replace.")
+            logger.info(f"[skipped] {progress.get('video_name', '')} — predictions exist, use --overwrite to replace.")
             continue
         video = progress.get("video_name", "")
         vidx = progress.get("video_index", "?")
@@ -119,13 +121,11 @@ def run_predict(
         fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 0.0
         eta_s = int(eta)
         eta_str = f"{eta_s // 3600:02d}:{(eta_s % 3600) // 60:02d}:{eta_s % 60:02d}"
-        print(
+        logger.debug(
             f"  [{stage}] video {vidx}/{total_v} ({video}): "
-            f"frame {frame}/{total_f} | {pct:.1f}% | {fps:.1f} fps | ETA: {eta_str}",
-            end="\r",
+            f"frame {frame}/{total_f} | {pct:.1f}% | {fps:.1f} fps | ETA: {eta_str}"
         )
-    print()
     elapsed = time.time() - _wall_start
     h, rem = divmod(int(elapsed), 3600)
     m, s = divmod(rem, 60)
-    print(f"Prediction complete. Total time: {h:02d}:{m:02d}:{s:02d}")
+    logger.info(f"Prediction complete. Total time: {h:02d}:{m:02d}:{s:02d}")

@@ -9,6 +9,8 @@ Pass ``skip_split=True`` if ``octron split`` has already been run.
 import json
 from pathlib import Path
 
+from loguru import logger
+
 _MODELS_YAML = Path(__file__).parent.parent / "yolo_octron" / "yolo_models.yaml"
 
 
@@ -39,10 +41,10 @@ def _get_batch_size(model, imgsz, device, cache_path):
 
     if cache_key in cache:
         batch = cache[cache_key]
-        print(f"AutoBatch: using cached batch size {batch} for {gpu_name} (imgsz={imgsz})")
+        logger.info(f"AutoBatch: using cached batch size {batch} for {gpu_name} (imgsz={imgsz})")
         return batch
 
-    print("AutoBatch: running batch size search (result will be cached) ...")
+    logger.info("AutoBatch: running batch size search (result will be cached) ...")
     from ultralytics.utils.autobatch import check_train_batch_size
     batch = check_train_batch_size(model.model.model, imgsz=imgsz, amp=True)
 
@@ -50,7 +52,7 @@ def _get_batch_size(model, imgsz, device, cache_path):
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_path, "w") as f:
         json.dump(cache, f)
-    print(f"AutoBatch: batch size {batch} cached to {cache_path}")
+    logger.info(f"AutoBatch: batch size {batch} cached to {cache_path}")
     return batch
 
 
@@ -127,13 +129,13 @@ def run_training(
     last_pt = Path(project_path) / "model" / "training" / "weights" / "last.pt"
     if resume:
         if best_pt.exists():
-            print(f"Training already completed ({best_pt}). Nothing to resume. Use --overwrite to retrain from scratch.")
+            logger.info(f"Training already completed ({best_pt}). Nothing to resume. Use --overwrite to retrain from scratch.")
             return
         if not last_pt.exists():
-            print("No interrupted training found (last.pt missing). Starting fresh.")
+            logger.info("No interrupted training found (last.pt missing). Starting fresh.")
             resume = False
     elif best_pt.exists() and not overwrite:
-        print(f"Trained model already exists at {best_pt}. Use --overwrite to retrain.")
+        logger.info(f"Trained model already exists at {best_pt}. Use --overwrite to retrain.")
         return
 
     if device == "auto":
@@ -160,18 +162,18 @@ def run_training(
     yolo.config_path = yolo.data_path / "yolo_config.yaml"
 
     if resume:
-        print(f"Resuming from checkpoint: {last_pt}")
+        logger.info(f"Resuming from checkpoint: {last_pt}")
         yolo.load_model(last_pt, train_mode=train_mode)
     else:
         model = _normalise_model_name(model, _MODELS_YAML)
-        print(f"Loading model: {model}...")
+        logger.info(f"Loading model: {model}...")
         yolo.load_model(model, train_mode=train_mode)
 
     # --- Step 6: train ---
     batch_cache = Path(project_path) / "model" / "autobatch_cache.json"
     batch = _get_batch_size(yolo, imagesz, device, batch_cache)
 
-    print(f"Training for {epochs} epochs on {device}...")
+    logger.info(f"Training for {epochs} epochs on {device}...")
     for progress in yolo.train(
         device=device,
         imagesz=imagesz,
@@ -184,6 +186,5 @@ def run_training(
         epoch = progress.get("epoch", "?")
         total_epochs = progress.get("total_epochs", "?")
         remaining = progress.get("remaining_time", 0)
-        print(f"  Epoch {epoch}/{total_epochs} | ETA: {remaining:.0f}s", end="\r")
-    print()
-    print("Training complete.")
+        logger.debug(f"  Epoch {epoch}/{total_epochs} | ETA: {remaining:.0f}s")
+    logger.info("Training complete.")
