@@ -46,22 +46,41 @@ class CoTracker_octron:
 
     @torch.inference_mode()
     def add_new_points(self, frame_idx, obj_id, points):
-        """Register user-clicked query points.
+        """Register query points.
 
-        Logs clicked points for a given object on a given frame
+        Logs points for a given object on a given frame
         and stores in a dict `query_points_per_obj[obj_id][frame_idx]`
+
+        Parameters
+        ----------
+        frame_idx : int
+            Absolute frame index in the video.
+        obj_id : int
+            Object identifier.
+        points : array-like
+            (N, 2) array of (x, y) coordinates in pixel space.
+            If caller is a UI event, they may need to convert from the UI coordinate
+            system before calling this method.
         """
         if not isinstance(points, torch.Tensor):
             points = torch.tensor(points, dtype=torch.float32)
+
+        if points.ndim == 1:
+            points = points.unsqueeze(0)  # (2,) → (1, 2)
 
         # If object ID is not in dict, initialise
         if obj_id not in self.point_inputs_per_obj:
             self.point_inputs_per_obj[obj_id] = {}
 
-        # Store (or overwrite) points for this object on this frame.
-        # Each entry keeps the raw pixel coords in napari axes -
-        # we convert to cotracker's (t, x, y) format in propagate_in_video().
-        self.point_inputs_per_obj[obj_id][frame_idx] = points
+        # Store points as (N, 2) with columns (x, y).
+        # If this object has already data for this frame, 
+        # append data to existing torch tensor
+        if frame_idx in self.point_inputs_per_obj[obj_id]:
+            self.point_inputs_per_obj[obj_id][frame_idx] = torch.cat(
+                [self.point_inputs_per_obj[obj_id][frame_idx], points], dim=0
+            )
+        else:
+            self.point_inputs_per_obj[obj_id][frame_idx] = points
 
     @torch.inference_mode()
     def propagate_in_video(self, start_frame, end_frame):
@@ -124,12 +143,9 @@ class CoTracker_octron:
         list_obj_ids = list(self.point_inputs_per_obj.keys())
         for obj_id in list_obj_ids:
             # Get frames_dict for this object:
-            #  {frame_idx: (N, 2) tensor of (y, x) points}
+            #  {frame_idx: (N, 2) tensor of (x, y) points}
             frames_dict = self.point_inputs_per_obj[obj_id]
             for frame_idx, pts in frames_dict.items():
-                # flip pts from napari (y, x) to CoTracker (x, y)
-                pts_xy = pts[:, [1, 0]]  # (N, 2)
-
                 # build relative frame column:
                 # absolute frame index - start_frame
                 relative_frame = torch.full(
@@ -137,8 +153,8 @@ class CoTracker_octron:
                     float(frame_idx - start_frame),
                 )
 
-                # concatenate to (t, x, y) format
-                txy_rows = torch.cat([relative_frame, pts_xy], dim=1)  # (N, 3)
+                # concatenate to (t, x, y) format — pts already in (x, y)
+                txy_rows = torch.cat([relative_frame, pts], dim=1)  # (N, 3)
                 query_tensor_rows.append(txy_rows)
 
                 # record which obj_id each query row belongs to
