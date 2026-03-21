@@ -10,7 +10,7 @@ class CoTracker_octron:
 
     Provides a similar interface to SAM2_octron / SAM3_octron:
         - add_new_points(frame_idx, obj_id, points)
-        - propagate_in_video(start_frame, end_frame)
+        - propagate_in_video(start_frame, end_frame, step=1)
         - init_state(video_data, zarr_store)
         - reset_state()
         - remove_object(obj_id)
@@ -37,7 +37,7 @@ class CoTracker_octron:
             self.model = self.model.half()
 
         # Initialise Per-object query points, populated by add_new_points().
-        # {obj_id: {"frame_idx": int, "points": tensor (N, 2)}}
+        # {obj_id: {frame_idx: tensor (N, 2) of (x, y) points}}
         self.point_inputs_per_obj = OrderedDict()
 
         # Octron initialisation flag, signals video data + zarr are set up,
@@ -49,7 +49,7 @@ class CoTracker_octron:
         """Register query points.
 
         Logs points for a given object on a given frame
-        and stores in a dict `query_points_per_obj[obj_id][frame_idx]`
+        and stores in `point_inputs_per_obj[obj_id][frame_idx]`.
 
         Parameters
         ----------
@@ -83,24 +83,39 @@ class CoTracker_octron:
             self.point_inputs_per_obj[obj_id][frame_idx] = points
 
     @torch.inference_mode()
-    def propagate_in_video(self, start_frame, end_frame):
+    def propagate_in_video(self, start_frame, end_frame, step=1):
         """Run CoTracker3 online tracking over a range of frames.
 
         Follows the CoTracker online API: feed overlapping video chunks of
-        size ``step * 2``, advancing by ``step`` frames each iteration.
-        The first chunk initialises the model with query points; subsequent
-        chunks return cumulative tracks and visibilities.
+        ``window_len`` frames (``self.step * 2``), advancing by ``self.step``
+        frames each iteration. The first chunk initialises the model with
+        query points; subsequent chunks return cumulative tracks and
+        visibilities.
+
+        Parameters
+        ----------
+        start_frame : int
+            First frame index.
+        end_frame : int
+            Last frame index (inclusive).
+        step : int, optional
+            Temporal stride for frame selection. Default is 1 (every frame).
+            E.g. step=5 processes frames [0, 5, 10, ...]. CoTracker sees
+            the subsampled frames as consecutive — it doesn't know about
+            the gaps.
 
         Yields
         ------
         frame_idx : int
             Absolute frame index in the video (0-based).
-        obj_ids : list[int]
-            Object IDs present in this result.
         tracks_per_obj : dict[int, torch.Tensor]
             Mapping obj_id → (N_points, 3) tensor of (x, y, visibility)
             for this frame.
+        obj_ids : list[int]
+            Object IDs present in this result.
         """
+        frame_indices = list(range(start_frame, end_frame + 1, step))
+
         # Prepare query tensor and log object-point pairs
         query_tensor, query_point_obj_ids = self._build_query_tensor(start_frame)
         if query_tensor is None:
@@ -109,8 +124,7 @@ class CoTracker_octron:
         # Process each chunk of frames and yield results for new frames only
         list_obj_ids = list(self.point_inputs_per_obj.keys())
         yield from self._process_overlapping_chunks(
-            start_frame,
-            end_frame,
+            frame_indices,
             query_tensor,
             query_point_obj_ids,
             list_obj_ids,
@@ -118,10 +132,10 @@ class CoTracker_octron:
 
         # Process any remaining frames that didn't fill a complete chunk / window
         yield from self._process_tail_chunk(
+            frame_indices,
             query_tensor,
             query_point_obj_ids,
             list_obj_ids,
-            start_frame,
         )
 
     def _build_query_tensor(self, start_frame):
@@ -170,8 +184,7 @@ class CoTracker_octron:
 
     def _process_overlapping_chunks(
         self,
-        start_frame,
-        end_frame,
+        frame_indices,
         query_tensor,
         query_point_obj_ids,
         list_obj_ids,
@@ -183,8 +196,9 @@ class CoTracker_octron:
         The first chunk initialises the model (is_first_step=True),
         subsequent chunks yield per-frame tracking results.
 
-        Stores internal state (_window_frames, _is_first_step, _n_yielded)
-        on self so that _process_tail can continue from where this left off.
+        Stores internal state (_buffered_frames, _is_first_step, _n_frames_to_yield,
+        _n_frames_seen) on self so that _process_tail_chunk can continue from
+        where this left off.
 
         CoTracker uses overlapping windows of step*2 = 16 frames, advancing by step=8 each time:
         Chunk 1 (is_first_step=True):  frames [0..15]  → returns (None, None)
@@ -200,7 +214,7 @@ class CoTracker_octron:
         self._n_frames_seen = 0  # total frames seen (not len of window)
 
         # Loop thru frames for starting the chunks
-        for abs_idx in range(start_frame, end_frame + 1):
+        for abs_idx in frame_indices:
             # Fetch frame from OctoZarr
             frame_tensor = self.images[abs_idx]  # (C, H, W)
             self._buffered_frames.append(frame_tensor)
@@ -242,7 +256,7 @@ class CoTracker_octron:
                     # newly computed frames for this chunk.
                     n_total_frames = pred_tracks.shape[1]
                     for t in range(self._n_frames_to_yield, n_total_frames):
-                        abs_frame = start_frame + t
+                        abs_frame = frame_indices[t]
                         tracks_per_obj = self._split_tracks_by_obj(
                             pred_tracks[0, t],  # (N, 2)
                             pred_visibility[0, t],  # (N,)
@@ -256,15 +270,15 @@ class CoTracker_octron:
 
     def _process_tail_chunk(
         self,
+        frame_indices,
         query_tensor,
         query_point_obj_ids,
         list_obj_ids,
-        start_frame,
     ):
         """Process remaining frames if video length is not a multiple of step.
 
-        Uses _window_frames, _is_first_step and _n_yielded state left
-        by _process_windowed_chunks.
+        Uses _buffered_frames, _is_first_step and _n_frames_to_yield state
+        left by _process_overlapping_chunks.
         """
         # Compute remaining n of frames
         n_frames_remain = self._n_frames_seen % self.step
@@ -296,7 +310,7 @@ class CoTracker_octron:
         # Yield only the unpredicted frames
         n_total_frames = pred_tracks.shape[1]
         for t in range(self._n_frames_to_yield, n_total_frames):
-            abs_frame = start_frame + t
+            abs_frame = frame_indices[t]
             tracks_per_obj = self._split_tracks_by_obj(
                 pred_tracks[0, t],  # (N, 2)
                 pred_visibility[0, t],  # (N,)
