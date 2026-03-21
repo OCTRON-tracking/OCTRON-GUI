@@ -14,10 +14,6 @@ class cotracker_octron_callbacks:
         self.octron = octron  # widget
         self.viewer = octron._viewer
 
-        self.skeleton = self.octron.skeleton_definition
-        self.object_organizer = self.octron.object_organizer  # has obj_id
-        # self.octron.gui — GUI elements like the keypoint combobox
-
     def on_points_changed(self, event):
         """When user adds a point, keep track of its skeleton idx and
         auto-advance the combobox.
@@ -53,7 +49,7 @@ class cotracker_octron_callbacks:
                 next_idx % keypoint_combobox.count(),
             )
         elif action == "removing":
-            # If zarr store exists, remove annotated mark for deleted point 
+            # If zarr store exists, remove annotated mark for deleted point
             # NOTE: napari emits REMOVING before the deletion,
             # so self.data still has the original rows
             zarr_root = points_layer.metadata.get("_zarr_root")
@@ -68,14 +64,15 @@ class cotracker_octron_callbacks:
             return
 
     def batch_predict(self):
-        """Generator that calls predictor.propagate_in_video(start, end),
-        and for each yielded (frame_idx, tracks_per_obj),
-        calls write_frame_tracks() to persist to zarr, then yields
-        results for napari display."""
+        """
+        1. Gather cotracker annotation layers
+        2. Init predictor + zarr stores
+        3. yield from predictor model and write to zarr
+        """
         # Gather points from cotracker annotation layers
         list_cotracker_annot_layers = [
             ly
-            for ly in self.object_organizer.get_annotation_layers()
+            for ly in self.octron.object_organizer.get_annotation_layers()
             if ly.metadata.get("_model_type") == "cotracker"
         ]
 
@@ -83,47 +80,62 @@ class cotracker_octron_callbacks:
         if not list_cotracker_annot_layers:
             return
 
-        # --------------------------
-        # Initialise params
-        # NOTE: reset cotracker model before registering points
-        self.octron.predictor.reset_state()
-        map_obj_id_to_zarr_root = {}
+        # Initialise points in predictor and zarr stores per layer
+        map_obj_id_to_zarr_root = self._init_predictor_and_zarr_stores(
+            list_cotracker_annot_layers,
+        )
 
-        # Loop thru annotation layers to create zarr store
-        # per layer and add points to cotracker model
-        for layer in list_cotracker_annot_layers:
-            # Get layer object ID
+        # Run prediction and write results to zarr
+        yield from self._propagate_and_write_to_zarr(
+            list_cotracker_annot_layers, map_obj_id_to_zarr_root
+        )
+
+    def _init_predictor_and_zarr_stores(self, annotation_layers):
+        """Reset predictor, ensure each layer has a zarr store,
+        and register all annotated points in the cotracker model.
+
+        It adds newly created zarr stores to layer.metadata["_zarr_root"].
+
+        Returns {obj_id: zarr_root}.
+        """
+        # Reset predictor state (i.e. any previously registered points)
+        self.octron.predictor.reset_state()
+
+        # Loop thru layers
+        map_obj_id_to_zarr_root = {}
+        for layer in annotation_layers:
             obj_id = layer.metadata["_obj_id"]
 
             # Get zarr root for this layer
             # (create if it doesnt exist)
             zarr_root = layer.metadata.get("_zarr_root", None)
             if zarr_root is None:
-                # TODO: remove spaces from zarr name (kept here for consistency
-                # with the rest of the codebase)
+                # TODO: remove spaces from zarr name
+                # (kept here only for consistency with the rest of codebase)
                 zarr_name = f"{layer.name} tracks"
                 zarr_path = self.octron.project_path_video / f"{zarr_name}.zarr"
 
+                n_frames_video = self.octron.video_layer.metadata["num_frames"]
+                n_total_kpts = self.octron.skeleton_definition.n_keypoints
                 zarr_root = create_trajectory_zarr(
                     zarr_path,
-                    self.octron.video_layer.metadata["num_frames"],
-                    self.skeleton.n_keypoints,
+                    n_frames_video,
+                    n_total_kpts,
                     video_hash_abbrev=self.octron.current_video_hash,
                 )
                 layer.metadata["_zarr_root"] = zarr_root
 
-            # Link each layer to a zarr trajectory store
             map_obj_id_to_zarr_root[obj_id] = zarr_root
 
-            # Register points in layer in cotracker model
-            # We register points per frame
+            # Register points per frame in cotracker model
             unique_frames = np.unique(layer.data[:, 0])
             for frame_idx in unique_frames:
+                # Get points
                 mask_rows = layer.data[:, 0] == frame_idx
                 xy = layer.data[mask_rows, 1:][:, ::-1]  # (y, x) → (x, y)
 
-                # register in cotracker model
-                self.octron.predictor.add_new_points(frame_idx, obj_id, xy)
+                # Add to cotracker model
+                self.octron.predictor.add_new_points(int(frame_idx), obj_id, xy)
 
                 # Mark keypoints as annotated in zarr "annotated" array
                 skeleton_idxs = layer.features.loc[mask_rows, "skeleton_idx"].astype(
@@ -134,42 +146,68 @@ class cotracker_octron_callbacks:
                     frame_idx,
                     skeleton_idxs,
                 )
-        # ----------------
 
-        # Define skip frames
-        skip_frames = self.octron.skip_frames_spinbox.value()
-        step_frames = skip_frames + 1
+        return map_obj_id_to_zarr_root
 
-        # Get range of frames for prediction
-        # self.octron.chunk_size is the number of frames
-        # the user wants to predict per batch (default 15)
-        current_frame = self.viewer.dims.current_step[0]
-        num_frames = self.octron.video_layer.metadata["num_frames"]
-        end_frame = min(
-            num_frames - 1,
-            current_frame + self.octron.chunk_size * step_frames,
-        )
+    def _propagate_and_write_to_zarr(self, annotation_layers, map_obj_id_to_zarr_root):
+        """Run predictor over the frame range and write tracks to zarr.
 
-        # Run prediction on frames
+        Yields (counter, frame_idx, tracks_per_obj_one_frame, last_run).
+        """
+        # Get map from obj_id to annotation layer
+        map_obj_id_to_layer = {ly.metadata["_obj_id"]: ly for ly in annotation_layers}
+
+        # Get range of frames to run prediction
+        current_frame, end_frame, step_frames = self._get_prediction_frame_range()
+        n_frames_to_process = len(range(current_frame, end_frame + 1, step_frames))
+
+        # Run prediction
         counter = 0
+        last_run = False
         for (
             frame_idx,
             tracks_per_obj_one_frame,
         ) in self.octron.predictor.propagate_in_video(
             current_frame, end_frame, step=step_frames
         ):
-            counter += 1
 
             # Loop thru object IDs per frame
-            # (object IDs map to annot layers)
             for obj_id, xyv in tracks_per_obj_one_frame.items():
+                # Get skeleton indices for points in this layer
+                layer = map_obj_id_to_layer[obj_id]
+                skeleton_indices = layer.features["skeleton_idx"].astype(int).values
+
+                # Build x,y,vis array for all keypoints in skeleton
+                # (place each tracked point at its skeleton column)
+                full_xyv = np.zeros((self.octron.skeleton_definition.n_keypoints, 3), dtype=np.float32)
+                for i, skel_idx in enumerate(skeleton_indices):
+                    full_xyv[skel_idx] = xyv[i].cpu().numpy()
+
+                # Write full xyv array to zarr
                 write_frame_tracks(
                     map_obj_id_to_zarr_root[obj_id]["tracks"],
                     frame_idx,
-                    xyv,
+                    full_xyv,
                 )
 
-            yield counter, frame_idx, tracks_per_obj_one_frame
+            # Check if last frame processed
+            counter += 1
+            last_run = counter == n_frames_to_process
+
+            yield counter, frame_idx, tracks_per_obj_one_frame, last_run
+
+    def _get_prediction_frame_range(self):
+        """Return (current_frame, end_frame, step_frames) for prediction."""
+        skip_frames = self.octron.skip_frames_spinbox.value()
+        step_frames = skip_frames + 1
+
+        current_frame = self.viewer.dims.current_step[0]
+        num_frames = self.octron.video_layer.metadata["num_frames"]
+        end_frame = min(
+            num_frames - 1,
+            current_frame + self.octron.chunk_size * step_frames,
+        )
+        return current_frame, end_frame, step_frames
 
     def next_predict(self):
         "Single-frame variant (or"
