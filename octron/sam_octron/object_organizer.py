@@ -283,6 +283,7 @@ class ObjectOrganizer(BaseModel):
                     "type": obj.annotation_layer._basename(),  # 'Shapes' or 'Points'
                     "visible": obj.annotation_layer.visible,
                     "opacity": obj.annotation_layer.opacity,
+                    "model_type": obj.annotation_layer.metadata.get("_model_type"),
                 }
             # Add metadata about the prediction (mask, ... ) layer
             if obj.prediction_layer is not None:

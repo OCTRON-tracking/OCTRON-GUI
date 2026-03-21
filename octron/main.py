@@ -70,6 +70,7 @@ from octron.cotracker_octron.helpers.cotracker_layer_callback import (
 )
 from octron.cotracker_octron.helpers.cotracker_octron import CoTracker_octron
 from octron.cotracker_octron.helpers.skeleton_definition import SkeletonDefinition
+from octron.cotracker_octron.helpers.cotracker_zarr import load_trajectory_zarr
 
 # Custom dialog boxes
 from octron.gui_dialog_elements import (
@@ -1241,9 +1242,13 @@ class octron_widget(QWidget):
                     layer_type = 'Shapes'
                 elif annotation_type == 'Points':
                     layer_type = 'Points'
-            if not layer_type:  
+            if not layer_type:
                 layer_type = 'Points' # Default to Points if not specified
-             # Create layers with the reconstructed information
+            # Read model type from saved metadata (e.g. 'cotracker' or None)
+            saved_model_type = None
+            if 'annotation_layer_metadata' in obj_data:
+                saved_model_type = obj_data['annotation_layer_metadata'].get('model_type')
+            # Create layers with the reconstructed information
             print(f"Recreating layer: {label} {suffix} (ID: {obj_id}, Type: {layer_type})")
             self.create_annotation_layers(
                 recreate=True,
@@ -1251,7 +1256,8 @@ class octron_widget(QWidget):
                 layer_type=layer_type,
                 label_suffix=suffix,
                 obj_id=obj_id,
-                obj_color=obj_color
+                obj_color=obj_color,
+                model_type=saved_model_type,
             )
             
             
@@ -1823,6 +1829,7 @@ class octron_widget(QWidget):
                                  label_suffix: str = "",
                                  obj_id: Optional[int] = None,
                                  obj_color: List[float] = [],
+                                 model_type: Optional[str] = None,
                                  ):
         """
         This is the main callback function for the create annotation layer button.
@@ -1971,7 +1978,10 @@ class octron_widget(QWidget):
             print(f"Created new mask + annotation layer '{layer_name}'")
             
             
-        elif layer_type == 'Points' and isinstance(self.predictor, CoTracker_octron):
+        elif layer_type == 'Points' and (
+            model_type == 'cotracker' or isinstance(self.predictor, CoTracker_octron)
+            # from reload or from normal use
+        ):
             annotation_layer_name = f"{layer_name} points"
             annotation_layer = add_cotracker_points_layer(
                 viewer=self._viewer,
@@ -1984,10 +1994,24 @@ class octron_widget(QWidget):
             annotation_layer.metadata['_hash'] = self.current_video_hash
             annotation_layer.metadata['_model_type'] = 'cotracker'
             organizer_entry.annotation_layer = annotation_layer
+
+            # Load existing trajectory zarr if present (e.g. project reload)
+            zarr_name = f"{layer_name} tracks"
+            zarr_path = self.project_path_video / f"{zarr_name}.zarr"
+            if zarr_path.exists():
+                zarr_root, status = load_trajectory_zarr(
+                    zarr_path,
+                    num_frames=self.video_layer.metadata["num_frames"],
+                    n_keypoints=self.skeleton_definition.n_keypoints,
+                )
+                if status:
+                    annotation_layer.metadata["_zarr_root"] = zarr_root
+
             # Connect callback
-            annotation_layer.events.data.connect(
-                self.octron_cotracker_callbacks.on_points_changed
-            )
+            if hasattr(self, 'octron_cotracker_callbacks'):
+                annotation_layer.events.data.connect(
+                    self.octron_cotracker_callbacks.on_points_changed
+                )
             print(f"Created new CoTracker annotation layer '{layer_name}'")
         
         elif layer_type == 'Points':
