@@ -39,9 +39,10 @@ class cotracker_octron_callbacks:
             skeleton_idx = keypoint_combobox.currentIndex()
 
             # keep track of the skeleton index of the added point in
-            # the layer's features dataframe
+            # the layer's features dataframe (napari already added a row
+            # for the new point, so we update it rather than appending)
             features_df = points_layer.features
-            features_df.loc[len(features_df)] = {"skeleton_idx": skeleton_idx}
+            features_df.iloc[-1, features_df.columns.get_loc("skeleton_idx")] = skeleton_idx
 
             # Set face color for the new point based on keypoint identity
             kpt_colors = points_layer.metadata.get("_keypoint_colors")
@@ -141,7 +142,7 @@ class cotracker_octron_callbacks:
             for frame_idx in unique_frames:
                 # Get points
                 mask_rows = layer.data[:, 0] == frame_idx
-                xy = layer.data[mask_rows, 1:][:, ::-1]  # (y, x) → (x, y)
+                xy = layer.data[mask_rows, 1:][:, ::-1].copy()  # (y, x) → (x, y)
 
                 # Add to cotracker model
                 self.octron.predictor.add_new_points(int(frame_idx), obj_id, xy)

@@ -32,9 +32,15 @@ class CoTracker_octron:
         # propagate_in_video:
         self.step = model.step
 
-        # Set float16 on CUDA for faster inference
+        # Set float16 on CUDA for faster inference,
+        # ensure float32 on other devices (MPS checkpoints may have mixed dtypes)
         if device.type == "cuda":
             self.model = self.model.half()
+        else:
+            self.model = self.model.float()
+
+        # Cache model dtype for input casting
+        self.dtype = next(self.model.parameters()).dtype
 
         # Initialise Per-object query points, populated by add_new_points().
         # {obj_id: {frame_idx: tensor (N, 2) of (x, y) points}}
@@ -177,7 +183,7 @@ class CoTracker_octron:
         else:
             query_tensor = torch.cat(query_tensor_rows, dim=0).unsqueeze(0)
             # (1, N_total, 3)
-            query_tensor = query_tensor.to(self.device)
+            query_tensor = query_tensor.to(device=self.device, dtype=self.dtype)
             return query_tensor, query_point_obj_ids
 
     def _process_overlapping_chunks(
@@ -230,7 +236,9 @@ class CoTracker_octron:
             if self._n_frames_seen % self.step == 0 and self._n_frames_seen != 0:
                 # Build torch tensor from video chunk:
                 # last step*2 frames -> (1, T, C, H, W)
+                # OctoZarr returns float16 on CPU; cast to model dtype + device
                 chunk = torch.stack(self._buffered_frames, dim=0).unsqueeze(0)
+                chunk = chunk.to(device=self.device, dtype=self.dtype)
 
                 # If first step, initialise online processing
                 # with is_first_step=True and with queries. It does
@@ -253,7 +261,7 @@ class CoTracker_octron:
                     # CoTracker returns cumulative tracks for ALL frames seen
                     # so far, not just the new chunk. Here we yield only the
                     # newly computed frames for this chunk.
-                    n_total_frames = pred_tracks.shape[1]
+                    n_total_frames = min(pred_tracks.shape[1], len(frame_indices))
                     for t in range(self._n_frames_to_yield, n_total_frames):
                         abs_frame = frame_indices[t]
                         tracks_per_obj = self._split_tracks_by_obj(
@@ -290,7 +298,7 @@ class CoTracker_octron:
         n_frames_tail_chunk = n_frames_remain + self.step + 1
         chunk = torch.stack(
             self._buffered_frames[-n_frames_tail_chunk:], dim=0
-        ).unsqueeze(0)
+        ).unsqueeze(0).to(device=self.device, dtype=self.dtype)
 
         # If we haven't done the first step yet (e.g. if video is shorter than step*2),
         # we need to initialise the model with the queries.
@@ -306,8 +314,10 @@ class CoTracker_octron:
         pred_tracks, pred_visibility = self.model(video_chunk=chunk)
         # (1, T_total, N, 2), (1, T_total, N)
 
-        # Yield only the unpredicted frames
-        n_total_frames = pred_tracks.shape[1]
+        # Yield only the unpredicted frames.
+        # Clamp to len(frame_indices): the tail chunk's +1 overlap frame
+        # can cause CoTracker to return more frames than we requested.
+        n_total_frames = min(pred_tracks.shape[1], len(frame_indices))
         for t in range(self._n_frames_to_yield, n_total_frames):
             abs_frame = frame_indices[t]
             tracks_per_obj = self._split_tracks_by_obj(
