@@ -7,8 +7,6 @@ import os
 import sys
 from typing import List, Optional
 
-from octron.cotracker_octron.helpers.cotracker_octron import CoTracker_octron
-
 # if using Apple MPS, fall back to CPU for unsupported ops
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import shutil
@@ -53,11 +51,15 @@ import zarr
 from octron.cotracker_octron.helpers.build_cotracker import build_cotracker
 from octron.cotracker_octron.helpers.cotracker_checks import \
     check_cotracker_models
+from octron.cotracker_octron.helpers.cotracker_layer_callback import \
+    cotracker_octron_callbacks
+from octron.cotracker_octron.helpers.cotracker_octron import CoTracker_octron
+from octron.cotracker_octron.helpers.skeleton_definition import \
+    SkeletonDefinition
 # Custom dialog boxes
 from octron.gui_dialog_elements import (add_new_label_dialog,
                                         remove_label_dialog,
                                         skeleton_setup_dialog)
-from octron.cotracker_octron.helpers.skeleton_definition import SkeletonDefinition
 from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron
 from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
 from octron.sam_octron.helpers.sam2_checks import check_sam2_models
@@ -66,7 +68,7 @@ from octron.sam_octron.helpers.sam2_layer import (add_annotation_projection,
                                                   add_sam2_mask_layer,
                                                   add_sam2_points_layer,
                                                   add_sam2_shapes_layer)
-# Layer callbacks classes
+# SAM Layer callbacks classes
 from octron.sam_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
 from octron.sam_octron.helpers.sam2_zarr import (create_image_zarr,
                                                  get_annotated_frames,
@@ -526,6 +528,9 @@ class octron_widget(QWidget):
         self.predictor = CoTracker_octron(model, self.device)
         show_info(f"Model {model_name} loaded on {self.device}")
 
+        # Instantiate callback
+        self.octron_cotracker_callbacks = cotracker_octron_callbacks(self)
+
         # Set cache size
         # (how many frames the "predict next batch" button processes)
         # CoTracker needs at least step*2 (by default 16) frames to produce results,
@@ -671,7 +676,7 @@ class octron_widget(QWidget):
             layer.refresh()
             self._semantic_frame_buffer = None
 
-    def _batch_predict_yielded(self, value):
+    def _sam_batch_predict_yielded(self, value):
         """
         prediction_worker()
         Called upon yielding from the batch prediction thread worker.
@@ -740,19 +745,32 @@ class octron_widget(QWidget):
             self._viewer.dims.set_point(0, frame_idx)
         self.batch_predict_progressbar.setValue(progress)
           
+    def _cotracker_batch_predict_yielded(self, value):
+        """Called upon yielding from the CoTracker prediction thread."""
+        progress, frame_idx, tracks_per_obj, last_run = value
+
+        # Update progress bar
+        self.batch_predict_progressbar.setValue(progress)
+
+        # Advance viewer to current frame
+        if self._viewer.dims.current_step[0] != frame_idx and not last_run:
+            self._viewer.dims.set_point(0, frame_idx)
+
     def _on_prediction_finished(self):
         """
         prediction_worker()
         Callback for when worker within init_prediction_threaded() 
         has finished executing. 
         """
-        # Flush the last semantic frame buffer (propagation ended)
-        self._flush_semantic_frame_buffer()
-        
-        # Batch-flush all pending annotated frame attrs accumulated during propagation
-        for zarr_array, frame_set in getattr(self, '_pending_annotated_frames', {}).values():
-            mark_frames_annotated(zarr_array, frame_set)
-        self._pending_annotated_frames = {}
+        # SAM2/SAM3-specific cleanup (no-op for CoTracker)
+        if not isinstance(self.predictor, CoTracker_octron):
+            # Flush the last semantic frame buffer (propagation ended)
+            self._flush_semantic_frame_buffer()
+
+            # Batch-flush all pending annotated frame attrs accumulated during propagation
+            for zarr_array, frame_set in getattr(self, '_pending_annotated_frames', {}).values():
+                mark_frames_annotated(zarr_array, frame_set)
+            self._pending_annotated_frames = {}
         
         # Enable the prediction button and UI sections again
         self.predict_next_batch_btn.setEnabled(True)
@@ -780,8 +798,30 @@ class octron_widget(QWidget):
         """
         
         # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
-        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
-        if isinstance(self.predictor, SAM3_semantic_octron):
+        
+        # --- CoTracker path ---
+        if isinstance(self.predictor, CoTracker_octron):
+            sender = self.sender()
+            # Disable UI during prediction
+            self.predict_next_batch_btn.setEnabled(False)
+            self.predict_next_oneframe_btn.setEnabled(False)
+            self.skip_frames_spinbox.setEnabled(False)
+
+            if sender == self.predict_next_batch_btn:
+                self.prediction_worker = create_worker(
+                    self.octron_cotracker_callbacks.batch_predict
+                )
+            elif sender == self.predict_next_oneframe_btn:
+                self.prediction_worker = create_worker(
+                    self.octron_cotracker_callbacks.next_predict
+                )
+            self.prediction_worker.setAutoDelete(True)
+            self.prediction_worker.yielded.connect(self._cotracker_batch_predict_yielded)
+            self.prediction_worker.finished.connect(self._on_prediction_finished)
+            self.prediction_worker.start()
+            return
+        
+        elif isinstance(self.predictor, SAM3_semantic_octron):
             # Only rebuild the mapping when there are NEW accumulated masks to
             # register.  On repeated propagation clicks (no new annotations) the
             # tracker still holds the objects from the previous run, so the
@@ -883,14 +923,14 @@ class octron_widget(QWidget):
         if sender == self.predict_next_batch_btn:
             self.prediction_worker = create_worker(self.octron_sam2_callbacks.batch_predict)
             self.prediction_worker.setAutoDelete(True)
-            self.prediction_worker.yielded.connect(self._batch_predict_yielded)
+            self.prediction_worker.yielded.connect(self._sam_batch_predict_yielded)
             self.prediction_worker.finished.connect(self._on_prediction_finished)
             self.prediction_worker.start()
         elif sender == self.predict_next_oneframe_btn:
             self.batch_predict_progressbar.setMaximum(1)
             self.prediction_worker_one = create_worker(self.octron_sam2_callbacks.next_predict)
             self.prediction_worker_one.setAutoDelete(True)
-            self.prediction_worker_one.yielded.connect(self._batch_predict_yielded)
+            self.prediction_worker_one.yielded.connect(self._sam_batch_predict_yielded)
             self.prediction_worker_one.finished.connect(self._on_prediction_finished)
             self.prediction_worker_one.start()
         
@@ -1866,7 +1906,8 @@ class octron_widget(QWidget):
         if layer_type == 'Shapes':
             annotation_layer_name = f"{layer_name} shapes"
             # Create a shape layer
-            from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+            from octron.sam_octron.helpers.sam3_octron import \
+                SAM3_semantic_octron
             if self.predictor is not None:
                 semantic_mode = isinstance(self.predictor, SAM3_semantic_octron)
             else:
