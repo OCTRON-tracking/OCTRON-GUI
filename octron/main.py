@@ -376,6 +376,8 @@ class octron_widget(QWidget):
             f"SAM2 and SAM3 use different image resolutions and are not interchangeable."
         )
         return False
+    
+    #########################################################################
 
     def load_model(self, model_name=''):
         """
