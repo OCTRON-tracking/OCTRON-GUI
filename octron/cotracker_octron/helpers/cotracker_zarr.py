@@ -21,7 +21,7 @@ def create_trajectory_zarr(
 ):
     """Create a zarr array for storing per-object trajectory data.
 
-    We create one zarr per object ID, with shape (T, N_keypoints, 3) 
+    We create one zarr per object ID, with shape (T, N_keypoints, 3)
     where the 3 last channels are (x, y, visibility).
 
     Parameters
@@ -41,13 +41,16 @@ def create_trajectory_zarr(
 
     Returns
     -------
-    trajectory_zarr : zarr.core.Array
-        The created (T, N_keypoints, 3) zarr array.
+    root : zarr.Group
+        The root group containing two arrays: 
+        - "tracks" (T, N_keypoints, 3), for the predicted trajectories 
+        - "annotated" (T, N_keypoints), to log the manually labelled frames 
     """
     # Validate zarr path
     zarr_path = Path(zarr_path)
-    assert zarr_path.suffix == ".zarr", \
-        f"zarr_path must end in .zarr, got {zarr_path.suffix}"
+    assert (
+        zarr_path.suffix == ".zarr"
+    ), f"zarr_path must end in .zarr, got {zarr_path.suffix}"
 
     # Remove existing zarr if it exists to avoid conflicts
     if zarr_path.exists():
@@ -56,7 +59,9 @@ def create_trajectory_zarr(
     # Initialise zarr store
     store = zarr.storage.LocalStore(zarr_path)
     root = zarr.open_group(store=store, mode="w")
-    trajectory_zarr = root.create_array(
+
+    # Add tracks array
+    root.create_array(
         name="tracks",
         shape=(num_frames, n_keypoints, 3),
         chunks=(num_frames, n_keypoints, 3),
@@ -64,21 +69,30 @@ def create_trajectory_zarr(
         fill_value=fill_value,
     )
 
+    # Add array for annotated frames
+    root.create_array(
+        name="annotated",
+        shape=(num_frames, n_keypoints),
+        chunks=(num_frames, n_keypoints),
+        dtype="bool",
+        fill_value=False,
+    )
+
     # Add metadata
     root.attrs["num_frames"] = num_frames
     root.attrs["n_keypoints"] = n_keypoints
     root.attrs["video_hash_abbrev"] = video_hash_abbrev
 
-    return trajectory_zarr
+    return root
 
 
 def load_trajectory_zarr(zarr_path, num_frames=None, n_keypoints=None):
-    """Load an existing trajectory zarr array and optionally validate its shape.
+    """Load an existing tracks zarr array and optionally validate its shape.
 
     Parameters
     ----------
     zarr_path : Path
-        Path to the .zarr archive.
+        Path to the .zarr store containing the 'tracks' array.
     num_frames : int, optional
         Expected number of frames. Checked if provided.
     n_keypoints : int, optional
@@ -86,8 +100,9 @@ def load_trajectory_zarr(zarr_path, num_frames=None, n_keypoints=None):
 
     Returns
     -------
-    trajectory_zarr : zarr.core.Array or None
-        The loaded array, or None if validation fails.
+    root : zarr.Group or None
+        The root group containing "tracks" and "annotated" arrays,
+        or None if validation fails.
     status : bool
         True if loaded successfully.
     """
@@ -96,7 +111,7 @@ def load_trajectory_zarr(zarr_path, num_frames=None, n_keypoints=None):
     if not zarr_path.exists():
         return None, False
 
-    # Read zarr store in append mode 
+    # Read zarr store in append mode
     store = zarr.storage.LocalStore(zarr_path, read_only=False)
     root = zarr.open_group(store=store, mode="a")
 
@@ -108,13 +123,17 @@ def load_trajectory_zarr(zarr_path, num_frames=None, n_keypoints=None):
 
     # Validate shape if expected values are provided
     if num_frames is not None and trajectory_zarr.shape[0] != num_frames:
-        print(f"Frame count mismatch: expected {num_frames}, got {trajectory_zarr.shape[0]}")
+        print(
+            f"Frame count mismatch: expected {num_frames}, got {trajectory_zarr.shape[0]}"
+        )
         return None, False
     if n_keypoints is not None and trajectory_zarr.shape[1] != n_keypoints:
-        print(f"Keypoint count mismatch: expected {n_keypoints}, got {trajectory_zarr.shape[1]}")
+        print(
+            f"Keypoint count mismatch: expected {n_keypoints}, got {trajectory_zarr.shape[1]}"
+        )
         return None, False
 
-    return trajectory_zarr, True
+    return root, True
 
 
 def write_frame_tracks(trajectory_zarr, frame_idx, tracks_xyv):
