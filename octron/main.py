@@ -31,12 +31,23 @@ import napari
 from napari.qt import create_worker
 from napari.utils import DirectLabelColormap
 from napari.utils.notifications import show_error, show_info, show_warning
+
 # Napari PyAV reader 
 from napari_pyav._reader import FastVideoReader
+
 # Napari plugin QT components
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import (QApplication, QDialog, QFileDialog, QHeaderView,
-                            QLabel, QMenu, QMessageBox, QStyleFactory, QWidget)
+from qtpy.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QHeaderView,
+    QLabel,
+    QMenu,
+    QMessageBox,
+    QStyleFactory,
+    QWidget,
+)
 
 # GUI 
 from octron.gui_elements import octron_gui_elements
@@ -49,43 +60,57 @@ import zarr
 
 # Cotracker
 from octron.cotracker_octron.helpers.build_cotracker import build_cotracker
-from octron.cotracker_octron.helpers.cotracker_checks import \
-    check_cotracker_models
-from octron.cotracker_octron.helpers.cotracker_layer_callback import \
-    cotracker_octron_callbacks
+from octron.cotracker_octron.helpers.cotracker_checks import check_cotracker_models
+from octron.cotracker_octron.helpers.cotracker_layer import (
+    add_cotracker_points_layer,
+    add_cotracker_tracks_layer,
+)
+from octron.cotracker_octron.helpers.cotracker_layer_callback import (
+    cotracker_octron_callbacks,
+)
 from octron.cotracker_octron.helpers.cotracker_octron import CoTracker_octron
-from octron.cotracker_octron.helpers.skeleton_definition import \
-    SkeletonDefinition
+from octron.cotracker_octron.helpers.skeleton_definition import SkeletonDefinition
+
 # Custom dialog boxes
-from octron.gui_dialog_elements import (add_new_label_dialog,
-                                        remove_label_dialog,
-                                        skeleton_setup_dialog)
+from octron.gui_dialog_elements import (
+    add_new_label_dialog,
+    remove_label_dialog,
+    skeleton_setup_dialog,
+)
 from octron.sam_octron.helpers.build_sam2_octron import build_sam2_octron
 from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
 from octron.sam_octron.helpers.sam2_checks import check_sam2_models
+
 # Annotation layer creation tools
-from octron.sam_octron.helpers.sam2_layer import (add_annotation_projection,
-                                                  add_sam2_mask_layer,
-                                                  add_sam2_points_layer,
-                                                  add_sam2_shapes_layer)
+from octron.sam_octron.helpers.sam2_layer import (
+    add_annotation_projection,
+    add_sam2_mask_layer,
+    add_sam2_points_layer,
+    add_sam2_shapes_layer,
+)
+
 # SAM Layer callbacks classes
 from octron.sam_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
-from octron.sam_octron.helpers.sam2_zarr import (create_image_zarr,
-                                                 get_annotated_frames,
-                                                 load_image_zarr,
-                                                 mark_frames_annotated)
+from octron.sam_octron.helpers.sam2_zarr import (
+    create_image_zarr,
+    get_annotated_frames,
+    load_image_zarr,
+    mark_frames_annotated,
+)
 from octron.sam_octron.helpers.sam3_checks import check_sam3_models
 from octron.sam_octron.helpers.video_loader import get_vfile_hash, probe_video
+
 # OCTRON Object organizer
 from octron.sam_octron.object_organizer import Obj, ObjectOrganizer
+
 # Tracker specific 
 from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
 from octron.tracking.helpers.tracker_vis import create_color_icon
 from octron.yolo_octron.constants import TASK_COLORS
+
 # YOLO specific 
 from octron.yolo_octron.gui.yolo_handler import YoloHandler
-from octron.yolo_octron.helpers.training import (collect_labels,
-                                                 load_object_organizer)
+from octron.yolo_octron.helpers.training import collect_labels, load_object_organizer
 from octron.yolo_octron.yolo_octron import YOLO_octron
 
 # If there's already a QApplication instance (as may be the case when running as a napari plugin),
@@ -762,8 +787,23 @@ class octron_widget(QWidget):
         Callback for when worker within init_prediction_threaded() 
         has finished executing. 
         """
-        # SAM2/SAM3-specific cleanup (no-op for CoTracker)
-        if not isinstance(self.predictor, CoTracker_octron):
+        # Model-specific cleanup
+        if isinstance(self.predictor, CoTracker_octron):
+            # Build one Tracks layer per object from zarr results
+            zarr_roots = getattr(self.octron_cotracker_callbacks, 'map_obj_id_to_zarr_root', {})
+            for obj_id, zarr_root in zarr_roots.items():
+                entry = self.object_organizer.get_entry(obj_id)
+                layer_name = f"{entry.label} {entry.suffix} tracks"
+                add_cotracker_tracks_layer(
+                    viewer=self._viewer,
+                    name=layer_name,
+                    zarr_root=zarr_root,
+                    obj_id=obj_id,
+                    n_keypoints=self.skeleton_definition.n_keypoints,
+                    skeleton_definition=self.skeleton_definition,
+                )
+        else:
+            # SAM2/SAM3-specific cleanup
             # Flush the last semantic frame buffer (propagation ended)
             self._flush_semantic_frame_buffer()
 
@@ -1931,6 +1971,25 @@ class octron_widget(QWidget):
             print(f"Created new mask + annotation layer '{layer_name}'")
             
             
+        elif layer_type == 'Points' and isinstance(self.predictor, CoTracker_octron):
+            annotation_layer_name = f"{layer_name} points"
+            annotation_layer = add_cotracker_points_layer(
+                viewer=self._viewer,
+                name=annotation_layer_name,
+                skeleton_definition=self.skeleton_definition,
+                obj_color=obj_color,
+            )
+            annotation_layer.metadata['_name'] = annotation_layer_name
+            annotation_layer.metadata['_obj_id'] = obj_id
+            annotation_layer.metadata['_hash'] = self.current_video_hash
+            annotation_layer.metadata['_model_type'] = 'cotracker'
+            organizer_entry.annotation_layer = annotation_layer
+            # Connect callback
+            annotation_layer.events.data.connect(
+                self.octron_cotracker_callbacks.on_points_changed
+            )
+            print(f"Created new CoTracker annotation layer '{layer_name}'")
+        
         elif layer_type == 'Points':
             # Create a point layer
             annotation_layer_name = f"{layer_name} points"

@@ -49,9 +49,9 @@ def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
 
 
 def add_cotracker_tracks_layer(
-    viewer, name, zarr_roots, n_keypoints, skeleton_definition=None
+    viewer, name, zarr_root, obj_id, n_keypoints, skeleton_definition=None
 ):
-    """Build and add a napari Tracks layer from trajectory zarr stores.
+    """Build and add a napari Tracks layer for a single object.
 
     Parameters
     ----------
@@ -59,8 +59,10 @@ def add_cotracker_tracks_layer(
         Napari viewer instance.
     name : str
         Name for the tracks layer.
-    zarr_roots : dict[int, zarr.Group]
-        Mapping ``{obj_id: zarr_root}`` for each tracked object.
+    zarr_root : zarr.Group
+        Zarr root group containing a ``"tracks"`` array.
+    obj_id : int
+        Object ID (used to build unique track IDs).
     n_keypoints : int
         Number of keypoints in the skeleton.
     skeleton_definition : SkeletonDefinition, optional
@@ -71,28 +73,18 @@ def add_cotracker_tracks_layer(
     tracks_layer : napari.layers.Tracks or None
         The created tracks layer, or None if no visible tracks.
     """
-    all_tracks = []
-    all_colors = []
+    tracks_data, track_colors = _build_tracks_array_from_zarr(
+        zarr_root, obj_id, n_keypoints, skeleton_definition
+    )
 
-    for obj_id, zarr_root in zarr_roots.items():
-        tracks_data, track_colors = _build_tracks_array_from_zarr(
-            zarr_root, obj_id, n_keypoints, skeleton_definition
-        )
-        if len(tracks_data):
-            all_tracks.append(tracks_data)
-            if track_colors is not None:
-                all_colors.append(track_colors)
-
-    if not all_tracks:
+    if not len(tracks_data):
         return None
 
-    combined_tracks = np.concatenate(all_tracks, axis=0)
-
     kwargs = {"name": name, "tail_length": 10}
-    if all_colors:
+    if track_colors is not None:
         kwargs["color_by"] = "track_id"
 
-    tracks_layer = viewer.add_tracks(combined_tracks, **kwargs)
+    tracks_layer = viewer.add_tracks(tracks_data, **kwargs)
     return tracks_layer
 
 
