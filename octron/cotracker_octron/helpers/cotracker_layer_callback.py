@@ -135,6 +135,8 @@ class cotracker_octron_callbacks:
             map_obj_id_to_zarr_root[obj_id] = zarr_root
 
             # Register points per frame in cotracker model
+            if not len(layer.data):
+                continue
             unique_frames = np.unique(layer.data[:, 0])
             for frame_idx in unique_frames:
                 # Get points
@@ -245,12 +247,12 @@ class cotracker_octron_callbacks:
         if not list_cotracker_annot_layers:
             return
 
-        map_obj_id_to_zarr_root = self._init_predictor_and_zarr_stores(
+        self.map_obj_id_to_zarr_root = self._init_predictor_and_zarr_stores(
             list_cotracker_annot_layers,
         )
 
         yield from self._propagate_and_write_to_zarr(
             list_cotracker_annot_layers,
-            map_obj_id_to_zarr_root,
+            self.map_obj_id_to_zarr_root,
             chunk_override=self.octron.predictor.step * 2,
         )

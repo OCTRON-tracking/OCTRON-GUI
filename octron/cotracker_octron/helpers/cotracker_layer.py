@@ -8,9 +8,8 @@ def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
     """Create a napari Points layer for CoTracker keypoint annotation.
 
     The layer is set up with:
-    - Per-keypoint colors from the skeleton definition
+    - Per-keypoint face colors from the skeleton definition
     - A features DataFrame with a ``skeleton_idx`` column
-    - Text labels showing keypoint names
 
     Parameters
     ----------
