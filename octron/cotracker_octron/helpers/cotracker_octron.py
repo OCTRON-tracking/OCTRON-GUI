@@ -198,6 +198,7 @@ class CoTracker_octron:
         _n_frames_seen) on self so that _process_tail_chunk can continue from
         where this left off.
 
+        Note:
         CoTracker uses overlapping windows of step*2 = 16 frames, advancing by step=8 each time:
         Chunk 1 (is_first_step=True):  frames [0..15]  → returns (None, None)
         Chunk 2:                       frames [8..23]  → returns tracks for frames [0..15]
@@ -213,12 +214,12 @@ class CoTracker_octron:
 
         # Loop thru frames for starting the chunks
         for abs_idx in frame_indices:
-            # Fetch frame from OctoZarr
+            # Fetch frames from OctoZarr
             frame_tensor = self.images[abs_idx]  # (C, H, W)
             self._buffered_frames.append(frame_tensor)
             self._n_frames_seen += 1
 
-            # Keep at most step*2 frames in memory to avoid
+            # Keep at most step*2 (=window_len) frames in memory to avoid
             # accumulating the entire video
             max_window = self.step * 2
             if len(self._buffered_frames) > max_window:
