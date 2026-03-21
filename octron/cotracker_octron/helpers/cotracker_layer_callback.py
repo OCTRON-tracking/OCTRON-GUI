@@ -81,13 +81,13 @@ class cotracker_octron_callbacks:
             return
 
         # Initialise points in predictor and zarr stores per layer
-        map_obj_id_to_zarr_root = self._init_predictor_and_zarr_stores(
+        self.map_obj_id_to_zarr_root = self._init_predictor_and_zarr_stores(
             list_cotracker_annot_layers,
         )
 
         # Run prediction and write results to zarr
         yield from self._propagate_and_write_to_zarr(
-            list_cotracker_annot_layers, map_obj_id_to_zarr_root
+            list_cotracker_annot_layers, self.map_obj_id_to_zarr_root
         )
 
     def _init_predictor_and_zarr_stores(self, annotation_layers):
