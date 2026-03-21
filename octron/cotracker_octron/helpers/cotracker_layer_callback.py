@@ -149,7 +149,9 @@ class cotracker_octron_callbacks:
 
         return map_obj_id_to_zarr_root
 
-    def _propagate_and_write_to_zarr(self, annotation_layers, map_obj_id_to_zarr_root):
+    def _propagate_and_write_to_zarr(
+        self, annotation_layers, map_obj_id_to_zarr_root, chunk_override=None
+    ):
         """Run predictor over the frame range and write tracks to zarr.
 
         Yields (counter, frame_idx, tracks_per_obj_one_frame, last_run).
@@ -158,7 +160,9 @@ class cotracker_octron_callbacks:
         map_obj_id_to_layer = {ly.metadata["_obj_id"]: ly for ly in annotation_layers}
 
         # Get range of frames to run prediction
-        current_frame, end_frame, step_frames = self._get_prediction_frame_range()
+        current_frame, end_frame, step_frames = self._get_prediction_frame_range(
+            chunk_override=chunk_override,
+        )
         n_frames_to_process = len(range(current_frame, end_frame + 1, step_frames))
 
         # Run prediction
@@ -170,7 +174,6 @@ class cotracker_octron_callbacks:
         ) in self.octron.predictor.propagate_in_video(
             current_frame, end_frame, step=step_frames
         ):
-
             # Loop thru object IDs per frame
             for obj_id, xyv in tracks_per_obj_one_frame.items():
                 # Get skeleton indices for points in this layer
@@ -179,7 +182,9 @@ class cotracker_octron_callbacks:
 
                 # Build x,y,vis array for all keypoints in skeleton
                 # (place each tracked point at its skeleton column)
-                full_xyv = np.zeros((self.octron.skeleton_definition.n_keypoints, 3), dtype=np.float32)
+                full_xyv = np.zeros(
+                    (self.octron.skeleton_definition.n_keypoints, 3), dtype=np.float32
+                )
                 for i, skel_idx in enumerate(skeleton_indices):
                     full_xyv[skel_idx] = xyv[i].cpu().numpy()
 
@@ -196,21 +201,49 @@ class cotracker_octron_callbacks:
 
             yield counter, frame_idx, tracks_per_obj_one_frame, last_run
 
-    def _get_prediction_frame_range(self):
-        """Return (current_frame, end_frame, step_frames) for prediction."""
+    def _get_prediction_frame_range(self, chunk_override=None):
+        """Return (current_frame, end_frame, step_frames) for prediction.
+
+        Parameters
+        ----------
+        chunk_override : int, optional
+            If given, use this instead of self.octron.chunk_size.
+        """
         skip_frames = self.octron.skip_frames_spinbox.value()
         step_frames = skip_frames + 1
 
+        chunk_size = chunk_override or self.octron.chunk_size
         current_frame = self.viewer.dims.current_step[0]
         num_frames = self.octron.video_layer.metadata["num_frames"]
         end_frame = min(
             num_frames - 1,
-            current_frame + self.octron.chunk_size * step_frames,
+            current_frame + chunk_size * step_frames,
         )
         return current_frame, end_frame, step_frames
 
     def next_predict(self):
-        "Single-frame variant (or"
-        "possibly unnecessary if CoTracker always runs in "
-        "batch windows)."
-        pass
+        """Predict next window of frames (CoTracker's minimum unit).
+
+        CoTracker requires multi-frame context, so this processes
+        ``predictor.step * 2`` frames (default 16) and yields
+        results for all of them, rather than a single frame.
+        """
+        # Gather cotracker annotation layers
+        list_cotracker_annot_layers = [
+            ly
+            for ly in self.octron.object_organizer.get_annotation_layers()
+            if ly.metadata.get("_model_type") == "cotracker"
+        ]
+
+        if not list_cotracker_annot_layers:
+            return
+
+        map_obj_id_to_zarr_root = self._init_predictor_and_zarr_stores(
+            list_cotracker_annot_layers,
+        )
+
+        yield from self._propagate_and_write_to_zarr(
+            list_cotracker_annot_layers,
+            map_obj_id_to_zarr_root,
+            chunk_override=self.octron.predictor.step * 2,
+        )
