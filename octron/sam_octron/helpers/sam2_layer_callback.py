@@ -3,17 +3,10 @@ import time
 import warnings
 
 import numpy as np
-from napari.utils.notifications import (
-    show_error,
-    show_warning,
-)
+from napari.utils.notifications import show_error, show_warning
 
-from octron.sam_octron.helpers.sam2_colors import (
-    create_semantic_colormap,
-)
-from octron.sam_octron.helpers.sam2_octron import (
-    run_new_pred,
-)
+from octron.sam_octron.helpers.sam2_colors import create_semantic_colormap
+from octron.sam_octron.helpers.sam2_octron import run_new_pred
 from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
 
 warnings.simplefilter("ignore")
@@ -560,12 +553,9 @@ class sam2_octron_callbacks():
         Uses SAM2 => propagate_in_video function.
         
         """
-
-        skip_frames = self.octron.skip_frames_spinbox.value()
-        if skip_frames < 1:
-            skip_frames = 1 # Just hard reset any unrealistic values here
-        elif skip_frames >= 1: # The user expects that the skip_frames are 1-based!
-            skip_frames +=1
+        # Spinbox value + 1 = step value
+        # The user expects that the skip_frames are 1-based!
+        skip_frames = self.octron.skip_frames_spinbox.value() + 1
         self.octron.skip_frames = skip_frames  
 
         # Prefetch images if they are not cached yet 
