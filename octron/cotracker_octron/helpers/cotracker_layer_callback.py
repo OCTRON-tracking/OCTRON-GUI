@@ -43,6 +43,13 @@ class cotracker_octron_callbacks:
             features_df = points_layer.features
             features_df.loc[len(features_df)] = {"skeleton_idx": skeleton_idx}
 
+            # Set face color for the new point based on keypoint identity
+            kpt_colors = points_layer.metadata.get("_keypoint_colors")
+            if kpt_colors is not None:
+                colors = list(points_layer.face_color)
+                colors[-1] = kpt_colors[skeleton_idx]
+                points_layer.face_color = colors
+
             # cycle to next keypoint in combobox
             next_idx = skeleton_idx + 1
             keypoint_combobox.setCurrentIndex(

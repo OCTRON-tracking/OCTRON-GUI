@@ -31,6 +31,9 @@ def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
     # Initialise empty features with skeleton_idx column
     features = pd.DataFrame({"skeleton_idx": pd.Series(dtype=int)})
 
+    # Pre-compute per-keypoint colors for dynamic face_color updates
+    keypoint_colors = skeleton_definition.get_keypoint_colors()
+
     points_layer = viewer.add_points(
         None,
         ndim=3,
@@ -40,6 +43,9 @@ def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
         border_width=0.2,
         opacity=0.6,
     )
+
+    # Store keypoint colors on metadata for use in on_points_changed
+    points_layer.metadata["_keypoint_colors"] = keypoint_colors
 
     # Select layer and activate add mode
     viewer.layers.selection.active = points_layer
