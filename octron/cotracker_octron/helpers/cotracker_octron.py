@@ -111,8 +111,6 @@ class CoTracker_octron:
         tracks_per_obj : dict[int, torch.Tensor]
             Mapping obj_id → (N_points, 3) tensor of (x, y, visibility)
             for this frame.
-        obj_ids : list[int]
-            Object IDs present in this result.
         """
         frame_indices = list(range(start_frame, end_frame + 1, step))
 
@@ -263,7 +261,7 @@ class CoTracker_octron:
                             query_point_obj_ids,
                             list_obj_ids,
                         )
-                        yield abs_frame, tracks_per_obj, list_obj_ids
+                        yield abs_frame, tracks_per_obj
                     # We have now yielded all frames up to n_total_frames,
                     # so update the counter for the next chunk
                     self._n_frames_to_yield = n_total_frames
@@ -317,7 +315,7 @@ class CoTracker_octron:
                 query_point_obj_ids,
                 list_obj_ids,
             )
-            yield abs_frame, tracks_per_obj, list_obj_ids
+            yield abs_frame, tracks_per_obj
 
     def _split_tracks_by_obj(
         self,
