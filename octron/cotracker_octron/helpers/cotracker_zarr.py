@@ -8,6 +8,7 @@ with (0, 0, 0).
 import shutil
 from pathlib import Path
 
+import numpy as np
 import zarr
 
 
@@ -134,6 +135,45 @@ def load_trajectory_zarr(zarr_path, num_frames=None, n_keypoints=None):
         return None, False
 
     return root, True
+
+
+def mark_keypoints_annotated(zarr_root, frame_idx, keypoint_indices):
+    """Mark keypoints as manually annotated for a given frame.
+
+    Parameters
+    ----------
+    zarr_root : zarr.Group
+        The root group containing the "annotated" array.
+    frame_idx : int
+        The frame index.
+    keypoint_indices : int or iterable of int
+        Keypoint index or indices to mark as annotated.
+    """
+    if not isinstance(keypoint_indices, list):
+        keypoint_indices = list(keypoint_indices)
+    for kp_idx in keypoint_indices:
+        zarr_root["annotated"][int(frame_idx), int(kp_idx)] = True 
+
+
+def unmark_keypoints_annotated(zarr_root, frame_idx, keypoint_indices):
+    """Unmark keypoints as manually annotated for a given frame.
+
+    Applied if keypoints are deleted.
+
+    Parameters
+    ----------
+    zarr_root : zarr.Group
+        The root group containing the "annotated" array.
+    frame_idx : int
+        The frame index.
+    keypoint_indices : int or iterable of int
+        Keypoint index or indices to unmark.
+    """
+    if isinstance(keypoint_indices, (int, np.integer)):
+        zarr_root["annotated"][int(frame_idx), int(keypoint_indices)] = False
+    else:
+        for kp_idx in keypoint_indices:
+            zarr_root["annotated"][int(frame_idx), int(kp_idx)] = False
 
 
 def write_frame_tracks(trajectory_zarr, frame_idx, tracks_xyv):
