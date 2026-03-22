@@ -833,7 +833,10 @@ class octron_widget(QWidget):
         # load the video data, plus we find out which indices have annotation data in the 
         # video. So, that is a lot of processing ...
         status = self.save_object_organizer()
-        self.refresh_label_table_list(delete_old=False)
+        # Skip label table refresh for CoTracker (collect_labels expects
+        # SAM2/SAM3 prediction_layer_metadata which CoTracker doesn't have)
+        if not isinstance(self.predictor, CoTracker_octron):
+            self.refresh_label_table_list(delete_old=False)
         self.batch_predict_progressbar.setMaximum(self.chunk_size)
 
     def init_prediction_threaded(self):
