@@ -1668,7 +1668,8 @@ class octron_widget(QWidget):
             self.predictor.init_state(video_data=self.video_layer.data,
                                       zarr_store=self.video_zarr,
                                       )
-            self.hard_reset_layer_btn.setEnabled(True)
+            if not isinstance(self.predictor, CoTracker_octron):
+                self.hard_reset_layer_btn.setEnabled(True)
             self.predictor.is_initialized = True
 
         return
