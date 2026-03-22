@@ -62,8 +62,8 @@ import zarr
 from octron.cotracker_octron.helpers.build_cotracker import build_cotracker
 from octron.cotracker_octron.helpers.cotracker_checks import check_cotracker_models
 from octron.cotracker_octron.helpers.cotracker_layer import (
-    add_cotracker_points_layer,
-    add_cotracker_tracks_layer,
+    add_cotracker_prompts_layer,
+    add_cotracker_prediction_layer,
 )
 from octron.cotracker_octron.helpers.cotracker_layer_callback import (
     cotracker_octron_callbacks,
@@ -797,11 +797,10 @@ class octron_widget(QWidget):
             zarr_roots = getattr(self.octron_cotracker_callbacks, 'map_obj_id_to_zarr_root', {})
             for obj_id, zarr_root in zarr_roots.items():
                 entry = self.object_organizer.get_entry(obj_id)
-                add_cotracker_tracks_layer(
+                add_cotracker_prediction_layer(
                     viewer=self._viewer,
                     name=f"{entry.label} {entry.suffix} tracks",
                     zarr_root=zarr_root,
-                    obj_id=obj_id,
                     n_keypoints=self.skeleton_definition.n_keypoints,
                     skeleton_definition=self.skeleton_definition,
                     existing_layer=entry.prediction_layer,
@@ -1971,11 +1970,10 @@ class octron_widget(QWidget):
                     video_hash_abbrev=self.current_video_hash,
                 )
 
-            prediction_layer = add_cotracker_tracks_layer(
+            prediction_layer = add_cotracker_prediction_layer(
                 viewer=self._viewer,
                 name=prediction_layer_name,
                 zarr_root=zarr_root,
-                obj_id=obj_id,
                 n_keypoints=n_keypoints,
                 skeleton_definition=self.skeleton_definition,
             )
@@ -2026,11 +2024,10 @@ class octron_widget(QWidget):
             # from reload or from normal use
         ):
             annotation_layer_name = f"{layer_name} points"
-            annotation_layer = add_cotracker_points_layer(
+            annotation_layer = add_cotracker_prompts_layer(
                 viewer=self._viewer,
                 name=annotation_layer_name,
                 skeleton_definition=self.skeleton_definition,
-                obj_color=obj_color,
             )
             annotation_layer.metadata['_name'] = annotation_layer_name
             annotation_layer.metadata['_obj_id'] = obj_id

@@ -286,7 +286,7 @@ class ObjectOrganizer(BaseModel):
                     "model_type": obj.annotation_layer.metadata.get("_model_type"),
                 }
                 serializable_obj["annotation_layer_metadata"] = annot_meta
-            # Add metadata about the prediction (mask / tracks) layer
+            # Add metadata about the prediction layer (Labels for SAM, Points for CoTracker)
             if obj.prediction_layer is not None and obj.prediction_layer._basename() == 'Labels':
                 prediction_layer_data = obj.prediction_layer.data
                 prediction_layer_meta = obj.prediction_layer.metadata
@@ -321,11 +321,11 @@ class ObjectOrganizer(BaseModel):
                 if hasattr(obj.prediction_layer, 'metadata') and '_zarr' in obj.prediction_layer.metadata:
                     serializable_obj["prediction_layer_metadata"]["zarr_path"] = obj.prediction_layer.metadata['_zarr'].as_posix()
 
-            elif obj.prediction_layer is not None and obj.prediction_layer._basename() == 'Tracks':
+            elif obj.prediction_layer is not None and obj.prediction_layer._basename() == 'Points':
                 prediction_layer_meta = obj.prediction_layer.metadata
                 serializable_obj["prediction_layer_metadata"] = {
                     "name": obj.prediction_layer.name,
-                    "type": "Tracks",
+                    "type": "CoTrackerPoints",
                     "visible": obj.prediction_layer.visible,
                     "opacity": obj.prediction_layer.opacity,
                     "zarr_path": prediction_layer_meta['_zarr'].as_posix(),

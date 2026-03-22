@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 
 
-def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
-    """Create a napari Points layer for CoTracker keypoint annotation.
+def add_cotracker_prompts_layer(viewer, name, skeleton_definition):
+    """Create a napari Points layer for CoTracker prompts.
 
     The layer is set up with:
     - Per-keypoint face colors from the skeleton definition
@@ -19,8 +19,6 @@ def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
         Name of the new points layer.
     skeleton_definition : SkeletonDefinition
         Skeleton with keypoint names and colors.
-    obj_color : list
-        RGBA color for this object (used as border color).
 
     Returns
     -------
@@ -38,8 +36,7 @@ def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
         ndim=3,
         name=name,
         features=features,
-        border_color=obj_color,
-        border_width=0.2,
+        border_width=0.0,
         opacity=0.6,
     )
 
@@ -53,82 +50,88 @@ def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
     return points_layer
 
 
-def add_cotracker_tracks_layer(
-    viewer, name, zarr_root, obj_id, n_keypoints,
-    skeleton_definition=None, existing_layer=None,
+def add_cotracker_prediction_layer(
+    viewer,
+    name,
+    zarr_root,
+    n_keypoints,
+    skeleton_definition=None,
+    existing_layer=None,
 ):
-    """Build and add (or update) a napari Tracks layer for a single object.
+    """Build and add (or update) a napari Points layer for CoTracker predictions.
 
     If ``existing_layer`` is provided, its data is updated in place.
-    Otherwise a new layer is created. When the zarr contains no visible
-    tracks yet (e.g. freshly created), a single placeholder row is used
-    so napari can instantiate the layer, and the layer starts hidden.
+    Otherwise a new layer is created.  When the zarr contains no visible
+    predictions yet, the layer is created with ``None`` data and hidden.
 
     Parameters
     ----------
     viewer : napari.Viewer
         Napari viewer instance.
     name : str
-        Name for the tracks layer.
+        Name for the prediction points layer.
     zarr_root : zarr.Group
         Zarr root group containing a ``"tracks"`` array.
-    obj_id : int
-        Object ID (used to build unique track IDs).
     n_keypoints : int
         Number of keypoints in the skeleton.
     skeleton_definition : SkeletonDefinition, optional
         If provided, used for per-keypoint colors.
-    existing_layer : napari.layers.Tracks, optional
+    existing_layer : napari.layers.Points, optional
         If provided, update this layer's data instead of creating a new one.
 
     Returns
     -------
-    tracks_layer : napari.layers.Tracks
-        The created or updated tracks layer.
+    points_layer : napari.layers.Points
+        The created or updated prediction layer.
     """
-    # Get data for tracks layer
-    tracks_data, track_colors = _build_tracks_array_from_zarr(
-        zarr_root, obj_id, n_keypoints, skeleton_definition
+    points_data, face_colors, skel_indices = _build_points_array_from_zarr(
+        zarr_root, n_keypoints, skeleton_definition
     )
+    has_data = len(points_data) > 0
 
-    # If zarr store has no data: use placeholder array
-    zarr_has_data = len(tracks_data) > 0
-    if not zarr_has_data:
-        tracks_data = np.zeros((1, 4), dtype=np.float32)
-        track_colors = None
-
-    # If layer provided: update it with data
     if existing_layer is not None:
-        existing_layer.data = tracks_data
-        existing_layer.visible = True
+        existing_layer.data = points_data if has_data else None
+        if has_data:
+            existing_layer.features = pd.DataFrame({"skeleton_idx": skel_indices})
+            if face_colors is not None:
+                existing_layer.face_color = face_colors
+        existing_layer.visible = has_data
         existing_layer.refresh()
         return existing_layer
-    # Else add a new tracks layer
-    else:
-        kwargs = {"name": name, "tail_length": 10, "visible": zarr_has_data}
-        if track_colors is not None:
-            kwargs["color_by"] = "track_id"
-        tracks_layer = viewer.add_tracks(tracks_data, **kwargs)
-        return tracks_layer
+
+    features = (
+        pd.DataFrame({"skeleton_idx": skel_indices})
+        if has_data
+        else pd.DataFrame({"skeleton_idx": pd.Series(dtype=int)})
+    )
+    points_layer = viewer.add_points(
+        points_data if has_data else None,
+        ndim=3,
+        name=name,
+        features=features,
+        symbol="diamond",
+        size=8,
+        border_width=0.0,
+        opacity=0.5,
+        visible=has_data,
+    )
+    if face_colors is not None and has_data:
+        points_layer.face_color = face_colors
+    return points_layer
 
 
-def _build_tracks_array_from_zarr(
-    zarr_root, obj_id, n_keypoints, skeleton_definition=None
-):
-    """Build a napari Tracks array from a trajectory zarr.
+def _build_points_array_from_zarr(zarr_root, n_keypoints, skeleton_definition=None):
+    """Build a napari Points array from a trajectory zarr.
 
     Reads the zarr ``"tracks"`` array of shape ``(T, N_keypoints, 3)``
-    and converts it to napari Tracks format ``(ID, T, Y, X)``.
+    and converts it to napari Points format ``(T, Y, X)`` with ``ndim=3``.
 
     Only frames where visibility > 0 for a keypoint are included.
-    Track IDs are ``obj_id * n_keypoints + keypoint_idx``.
 
     Parameters
     ----------
     zarr_root : zarr.Group
         Zarr root group containing a ``"tracks"`` array.
-    obj_id : int
-        Object ID (used to build unique track IDs).
     n_keypoints : int
         Number of keypoints in the skeleton.
     skeleton_definition : SkeletonDefinition, optional
@@ -136,33 +139,37 @@ def _build_tracks_array_from_zarr(
 
     Returns
     -------
-    tracks_data : np.ndarray
-        Shape ``(N_visible, 4)`` with columns ``(track_id, frame, y, x)``.
-    track_colors : np.ndarray or None
-        Per-track RGBA colors if skeleton_definition is provided.
+    points_data : np.ndarray
+        Shape ``(N_visible, 3)`` with columns ``(frame, y, x)``.
+    face_colors : np.ndarray or None
+        Per-point RGBA colors if skeleton_definition is provided.
+    skeleton_indices : np.ndarray
+        Per-point keypoint index, shape ``(N_visible,)``.
     """
     tracks_arr = np.array(zarr_root["tracks"])  # (T, N_keypoints, 3)
     n_frames = tracks_arr.shape[0]
 
     rows = []
     color_per_row = []
+    skel_per_row = []
     kpt_colors = (
         skeleton_definition.get_keypoint_colors() if skeleton_definition else None
     )
 
     for kpt_idx in range(n_keypoints):
-        track_id = obj_id * n_keypoints + kpt_idx
         for t in range(n_frames):
             x, y, vis = tracks_arr[t, kpt_idx]
             if vis > 0:
-                rows.append([track_id, t, y, x])  # napari: (ID, T, Y, X)
+                rows.append([t, y, x])  # napari Points: (T, Y, X)
+                skel_per_row.append(kpt_idx)
                 if kpt_colors is not None:
                     color_per_row.append(kpt_colors[kpt_idx])
 
     if not rows:
-        return np.empty((0, 4)), None
+        return np.empty((0, 3)), None, np.empty((0,), dtype=int)
 
-    tracks_data = np.array(rows, dtype=np.float32)
-    track_colors = np.array(color_per_row) if color_per_row else None
+    points_data = np.array(rows, dtype=np.float32)
+    face_colors = np.array(color_per_row) if color_per_row else None
+    skeleton_indices = np.array(skel_per_row, dtype=int)
 
-    return tracks_data, track_colors
+    return points_data, face_colors, skeleton_indices
