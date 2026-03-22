@@ -360,7 +360,7 @@ class CoTracker_octron:
         for i, obj_id in enumerate(query_point_obj_ids):
             xy = predicted_points[i]  # (2,)
             vis = points_visibility[i].unsqueeze(0)  # (1,)
-            obj_id_to_xyv[obj_id].append(torch.cat([xy, vis.float()]))  # (3,)
+            obj_id_to_xyv[obj_id].append(torch.cat([xy, vis]).to(dtype=self.dtype))  # (3,)
 
         # Fill in objects with no points with empty tensors
         return {
