@@ -54,9 +54,10 @@ def add_cotracker_points_layer(viewer, name, skeleton_definition, obj_color):
 
 
 def add_cotracker_tracks_layer(
-    viewer, name, zarr_root, obj_id, n_keypoints, skeleton_definition=None
+    viewer, name, zarr_root, obj_id, n_keypoints,
+    skeleton_definition=None, existing_layer=None,
 ):
-    """Build and add a napari Tracks layer for a single object.
+    """Build and add (or update) a napari Tracks layer for a single object.
 
     Parameters
     ----------
@@ -72,11 +73,13 @@ def add_cotracker_tracks_layer(
         Number of keypoints in the skeleton.
     skeleton_definition : SkeletonDefinition, optional
         If provided, used for per-keypoint colors.
+    existing_layer : napari.layers.Tracks, optional
+        If provided, update this layer's data instead of creating a new one.
 
     Returns
     -------
     tracks_layer : napari.layers.Tracks or None
-        The created tracks layer, or None if no visible tracks.
+        The created or updated tracks layer, or None if no visible tracks.
     """
     tracks_data, track_colors = _build_tracks_array_from_zarr(
         zarr_root, obj_id, n_keypoints, skeleton_definition
@@ -84,6 +87,11 @@ def add_cotracker_tracks_layer(
 
     if not len(tracks_data):
         return None
+
+    # Update existing layer if provided
+    if existing_layer is not None:
+        existing_layer.data = tracks_data
+        return existing_layer
 
     kwargs = {"name": name, "tail_length": 10}
     if track_colors is not None:
