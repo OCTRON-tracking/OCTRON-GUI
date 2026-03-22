@@ -1,11 +1,8 @@
 import numpy as np
 from napari.utils.notifications import show_warning
 
-from octron.cotracker_octron.helpers.cotracker_zarr import (
-    mark_keypoints_annotated,
-    unmark_keypoints_annotated,
-    write_frame_tracks,
-)
+from octron.cotracker_octron.helpers.cotracker_zarr import write_frame_tracks
+from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
 
 
 class cotracker_octron_callbacks:
@@ -56,16 +53,6 @@ class cotracker_octron_callbacks:
                 next_idx % keypoint_combobox.count(),
             )
         elif action == "removing":
-            # If zarr store exists, remove annotated mark for deleted point
-            # NOTE: napari emits REMOVING before the deletion,
-            # so self.data still has the original rows
-            zarr_root = points_layer.metadata.get("_zarr_root")
-            if zarr_root is not None:
-                # For every deleted point, set annotated status to False
-                for idx in event.data_indices:
-                    frame = int(points_layer.data[idx, 0])
-                    skeleton_idx = int(points_layer.features.iloc[idx]["skeleton_idx"])
-                    unmark_keypoints_annotated(zarr_root, frame, skeleton_idx)
             return
         else:
             return
@@ -127,14 +114,11 @@ class cotracker_octron_callbacks:
                 # Add to cotracker model
                 self.octron.predictor.add_new_points(int(frame_idx), obj_id, xy)
 
-                # Mark keypoints as annotated in zarr "annotated" array
-                skeleton_idxs = layer.features.loc[mask_rows, "skeleton_idx"].astype(
-                    int
-                )
-                mark_keypoints_annotated(
-                    map_obj_id_to_zarr_root[obj_id],
-                    frame_idx,
-                    skeleton_idxs,
+                # Mark as annotated frame (prompts + automatic predictions,
+                # potentially proofread)
+                mark_frames_annotated(
+                    map_obj_id_to_zarr_root[obj_id]["tracks"],
+                    int(frame_idx),
                 )
 
         return map_obj_id_to_zarr_root
@@ -189,6 +173,12 @@ class cotracker_octron_callbacks:
                     map_obj_id_to_zarr_root[obj_id]["tracks"],
                     frame_idx,
                     full_xyv,
+                )
+                # Add as annotated frame (prompts + automatic predictions,
+                # potentially proofread)
+                mark_frames_annotated(
+                    map_obj_id_to_zarr_root[obj_id]["tracks"],
+                    frame_idx,
                 )
 
             # Check if last frame processed

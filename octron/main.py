@@ -2096,10 +2096,9 @@ class octron_widget(QWidget):
         """Return sorted array of annotated frame indices for any prediction layer type."""
         if layer._basename() == "Points":
             zarr_root = layer.metadata.get("_zarr_root")
-            if zarr_root is None or "annotated" not in zarr_root:
+            if zarr_root is None or "tracks" not in zarr_root:
                 return np.array([], dtype=int)
-            annotated = np.array(zarr_root["annotated"])  # (T, N_keypoints)
-            return np.where(np.any(annotated, axis=1))[0]
+            return get_annotated_frames(zarr_root["tracks"])
         else:
             return get_annotated_frames(layer.data)
 
