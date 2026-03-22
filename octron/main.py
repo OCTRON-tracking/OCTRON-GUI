@@ -564,7 +564,7 @@ class octron_widget(QWidget):
         # (how many frames the "predict next batch" button processes)
         # CoTracker needs at least step*2 (by default 16) frames to produce results,
         # so we set a larger default than SAM2's 15
-        self.chunk_size = 20 
+        self.chunk_size = 32  # multiples of default window len
         self._on_model_loaded(model_name)
 
         # Disable shapes and bboxes options for cotracker
