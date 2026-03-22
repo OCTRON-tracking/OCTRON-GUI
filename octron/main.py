@@ -2092,6 +2092,17 @@ class octron_widget(QWidget):
         
 
 
+    def _get_annotated_frame_indices(self, layer):
+        """Return sorted array of annotated frame indices for any prediction layer type."""
+        if layer._basename() == "Points":
+            zarr_root = layer.metadata.get("_zarr_root")
+            if zarr_root is None or "annotated" not in zarr_root:
+                return np.array([], dtype=int)
+            annotated = np.array(zarr_root["annotated"])  # (T, N_keypoints)
+            return np.where(np.any(annotated, axis=1))[0]
+        else:
+            return get_annotated_frames(layer.data)
+
     def jump_to_next_annotated_frame(self):
         """
         Jump to next annotated frame in viewer timeline
@@ -2103,12 +2114,10 @@ class octron_widget(QWidget):
         if not prediction_layers:
             show_warning("No prediction layers found.")
             return
-        
+
         indices = []
         for layer in prediction_layers:
-            data = layer.data
-            annotated_indices = get_annotated_frames(data)
-            # Get the next index after the current one
+            annotated_indices = self._get_annotated_frame_indices(layer)
             next_idx = np.where(annotated_indices > current_timeline_idx)[0]
             if next_idx.size > 0:
                 indices.append(annotated_indices[next_idx[0]])
@@ -2118,9 +2127,9 @@ class octron_widget(QWidget):
         else:
             next_idx = min(indices)
             self._viewer.dims.set_point(0, next_idx)
-        return      
-        
-        
+        return
+
+
     def jump_to_previous_annotated_frame(self):
         """
         Jump to previous annotated frame in viewer timeline
@@ -2131,11 +2140,10 @@ class octron_widget(QWidget):
         prediction_layers = self.object_organizer.get_prediction_layers()
         if not prediction_layers:
             return
-        
+
         indices = []
         for layer in prediction_layers:
-            data = layer.data
-            annotated_indices = get_annotated_frames(data)
+            annotated_indices = self._get_annotated_frame_indices(layer)
             # Get the next index after the current one
             prev_idx = np.where(annotated_indices < current_timeline_idx)[0]
             if prev_idx.size > 0:
