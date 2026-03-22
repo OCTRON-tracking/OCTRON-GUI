@@ -2,7 +2,6 @@ import numpy as np
 from napari.utils.notifications import show_warning
 
 from octron.cotracker_octron.helpers.cotracker_zarr import (
-    create_trajectory_zarr,
     mark_keypoints_annotated,
     unmark_keypoints_annotated,
     write_frame_tracks,
@@ -89,7 +88,7 @@ class cotracker_octron_callbacks:
             return
 
         # Initialise points in predictor and zarr stores per layer
-        self.map_obj_id_to_zarr_root = self._init_predictor_and_zarr_stores(
+        self.map_obj_id_to_zarr_root = self._init_predictor(
             list_cotracker_annot_layers,
         )
 
@@ -98,11 +97,9 @@ class cotracker_octron_callbacks:
             list_cotracker_annot_layers, self.map_obj_id_to_zarr_root
         )
 
-    def _init_predictor_and_zarr_stores(self, annotation_layers):
-        """Reset predictor, ensure each layer has a zarr store,
-        and register all annotated points in the cotracker model.
-
-        It adds newly created zarr stores to layer.metadata["_zarr_root"].
+    def _init_predictor(self, annotation_layers):
+        """Reset predictor and register all annotated points in the
+        cotracker model.
 
         Returns {obj_id: zarr_root}.
         """
@@ -114,25 +111,8 @@ class cotracker_octron_callbacks:
         for layer in annotation_layers:
             obj_id = layer.metadata["_obj_id"]
 
-            # Get zarr root for this layer
-            # (create if it doesnt exist)
-            zarr_root = layer.metadata.get("_zarr_root", None)
-            if zarr_root is None:
-                # TODO: remove spaces from zarr name
-                # (kept here only for consistency with the rest of codebase)
-                zarr_name = f"{layer.name} tracks"
-                zarr_path = self.octron.project_path_video / f"{zarr_name}.zarr"
-
-                n_frames_video = self.octron.video_layer.metadata["num_frames"]
-                n_total_kpts = self.octron.skeleton_definition.n_keypoints
-                zarr_root = create_trajectory_zarr(
-                    zarr_path,
-                    n_frames_video,
-                    n_total_kpts,
-                    video_hash_abbrev=self.octron.current_video_hash,
-                )
-                layer.metadata["_zarr_root"] = zarr_root
-
+            # Get zarr root for this layer (created upfront in create_annotation_layers)
+            zarr_root = layer.metadata["_zarr_root"]
             map_obj_id_to_zarr_root[obj_id] = zarr_root
 
             # Register points per frame in cotracker model
@@ -254,7 +234,7 @@ class cotracker_octron_callbacks:
         if not list_cotracker_annot_layers:
             return
 
-        self.map_obj_id_to_zarr_root = self._init_predictor_and_zarr_stores(
+        self.map_obj_id_to_zarr_root = self._init_predictor(
             list_cotracker_annot_layers,
         )
 

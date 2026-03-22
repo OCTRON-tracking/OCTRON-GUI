@@ -70,7 +70,10 @@ from octron.cotracker_octron.helpers.cotracker_layer_callback import (
 )
 from octron.cotracker_octron.helpers.cotracker_octron import CoTracker_octron
 from octron.cotracker_octron.helpers.skeleton_definition import SkeletonDefinition
-from octron.cotracker_octron.helpers.cotracker_zarr import load_trajectory_zarr
+from octron.cotracker_octron.helpers.cotracker_zarr import (
+    create_trajectory_zarr,
+    load_trajectory_zarr,
+)
 
 # Custom dialog boxes
 from octron.gui_dialog_elements import (
@@ -790,18 +793,18 @@ class octron_widget(QWidget):
         """
         # Model-specific cleanup
         if isinstance(self.predictor, CoTracker_octron):
-            # Build one Tracks layer per object from zarr results
+            # Update existing Tracks layers with new zarr results
             zarr_roots = getattr(self.octron_cotracker_callbacks, 'map_obj_id_to_zarr_root', {})
             for obj_id, zarr_root in zarr_roots.items():
                 entry = self.object_organizer.get_entry(obj_id)
-                layer_name = f"{entry.label} {entry.suffix} tracks"
                 add_cotracker_tracks_layer(
                     viewer=self._viewer,
-                    name=layer_name,
+                    name=f"{entry.label} {entry.suffix} tracks",
                     zarr_root=zarr_root,
                     obj_id=obj_id,
                     n_keypoints=self.skeleton_definition.n_keypoints,
                     skeleton_definition=self.skeleton_definition,
+                    existing_layer=entry.prediction_layer,
                 )
         else:
             # SAM2/SAM3-specific cleanup
@@ -1912,12 +1915,14 @@ class octron_widget(QWidget):
 
         layer_name = f"{label} {label_suffix}".strip() # This is used in all layer names
         
-        ######### Create a new prediction (mask) layer  ######################################################### 
-        
-        if create_prediction_layer:
+        ######### Create a new prediction layer  ################################################################
+        is_cotracker = model_type == 'cotracker' or isinstance(self.predictor, CoTracker_octron)
+
+        if create_prediction_layer and not is_cotracker:
+            # SAM2/SAM3: create a mask (Labels) layer
             prediction_layer_name = f"{layer_name} masks"
-            mask_colors = DirectLabelColormap(color_dict={None: [0.,0.,0.,0.], 1: obj_color}, 
-                                              use_selection=True, 
+            mask_colors = DirectLabelColormap(color_dict={None: [0.,0.,0.,0.], 1: obj_color},
+                                              use_selection=True,
                                               selection=1,
                                               )
             prediction_layer, zarr_data, zarr_file_path = add_sam2_mask_layer(viewer=self._viewer,
@@ -1939,12 +1944,47 @@ class octron_widget(QWidget):
             prediction_layer.metadata['_zarr'] = zarr_file_path.relative_to(self.project_path)
             prediction_layer.metadata['_hash'] = self.current_video_hash
             try:
-                # By default, try to extract a relative file path. 
-                # This enables users to move the project folder around without breaking the link.
                 prediction_layer.metadata['_video_file_path'] = Path(self.video_layer.metadata['video_file_path']).relative_to(self.project_path)
             except ValueError:
-                # If the video file is not in a subdirectory of the project folder,
-                # save the absolute path instead.
+                prediction_layer.metadata['_video_file_path'] = Path(self.video_layer.metadata['video_file_path'])
+            organizer_entry.prediction_layer = prediction_layer
+
+        elif create_prediction_layer and is_cotracker:
+            # CoTracker: create a tracks layer (with placeholder if zarr is empty)
+            prediction_layer_name = f"{layer_name} tracks"
+            zarr_path = self.project_path_video / f"{prediction_layer_name}.zarr"
+            n_frames = self.video_layer.metadata["num_frames"]
+            n_keypoints = self.skeleton_definition.n_keypoints
+
+            # Load existing zarr or create a fresh one
+            zarr_root = None
+            if zarr_path.exists():
+                zarr_root, _ = load_trajectory_zarr(
+                    zarr_path, num_frames=n_frames, n_keypoints=n_keypoints,
+                )
+            if zarr_root is None:
+                zarr_root = create_trajectory_zarr(
+                    zarr_path, n_frames, n_keypoints,
+                    video_hash_abbrev=self.current_video_hash,
+                )
+
+            prediction_layer = add_cotracker_tracks_layer(
+                viewer=self._viewer,
+                name=prediction_layer_name,
+                zarr_root=zarr_root,
+                obj_id=obj_id,
+                n_keypoints=n_keypoints,
+                skeleton_definition=self.skeleton_definition,
+            )
+            # Set same metadata keys as SAM2/SAM3
+            prediction_layer.metadata['_name'] = prediction_layer_name
+            prediction_layer.metadata['_obj_id'] = obj_id
+            prediction_layer.metadata['_zarr'] = zarr_path.relative_to(self.project_path)
+            prediction_layer.metadata['_zarr_root'] = zarr_root
+            prediction_layer.metadata['_hash'] = self.current_video_hash
+            try:
+                prediction_layer.metadata['_video_file_path'] = Path(self.video_layer.metadata['video_file_path']).relative_to(self.project_path)
+            except ValueError:
                 prediction_layer.metadata['_video_file_path'] = Path(self.video_layer.metadata['video_file_path'])
             organizer_entry.prediction_layer = prediction_layer
 
@@ -1995,17 +2035,9 @@ class octron_widget(QWidget):
             annotation_layer.metadata['_model_type'] = 'cotracker'
             organizer_entry.annotation_layer = annotation_layer
 
-            # Load existing trajectory zarr if present (e.g. project reload)
-            zarr_name = f"{layer_name} tracks"
-            zarr_path = self.project_path_video / f"{zarr_name}.zarr"
-            if zarr_path.exists():
-                zarr_root, status = load_trajectory_zarr(
-                    zarr_path,
-                    num_frames=self.video_layer.metadata["num_frames"],
-                    n_keypoints=self.skeleton_definition.n_keypoints,
-                )
-                if status:
-                    annotation_layer.metadata["_zarr_root"] = zarr_root
+            # Link annotation layer to the zarr from the prediction layer
+            if organizer_entry.prediction_layer is not None:
+                annotation_layer.metadata["_zarr_root"] = organizer_entry.prediction_layer.metadata.get("_zarr_root")
 
             # Connect callback
             if hasattr(self, 'octron_cotracker_callbacks'):
@@ -2040,7 +2072,7 @@ class octron_widget(QWidget):
         self.label_list_combobox.setCurrentIndex(0)
         self.layer_type_combobox.setCurrentIndex(0)
 
-        return annotation_layer, prediction_layer, organizer_entry
+        return annotation_layer, organizer_entry.prediction_layer, organizer_entry
     
 
     def create_annotation_projections(self):

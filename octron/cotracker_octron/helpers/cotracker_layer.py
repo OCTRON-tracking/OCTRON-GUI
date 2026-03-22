@@ -59,6 +59,11 @@ def add_cotracker_tracks_layer(
 ):
     """Build and add (or update) a napari Tracks layer for a single object.
 
+    If ``existing_layer`` is provided, its data is updated in place.
+    Otherwise a new layer is created. When the zarr contains no visible
+    tracks yet (e.g. freshly created), a single placeholder row is used
+    so napari can instantiate the layer, and the layer starts hidden.
+
     Parameters
     ----------
     viewer : napari.Viewer
@@ -78,27 +83,32 @@ def add_cotracker_tracks_layer(
 
     Returns
     -------
-    tracks_layer : napari.layers.Tracks or None
-        The created or updated tracks layer, or None if no visible tracks.
+    tracks_layer : napari.layers.Tracks
+        The created or updated tracks layer.
     """
+    # Get data for tracks layer
     tracks_data, track_colors = _build_tracks_array_from_zarr(
         zarr_root, obj_id, n_keypoints, skeleton_definition
     )
 
-    if not len(tracks_data):
-        return None
+    # If zarr store has no data: use placeholder array
+    zarr_has_data = len(tracks_data) > 0
+    if not zarr_has_data:
+        tracks_data = np.zeros((1, 4), dtype=np.float32)
+        track_colors = None
 
-    # Update existing layer if provided
+    # If layer provided: update it with data
     if existing_layer is not None:
         existing_layer.data = tracks_data
+        existing_layer.visible = True
         return existing_layer
-
-    kwargs = {"name": name, "tail_length": 10}
-    if track_colors is not None:
-        kwargs["color_by"] = "track_id"
-
-    tracks_layer = viewer.add_tracks(tracks_data, **kwargs)
-    return tracks_layer
+    # Else add a new tracks layer
+    else:
+        kwargs = {"name": name, "tail_length": 10, "visible": zarr_has_data}
+        if track_colors is not None:
+            kwargs["color_by"] = "track_id"
+        tracks_layer = viewer.add_tracks(tracks_data, **kwargs)
+        return tracks_layer
 
 
 def _build_tracks_array_from_zarr(
