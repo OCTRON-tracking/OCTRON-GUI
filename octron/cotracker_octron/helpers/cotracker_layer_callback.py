@@ -173,7 +173,13 @@ class cotracker_octron_callbacks:
         current_frame, end_frame, step_frames = self._get_prediction_frame_range(
             chunk_override=chunk_override,
         )
-        n_frames_to_process = len(range(current_frame, end_frame + 1, step_frames))
+        frame_indices = list(range(current_frame, end_frame + 1, step_frames))
+        n_frames_to_process = len(frame_indices)
+
+        # Prefetch all frames into the zarr cache so that propagate_in_video
+        # only reads from zarr (this is to avoid clashes with FFmpeg decoding
+        # for the napari viewer)
+        _ = self.octron.predictor.images[frame_indices]
 
         # Run prediction
         counter = 0

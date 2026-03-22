@@ -778,7 +778,7 @@ class octron_widget(QWidget):
         # Update progress bar
         self.batch_predict_progressbar.setValue(progress)
 
-        # Advance viewer to current frame
+        # Advance viewer to current frame (follow prediction in viewer)
         if self._viewer.dims.current_step[0] != frame_idx and not last_run:
             self._viewer.dims.set_point(0, frame_idx)
 
