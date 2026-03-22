@@ -101,6 +101,7 @@ def add_cotracker_tracks_layer(
     if existing_layer is not None:
         existing_layer.data = tracks_data
         existing_layer.visible = True
+        existing_layer.refresh()
         return existing_layer
     # Else add a new tracks layer
     else:
