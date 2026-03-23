@@ -3,11 +3,12 @@
 # NOTE: 
 # This largely replicates the functionality of the SAM2VideoPredictor class from the SAM2 HQ library
 
-import os 
+import os
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1" # Leaving this here out of pure desperation
 
 from collections import OrderedDict
 import torch
+from loguru import logger
 from sam2.modeling.sam2_hq_base import SAM2HQBase, NO_OBJ_SCORE
 from sam2.utils.misc import concat_points
 
@@ -43,7 +44,7 @@ class SAM2_octron_hq(SAM2HQBase):
         super().__init__(**kwargs)
        
         
-        print('Loaded SAM2 HQ VideoPredictor OCTRON')
+        logger.info('Loaded SAM2 HQ VideoPredictor OCTRON')
         
     @torch.inference_mode()
     def init_state(
@@ -119,7 +120,7 @@ class SAM2_octron_hq(SAM2HQBase):
         inference_state["frames_already_tracked"] = {}
         # Warm up the visual backbone and cache the image feature on frame 0
         self._get_image_feature(inference_state, frame_idx=0, batch_size=1)
-        print('🚀 Initialized SAM2 HQ model')
+        logger.info('🚀 Initialized SAM2 HQ model')
         
         self.video_data = video_data            
         self.perform_morphological_operations = False
@@ -154,9 +155,9 @@ class SAM2_octron_hq(SAM2HQBase):
             }
             return obj_idx
         else:
-            print(f"⚠️ Cannot add a new label (id={obj_id}) after batch prediction has already run.")
-            print(f"You can only annotate existing labels: {inference_state['obj_ids']}")
-            print(f"To add additional labels, reset the predictor first (click 'Reset').")
+            logger.warning(f"⚠️ Cannot add a new label (id={obj_id}) after batch prediction has already run.")
+            logger.warning(f"You can only annotate existing labels: {inference_state['obj_ids']}")
+            logger.warning(f"To add additional labels, reset the predictor first (click 'Reset').")
             return
     
     
@@ -838,7 +839,7 @@ class SAM2_octron_hq(SAM2HQBase):
                 )
                 yield frame_idx, obj_ids, video_res_masks
         except Exception as e:
-            print(e)
+            logger.exception(e)
             raise
         
     def _add_output_per_object(
