@@ -3,6 +3,7 @@ from shutil import rmtree
 import json
 import datetime
 import numpy as np
+from loguru import logger
 from octron.sam_octron.helpers.sam2_zarr import get_annotated_frames
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Union, Dict, List, Any
@@ -195,7 +196,7 @@ class ObjectOrganizer(BaseModel):
             raise ValueError(f"ID {id_} already exists.")
         if self.exists_combination(entry.label, entry.suffix):
             if entry.annotation_layer is not None:
-                print(f"Combination ({entry.label}, {entry.suffix}) already exists.")
+                logger.warning(f"Combination ({entry.label}, {entry.suffix}) already exists.")
                 return False
         # Check if label already exists and assign label_id accordingly.
         if entry.label in self.label_id_map:
@@ -265,7 +266,7 @@ class ObjectOrganizer(BaseModel):
             "time_last_changed": datetime.datetime.now().isoformat()  # Add current timestamp in ISO format
         }
         if not self.entries:
-            print("⚠️ No entries to save. Deleting object organizer file and zarr files.")
+            logger.warning("⚠️ No entries to save. Deleting object organizer file and zarr files.")
             if file_path.exists():
                 file_path.unlink()
             for zarr_file in file_path.parent.rglob('*.zarr'):
@@ -323,11 +324,11 @@ class ObjectOrganizer(BaseModel):
             
         # Write to file
         if file_path.exists():
-            print(f"⚠️ Overwriting existing file at {file_path.as_posix()}")
+            logger.warning(f"⚠️ Overwriting existing file at {file_path.as_posix()}")
             file_path.unlink()
         with open(file_path, 'w') as f:
             json.dump(serializable_data, f, indent=2)
-        print(f"💾 Octron object organizer saved to {file_path.as_posix()}")
+        logger.info(f"💾 Octron object organizer saved to {file_path.as_posix()}")
         
 
 

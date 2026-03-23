@@ -1,4 +1,5 @@
 # Plotting helpers
+from loguru import logger
 
 def make_linear_colormap(array, 
                          cmap='magma', 
@@ -47,7 +48,8 @@ def make_linear_colormap(array,
         # Check what format the colormap is in 
         if isinstance(cmap, list):
             color_palette = cmap
-            if len(color_palette) < 100: print('Warning! Less than 100 distinct colors - is that what you want?')
+            if len(color_palette) < 100:
+                logger.warning('Less than 100 distinct colors - is that what you want?')
         elif isinstance(cmap, str):
             # ... create from scratch
             color_palette = sns.color_palette(cmap, len(array), desat)

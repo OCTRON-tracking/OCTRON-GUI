@@ -1,8 +1,9 @@
 
-import os 
+import os
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch
+from loguru import logger
 from ultralytics.models.sam.build_sam3 import build_interactive_sam3
 
 
@@ -58,7 +59,7 @@ def build_sam3_octron(
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
     elif device.type == "mps":
-        print(
+        logger.info(
             "⚠️ Support for MPS devices is preliminary. SAM 3 is trained with CUDA and might "
             "give numerically different outputs and sometimes degraded performance on MPS. "
         )
@@ -78,7 +79,7 @@ def build_sam3_octron(
     tracker = SAM3_octron(model=sam3_model, device=device)
     
     if not semantic:
-        print('Loaded SAM3 OCTRON – Mode A (interactive tracking)')
+        logger.info('Loaded SAM3 OCTRON – Mode A (interactive tracking)')
         return tracker, device
     
     # --- Mode B: also build the semantic detector ---
@@ -99,5 +100,5 @@ def build_sam3_octron(
         detector_ckpt_path=sem_ckpt,
     )
     
-    print('Loaded SAM3 OCTRON – Mode B (semantic detection + tracking)')
+    logger.info('Loaded SAM3 OCTRON – Mode B (semantic detection + tracking)')
     return predictor, device

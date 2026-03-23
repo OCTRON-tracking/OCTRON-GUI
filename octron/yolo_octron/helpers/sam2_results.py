@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import warnings
 # Plugins
+from loguru import logger
 from scipy.ndimage import gaussian_filter1d
 from skimage.morphology import remove_small_holes, binary_closing, disk
 from tqdm import tqdm
@@ -74,15 +75,15 @@ class ANNOT_results:
                     elif line.startswith('Video path:'):
                         video_path = Path(line.split(':', 1)[1].strip())
             if creation_date:
-                print(f"Annotations first started on: {creation_date}")
+                logger.info(f"Annotations first started on: {creation_date}")
             if video_path:
-                print(f"Video file name: {video_path.name}")
+                logger.info(f"Video file name: {video_path.name}")
    
    
     def find_zarrs(self):
         self.zarr_archives = natsorted(Path(self.annotation_dir).rglob('[!video]*.zarr'))
         if self.verbose:
-            print(f'Found {len(self.zarr_archives)} zarr archives\n{self.zarr_archives}')
+            logger.info(f'Found {len(self.zarr_archives)} zarr archives\n{self.zarr_archives}')
                
     def create_zarr_dict(self):
         """
@@ -110,7 +111,7 @@ class ANNOT_results:
                 self.height = example_array.shape[1] if len(example_array.shape) > 1 else None
                 self.width = example_array.shape[2] if len(example_array.shape) > 2 else None   
                 if self.verbose:
-                    print(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
+                    logger.debug(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
             # Check which indices are empty 
             self.frame_indices_dict[label_name] = get_annotated_frames(self.zarr_dict[label_name])
     
@@ -127,7 +128,7 @@ class ANNOT_results:
         for label, masks in self.zarr_dict.items():
             self.tracking_dict[label] = {}
             if self.verbose:
-                print(f"Calculating centroids for {label}...")
+                logger.info(f"Calculating centroids for {label}...")
                 
             df_list = []
             for frame_idx, m in tqdm(enumerate(masks), disable=not self.verbose, total=masks.shape[0]): 
@@ -135,7 +136,7 @@ class ANNOT_results:
                     props = regionprops(m.astype(int))
                     if len(props) > 1:
                         # For now, taking the largest
-                        print(f"Warning: Multiple regions found for {label} at frame idx {frame_idx}. Using the largest one.")
+                        logger.warning(f"Multiple regions found for {label} at frame idx {frame_idx}. Using the largest one.")
                         largest_region = max(props, key=lambda x: x.area)
                         centroid = largest_region.centroid
                     elif len(props) == 1:

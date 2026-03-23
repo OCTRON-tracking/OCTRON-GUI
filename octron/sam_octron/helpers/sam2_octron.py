@@ -1,12 +1,13 @@
 # Main SAM2 predictor class for OCTRON
 # This class is a subclass of the SAM2VideoPredictor class from the SAM2 library
 
-import os 
+import os
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1" # Leaving this here out of pure desperation
 
 from collections import OrderedDict
 import torch
 import numpy as np
+from loguru import logger
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 from sam2.utils.misc import concat_points    
 
@@ -46,7 +47,7 @@ class SAM2_octron(SAM2VideoPredictor):
         super().__init__(**kwargs)
        
         
-        print('Loaded SAM2VideoPredictor OCTRON')
+        logger.info('Loaded SAM2VideoPredictor OCTRON')
         
     @torch.inference_mode()
     def init_state(
@@ -108,7 +109,7 @@ class SAM2_octron(SAM2VideoPredictor):
         
         # Warm up the visual backbone and cache the image feature on frame 0
         self._get_image_feature(inference_state, frame_idx=0, batch_size=1)
-        print('🚀 Initialized SAM2 model')
+        logger.info('🚀 Initialized SAM2 model')
         
         self.video_data = video_data            
         
@@ -320,7 +321,7 @@ class SAM2_octron(SAM2VideoPredictor):
                 )
                 yield frame_idx, obj_ids, video_res_masks
         except Exception as e:
-            print(e)
+            logger.exception(e)
             pass
 
             
@@ -365,7 +366,7 @@ class SAM2_octron(SAM2VideoPredictor):
         try:
             old_obj_idx_to_rm = self.inference_state["obj_id_to_idx"].get(obj_id, None)
         except AttributeError as e:
-            print(e)
+            logger.exception(e)
             return
         updated_frames = []
         # Check whether this object_id to remove actually exists and possibly raise an error.
