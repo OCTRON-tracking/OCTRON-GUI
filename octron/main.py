@@ -867,7 +867,8 @@ class octron_widget(QWidget):
             self.prediction_worker.start()
             return
         
-        elif isinstance(self.predictor, SAM3_semantic_octron):
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+        if isinstance(self.predictor, SAM3_semantic_octron):
             # Only rebuild the mapping when there are NEW accumulated masks to
             # register.  On repeated propagation clicks (no new annotations) the
             # tracker still holds the objects from the previous run, so the
@@ -879,7 +880,7 @@ class octron_widget(QWidget):
             # when the tracker is rebuilt — not just the label that
             # triggered the new detection.
             tracker_needs_rebuild = (
-                not self.predictor.inference_state.get('tracking_has_started', False)
+                not (self.predictor.inference_state or {}).get('tracking_has_started', False)
                 and any(
                     hasattr(e, '_semantic_accumulated_masks') and e._semantic_accumulated_masks
                     for e in self.object_organizer.entries.values()
