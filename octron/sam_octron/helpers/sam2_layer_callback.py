@@ -1,22 +1,16 @@
 # OCTRON SAM2 related callbacks
 import time
-import numpy as np
-import cmasher as cmr
-from napari.utils import DirectLabelColormap
-from octron.sam_octron.helpers.sam2_octron import (
-    SAM2_octron,
-    run_new_pred,
-)
-from octron.sam_octron.helpers.sam2_colors import sample_maximally_different, create_semantic_colormap
-from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
-from napari.utils.notifications import (
-    show_warning,
-    show_info,
-    show_error,
-)
+import warnings
 
-import warnings 
+import numpy as np
+from napari.utils.notifications import show_error, show_warning
+
+from octron.sam_octron.helpers.sam2_colors import create_semantic_colormap
+from octron.sam_octron.helpers.sam2_octron import run_new_pred
+from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
+
 warnings.simplefilter("ignore")
+
 
 class sam2_octron_callbacks():
     """
@@ -164,7 +158,6 @@ class sam2_octron_callbacks():
             # Catching all above with ['added','removed','changed']
             pass
         return
-    
     
     def _handle_semantic_box_detection(
         self,
@@ -356,7 +349,6 @@ class sam2_octron_callbacks():
         
         return id_mask
     
-    
     def on_points_changed(self, event):
         """
         Callback function for napari annotation "Points" layer.
@@ -454,7 +446,6 @@ class sam2_octron_callbacks():
             pass
         return    
     
-    
     def prefetch_images(self):
         """
         Thread worker for prefetching images for fast processing in the viewer
@@ -464,6 +455,7 @@ class sam2_octron_callbacks():
         """
         predictor = self.octron.predictor
         assert predictor, "No model loaded."
+
         self.octron.init_sam2_model() # This initializes the model if it is not yet initialized
         
         viewer = self.octron._viewer    
@@ -506,7 +498,6 @@ class sam2_octron_callbacks():
             t1 = time.perf_counter()
             print(f'⚡️ Pre-computed backbone features for {len(prefetch_indices)} frames in {t1-t0:.2f}s')
 
-    
     def next_predict(self):
         """
         Threaded function to run the predictor forward on exactly one frame.
@@ -556,19 +547,15 @@ class sam2_octron_callbacks():
         self.octron.chunk_size = chunk_size_real
         return
 
-    
     def batch_predict(self):
         """
         Threaded function to run the predictor forward on a batch of frames.
         Uses SAM2 => propagate_in_video function.
         
         """
-
-        skip_frames = self.octron.skip_frames_spinbox.value()
-        if skip_frames < 1:
-            skip_frames = 1 # Just hard reset any unrealistic values here
-        elif skip_frames >= 1: # The user expects that the skip_frames are 1-based!
-            skip_frames +=1
+        # Spinbox value + 1 = step value
+        # The user expects that the skip_frames are 1-based!
+        skip_frames = self.octron.skip_frames_spinbox.value() + 1
         self.octron.skip_frames = skip_frames  
 
         # Prefetch images if they are not cached yet 

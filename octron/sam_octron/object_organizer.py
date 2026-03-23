@@ -278,14 +278,16 @@ class ObjectOrganizer(BaseModel):
             # Then add metadata info back in 
             # Add metadata about the annotation layer
             if obj.annotation_layer is not None:
-                serializable_obj["annotation_layer_metadata"] = {
+                annot_meta = {
                     "name": obj.annotation_layer.name,
                     "type": obj.annotation_layer._basename(),  # 'Shapes' or 'Points'
                     "visible": obj.annotation_layer.visible,
                     "opacity": obj.annotation_layer.opacity,
+                    "model_type": obj.annotation_layer.metadata.get("_model_type"),
                 }
-            # Add metadata about the prediction (mask, ... ) layer
-            if obj.prediction_layer is not None:
+                serializable_obj["annotation_layer_metadata"] = annot_meta
+            # Add metadata about the prediction layer (Labels for SAM, Points for CoTracker)
+            if obj.prediction_layer is not None and obj.prediction_layer._basename() == 'Labels':
                 prediction_layer_data = obj.prediction_layer.data
                 prediction_layer_meta = obj.prediction_layer.metadata
                 predicted_indices = get_annotated_frames(prediction_layer_data)
@@ -318,7 +320,19 @@ class ObjectOrganizer(BaseModel):
                 # Add zarr file path if it exists in metadata
                 if hasattr(obj.prediction_layer, 'metadata') and '_zarr' in obj.prediction_layer.metadata:
                     serializable_obj["prediction_layer_metadata"]["zarr_path"] = obj.prediction_layer.metadata['_zarr'].as_posix()
-            
+
+            elif obj.prediction_layer is not None and obj.prediction_layer._basename() == 'Points':
+                prediction_layer_meta = obj.prediction_layer.metadata
+                serializable_obj["prediction_layer_metadata"] = {
+                    "name": obj.prediction_layer.name,
+                    "type": "CoTrackerPoints",
+                    "visible": obj.prediction_layer.visible,
+                    "opacity": obj.prediction_layer.opacity,
+                    "zarr_path": prediction_layer_meta['_zarr'].as_posix(),
+                    "video_file_path": prediction_layer_meta['_video_file_path'].as_posix(),
+                    "video_hash": prediction_layer_meta['_hash'],
+                }
+
             serializable_data["entries"][str(obj_id)] = serializable_obj  # Convert key to string for JSON compatibility
             
         # Write to file
