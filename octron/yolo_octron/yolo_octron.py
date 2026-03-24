@@ -40,7 +40,7 @@ from octron.yolo_octron.helpers.polygons import (find_objects_in_mask,
 from octron.yolo_octron.helpers.yolo_zarr import (create_prediction_store, 
                                                   create_prediction_zarr
 )
-from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
+from octron.sam_octron.helpers.sam_zarr import mark_frames_annotated
 from octron.tracking.helpers.tracker_checks import (load_boxmot_trackers, 
                                                     load_boxmot_tracker_config,
                                                     resolve_tracker,

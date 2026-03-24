@@ -8,8 +8,9 @@ from octron.sam_octron.helpers.sam2_octron import (
     SAM2_octron,
     run_new_pred,
 )
-from octron.sam_octron.helpers.sam2_colors import sample_maximally_different, create_semantic_colormap
-from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
+from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+from octron.sam_octron.helpers.octron_colors import sample_maximally_different, create_semantic_colormap
+from octron.sam_octron.helpers.sam_zarr import mark_frames_annotated
 from napari.utils.notifications import (
     show_warning,
     show_info,
@@ -19,7 +20,7 @@ from napari.utils.notifications import (
 import warnings 
 warnings.simplefilter("ignore")
 
-class sam2_octron_callbacks():
+class sam_octron_callbacks():
     """
     Callback for octron and SAM2.
     """
@@ -67,7 +68,6 @@ class sam2_octron_callbacks():
             
             # SAM3 semantic mode: all shape editing is deferred to the
             # "▷ Run" button, so ignore every callback here.
-            from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
             if isinstance(predictor, SAM3_semantic_octron):
                 # Disable batch predict buttons while unprocessed rectangles exist
                 if action == 'added':
@@ -107,7 +107,6 @@ class sam2_octron_callbacks():
                 top_left, bottom_right = box[top_left_idx,:], box[bottom_right_idx,:]
                 
                 # Check if Mode B (semantic detection) is active
-                from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
                 if isinstance(predictor, SAM3_semantic_octron):
                     # Mode B: rectangles stay on canvas until the user
                     # clicks the "▷ Run" button to feed them to the predictor.

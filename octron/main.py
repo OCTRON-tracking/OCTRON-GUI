@@ -32,7 +32,7 @@ from octron.sam_octron.helpers.sam2_checks import check_sam2_models
 from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
 from octron.sam_octron.helpers.sam3_checks import check_sam3_models
 import zarr
-from octron.sam_octron.helpers.sam2_zarr import (
+from octron.sam_octron.helpers.sam_zarr import (
     create_image_zarr,
     load_image_zarr,
     get_annotated_frames,
@@ -78,15 +78,15 @@ from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
 from octron.tracking.helpers.tracker_vis import create_color_icon
 
 # Annotation layer creation tools
-from octron.sam_octron.helpers.sam2_layer import (
-    add_sam2_mask_layer,
-    add_sam2_shapes_layer,
-    add_sam2_points_layer,
+from octron.sam_octron.helpers.sam_layer import (
+    add_sam_mask_layer,
+    add_sam_shapes_layer,
+    add_sam_points_layer,
     add_annotation_projection,
-)                
+)
 
 # Layer callbacks classes
-from octron.sam_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
+from octron.sam_octron.helpers.sam_layer_callback import sam_octron_callbacks
 
 # OCTRON Object organizer
 from octron.sam_octron.object_organizer import Obj, ObjectOrganizer
@@ -210,9 +210,9 @@ class octron_widget(QWidget):
         # Connect (global) GUI callbacks 
         self.gui_callback_functions()
         # Connect layer specific callbacks
-        self.octron_sam2_callbacks = sam2_octron_callbacks(self)
+        self.sam_octron_callbacks = sam_octron_callbacks(self)
         self.feed_input_to_predictor_btn.clicked.connect(
-            self.octron_sam2_callbacks.feed_rectangles_to_predictor
+            self.sam_octron_callbacks.feed_rectangles_to_predictor
         )
         print(f'OCTRON GUI v{octron_version} initialized')
 
@@ -869,14 +869,14 @@ class octron_widget(QWidget):
         self.predict_video_drop_groupbox.setEnabled(False)
         self.predict_video_predict_groupbox.setEnabled(False)
         if sender == self.predict_next_batch_btn:
-            self.prediction_worker = create_worker(self.octron_sam2_callbacks.batch_predict)
+            self.prediction_worker = create_worker(self.sam_octron_callbacks.batch_predict)
             self.prediction_worker.setAutoDelete(True)
             self.prediction_worker.yielded.connect(self._batch_predict_yielded)
             self.prediction_worker.finished.connect(self._on_prediction_finished)
             self.prediction_worker.start()
         elif sender == self.predict_next_oneframe_btn:
             self.batch_predict_progressbar.setMaximum(1)
-            self.prediction_worker_one = create_worker(self.octron_sam2_callbacks.next_predict)
+            self.prediction_worker_one = create_worker(self.sam_octron_callbacks.next_predict)
             self.prediction_worker_one.setAutoDelete(True)
             self.prediction_worker_one.yielded.connect(self._batch_predict_yielded)
             self.prediction_worker_one.finished.connect(self._on_prediction_finished)
@@ -1662,7 +1662,7 @@ class octron_widget(QWidget):
         # Add to list of zarrs for cleanup upon closing
         self.all_zarrs.append(self.video_zarr)
         # Set up thread worker to deal with prefetching batches of images
-        self.prefetcher_worker = create_worker(self.octron_sam2_callbacks.prefetch_images)
+        self.prefetcher_worker = create_worker(self.sam_octron_callbacks.prefetch_images)
         self.prefetcher_worker.setAutoDelete(False)
         self.prefetcher_worker.start()
         
@@ -1819,7 +1819,7 @@ class octron_widget(QWidget):
                                               use_selection=True, 
                                               selection=1,
                                               )
-            prediction_layer, zarr_data, zarr_file_path = add_sam2_mask_layer(viewer=self._viewer,
+            prediction_layer, zarr_data, zarr_file_path = add_sam_mask_layer(viewer=self._viewer,
                                                                  video_layer=self.video_layer,
                                                                  name=prediction_layer_name,
                                                                  project_path=self.project_path_video,
@@ -1862,7 +1862,7 @@ class octron_widget(QWidget):
                     for m in self.sam3models_dict.values()
                     if m['name'] == self.loaded_model_name
                 )
-            annotation_layer = add_sam2_shapes_layer(viewer=self._viewer,
+            annotation_layer = add_sam_shapes_layer(viewer=self._viewer,
                                                      name=annotation_layer_name,
                                                      color=obj_color,
                                                      semantic_mode=semantic_mode,
@@ -1872,7 +1872,7 @@ class octron_widget(QWidget):
             annotation_layer.metadata['_hash'] = self.current_video_hash
             organizer_entry.annotation_layer = annotation_layer
             # Connect callback
-            annotation_layer.events.data.connect(self.octron_sam2_callbacks.on_shapes_changed)
+            annotation_layer.events.data.connect(self.sam_octron_callbacks.on_shapes_changed)
             logger.info(f"Created new mask + annotation layer '{layer_name}'")
             
             
@@ -1880,7 +1880,7 @@ class octron_widget(QWidget):
             # Create a point layer
             annotation_layer_name = f"{layer_name} points"
             # Create a shape layer
-            annotation_layer = add_sam2_points_layer(viewer=self._viewer,
+            annotation_layer = add_sam_points_layer(viewer=self._viewer,
                                                      name=annotation_layer_name,
                                                      )
             annotation_layer.metadata['_name']   = annotation_layer_name 
@@ -1888,8 +1888,8 @@ class octron_widget(QWidget):
             annotation_layer.metadata['_hash'] = self.current_video_hash
             organizer_entry.annotation_layer = annotation_layer
             # Connect callback
-            annotation_layer.mouse_drag_callbacks.append(self.octron_sam2_callbacks.on_mouse_press)
-            annotation_layer.events.data.connect(self.octron_sam2_callbacks.on_points_changed)
+            annotation_layer.mouse_drag_callbacks.append(self.sam_octron_callbacks.on_mouse_press)
+            annotation_layer.events.data.connect(self.sam_octron_callbacks.on_points_changed)
             logger.info(f"Created new mask + annotation layer '{layer_name}'")
             
             

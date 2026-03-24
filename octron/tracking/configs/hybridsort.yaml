@@ -6,7 +6,47 @@ HybridSort:
       current_value: false
       default_value: false
       disabled: false
-      docstring: Whether to use Enhanced Correlation Coefficient for camera motion compensation
+      docstring: Whether to use Enhanced Correlation Coefficient for camera motion
+        compensation
+      gui_element: checkbox
+    EG_weight_high_score:
+      current_value: 4.6
+      default_value: 4.6
+      disabled: false
+      docstring: Embedding-Geometry weight for high confidence detections
+      gui_element: double_spin_box
+      range:
+      - 2.0
+      - 8.0
+    EG_weight_low_score:
+      current_value: 1.3
+      default_value: 1.3
+      disabled: false
+      docstring: Embedding-Geometry weight for low confidence detections
+      gui_element: double_spin_box
+      range:
+      - 0.5
+      - 3.0
+    TCM_byte_step:
+      current_value: true
+      default_value: true
+      disabled: false
+      docstring: Use Temporal Consistency Model in BYTE association step
+      gui_element: checkbox
+    TCM_byte_step_weight:
+      current_value: 1.0
+      default_value: 1.0
+      disabled: false
+      docstring: Weight for TCM in BYTE step
+      gui_element: double_spin_box
+      range:
+      - 0.5
+      - 2.0
+    TCM_first_step:
+      current_value: true
+      default_value: true
+      disabled: false
+      docstring: Use Temporal Consistency Model in first association step
       gui_element: checkbox
     TCM_first_step_weight:
       current_value: 0.0
@@ -17,6 +57,21 @@ HybridSort:
       range:
       - 0.0
       - 1.0
+    adapfs:
+      current_value: false
+      default_value: false
+      disabled: false
+      docstring: Adaptive feature smoothing
+      gui_element: checkbox
+    alpha:
+      current_value: 0.9
+      default_value: 0.9
+      disabled: false
+      docstring: Smoothing factor for appearance features
+      gui_element: double_spin_box
+      range:
+      - 0.7
+      - 0.99
     asso_func:
       current_value: iou
       default_value: iou
@@ -54,6 +109,15 @@ HybridSort:
       disabled: false
       docstring: Whether to use half-precision (fp16) for faster inference
       gui_element: checkbox
+    high_score_matching_thresh:
+      current_value: 0.7
+      default_value: 0.7
+      disabled: false
+      docstring: Matching threshold for high confidence detections
+      gui_element: double_spin_box
+      range:
+      - 0.5
+      - 0.9
     inertia:
       current_value: 0.05
       default_value: 0.05
@@ -76,8 +140,36 @@ HybridSort:
       current_value: false
       default_value: false
       disabled: true
-      docstring: Work with Oriented Bounding Boxes instead of standard axis-aligned bounding boxes
+      docstring: Work with Oriented Bounding Boxes instead of standard axis-aligned
+        bounding boxes
       gui_element: checkbox
+    longterm_bank_length:
+      current_value: 30
+      default_value: 30
+      disabled: false
+      docstring: Maximum number of frames to keep in long-term ReID bank
+      gui_element: spin_box
+      range:
+      - 10
+      - 60
+    longterm_reid_correction_thresh:
+      current_value: 0.4
+      default_value: 0.4
+      disabled: false
+      docstring: Threshold for ReID-based correction
+      gui_element: double_spin_box
+      range:
+      - 0.1
+      - 0.7
+    longterm_reid_correction_thresh_low:
+      current_value: 0.4
+      default_value: 0.4
+      disabled: false
+      docstring: Lower threshold for ReID-based correction
+      gui_element: double_spin_box
+      range:
+      - 0.1
+      - 0.7
     longterm_reid_weight:
       current_value: 0.0
       default_value: 0.0
@@ -87,6 +179,15 @@ HybridSort:
       range:
       - 0.0
       - 2.0
+    low_thresh:
+      current_value: 0.1
+      default_value: 0.1
+      disabled: false
+      docstring: Low threshold for BYTE association
+      gui_element: double_spin_box
+      range:
+      - 0.05
+      - 0.5
     max_age:
       current_value: 300
       default_value: 300
@@ -118,7 +219,8 @@ HybridSort:
       current_value: 80
       default_value: 80
       disabled: true
-      docstring: Total number of object classes that the tracker will handle (for per_class=True)
+      docstring: Total number of object classes that the tracker will handle (for
+        per_class=True)
       gui_element: spin_box
       range:
       - 1
@@ -127,52 +229,8 @@ HybridSort:
       current_value: true
       default_value: true
       disabled: false
-      docstring: Enables class-separated tracking. When true, tracks different object classes separately
-      gui_element: checkbox
-    use_byte:
-      current_value: true
-      default_value: true
-      disabled: false
-      docstring: Whether to use BYTE association in second association step
-      gui_element: checkbox
-    low_thresh:
-      current_value: 0.1
-      default_value: 0.1
-      disabled: false
-      docstring: Low threshold for BYTE association
-      gui_element: double_spin_box
-      range:
-      - 0.05
-      - 0.5
-    use_custom_kf:
-      current_value: true
-      default_value: true
-      disabled: false
-      docstring: Whether to use custom Kalman Filter implementation
-      gui_element: checkbox
-    longterm_bank_length:
-      current_value: 30
-      default_value: 30
-      disabled: false
-      docstring: Maximum number of frames to keep in long-term ReID bank
-      gui_element: spin_box
-      range:
-      - 10
-      - 60
-    alpha:
-      current_value: 0.9
-      default_value: 0.9
-      disabled: false
-      docstring: Smoothing factor for appearance features
-      gui_element: double_spin_box
-      range:
-      - 0.7
-      - 0.99
-    adapfs:
-      current_value: false
-      default_value: false
-      disabled: false
-      docstring: Adaptive feature smoothing
+      docstring: Enables class-separated tracking. When true, tracks different object
+        classes separately
       gui_element: checkbox
     track_thresh:
       current_value: 0.5
@@ -183,54 +241,18 @@ HybridSort:
       range:
       - 0.3
       - 0.7
-    EG_weight_high_score:
-      current_value: 4.6
-      default_value: 4.6
-      disabled: false
-      docstring: Embedding-Geometry weight for high confidence detections
-      gui_element: double_spin_box
-      range:
-      - 2.0
-      - 8.0
-    EG_weight_low_score:
-      current_value: 1.3
-      default_value: 1.3
-      disabled: false
-      docstring: Embedding-Geometry weight for low confidence detections
-      gui_element: double_spin_box
-      range:
-      - 0.5
-      - 3.0
-    TCM_first_step:
+    use_byte:
       current_value: true
       default_value: true
       disabled: false
-      docstring: Use Temporal Consistency Model in first association step
+      docstring: Whether to use BYTE association in second association step
       gui_element: checkbox
-    TCM_byte_step:
+    use_custom_kf:
       current_value: true
       default_value: true
       disabled: false
-      docstring: Use Temporal Consistency Model in BYTE association step
+      docstring: Whether to use custom Kalman Filter implementation
       gui_element: checkbox
-    TCM_byte_step_weight:
-      current_value: 1.0
-      default_value: 1.0
-      disabled: false
-      docstring: Weight for TCM in BYTE step
-      gui_element: double_spin_box
-      range:
-      - 0.5
-      - 2.0
-    high_score_matching_thresh:
-      current_value: 0.7
-      default_value: 0.7
-      disabled: false
-      docstring: Matching threshold for high confidence detections
-      gui_element: double_spin_box
-      range:
-      - 0.5
-      - 0.9
     with_longterm_reid:
       current_value: true
       default_value: true
@@ -243,24 +265,6 @@ HybridSort:
       disabled: false
       docstring: Enable long-term ReID-based track correction
       gui_element: checkbox
-    longterm_reid_correction_thresh:
-      current_value: 0.4
-      default_value: 0.4
-      disabled: false
-      docstring: Threshold for ReID-based correction
-      gui_element: double_spin_box
-      range:
-      - 0.1
-      - 0.7
-    longterm_reid_correction_thresh_low:
-      current_value: 0.4
-      default_value: 0.4
-      disabled: false
-      docstring: Lower threshold for ReID-based correction
-      gui_element: double_spin_box
-      range:
-      - 0.1
-      - 0.7
   reid_model: osnet_x1_0_market1501.pt
   tracker_type: hybridsort
   win_height: 650

@@ -186,7 +186,7 @@ def collect_labels(project_path,
     # Hiding some imports here to reduce initial loading time
     from napari_pyav._reader import FastVideoReader
     from octron.sam_octron.helpers.video_loader import get_vfile_hash
-    from octron.sam_octron.helpers.sam2_zarr import load_image_zarr, get_annotated_frames
+    from octron.sam_octron.helpers.sam_zarr import load_image_zarr, get_annotated_frames
 
     project_path = Path(project_path)
     assert project_path.exists(), f'Project path not found at {project_path.as_posix()}'

@@ -15,7 +15,7 @@ from kornia.morphology import closing as kornia_closing
 from torch import tensor as torch_tensor
 from skimage.morphology import disk
 
-from .sam2_zarr import OctoZarr
+from .sam_zarr import OctoZarr
 
 import warnings
 warnings.simplefilter("ignore")
