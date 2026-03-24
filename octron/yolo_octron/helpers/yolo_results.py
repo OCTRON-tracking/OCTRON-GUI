@@ -13,7 +13,7 @@ from napari.utils import DirectLabelColormap
 from scipy.ndimage import gaussian_filter1d
 from skimage.morphology import remove_small_holes, binary_closing, disk
 from tqdm import tqdm
-from octron.sam_octron.helpers.sam2_zarr import get_annotated_frames
+from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
 
 class YOLO_results:
     def __init__(self, results_dir, verbose=True, **kwargs):
@@ -329,9 +329,9 @@ class YOLO_results:
         we are looking up object IDs from the original model classes
         (See self.get_color_for_track_id())
         """
-        from octron.sam_octron.helpers.sam2_colors import (create_label_colors, 
-                                                            sample_maximally_different
-                                                           )
+        from octron.sam_octron.helpers.octron_colors import (create_label_colors, 
+                                                             sample_maximally_different
+                                                             )
         all_labels_submaps = create_label_colors(n_labels=label_n,
                                                  n_colors_submap=n_colors_submap,
                                                 )

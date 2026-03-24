@@ -32,7 +32,7 @@ from octron.sam_octron.helpers.sam2_checks import check_sam2_models
 from octron.sam_octron.helpers.build_sam3_octron import build_sam3_octron
 from octron.sam_octron.helpers.sam3_checks import check_sam3_models
 import zarr
-from octron.sam_octron.helpers.sam2_zarr import (
+from octron.sam_octron.helpers.sam_zarr import (
     create_image_zarr,
     load_image_zarr,
     get_annotated_frames,
@@ -78,15 +78,15 @@ from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
 from octron.tracking.helpers.tracker_vis import create_color_icon
 
 # Annotation layer creation tools
-from octron.sam_octron.helpers.sam2_layer import (
-    add_sam2_mask_layer,
-    add_sam2_shapes_layer,
-    add_sam2_points_layer,
+from octron.sam_octron.helpers.sam_layer import (
+    add_sam_mask_layer,
+    add_sam_shapes_layer,
+    add_sam_points_layer,
     add_annotation_projection,
-)                
+)
 
 # Layer callbacks classes
-from octron.sam_octron.helpers.sam2_layer_callback import sam2_octron_callbacks
+from octron.sam_octron.helpers.sam_layer_callback import sam_octron_callbacks
 
 # OCTRON Object organizer
 from octron.sam_octron.object_organizer import Obj, ObjectOrganizer
@@ -152,9 +152,9 @@ class octron_widget(QWidget):
                                                  models_yaml_path=sam2models_yaml_path,
                                                  force_download=False,
                                                  )
-        # SAM3 checkpoint from HuggingFace
-        sam3_checkpoints_dir = self.base_path / 'sam_octron/checkpoints'
-        self.sam3models_dict = check_sam3_models(checkpoints_dir=sam3_checkpoints_dir,
+        # Model yaml for SAM3
+        sam3models_yaml_path = self.base_path / 'sam_octron/sam3_models.yaml'
+        self.sam3models_dict = check_sam3_models(models_yaml_path=sam3models_yaml_path,
                                                  force_download=False,
                                                  )
         
@@ -182,12 +182,18 @@ class octron_widget(QWidget):
         for model_id, model in self.sam2models_dict.items():
             logger.info(f"Adding SAM2 model {model_id}")
             self.sam_model_list.addItem(model['name'])
-
+            if 'tooltip' in model:
+                idx = self.sam_model_list.count() - 1
+                self.sam_model_list.setItemData(idx, model['tooltip'], Qt.ToolTipRole)
+        
         # Populate SAM3 entries in the same dropdown
         for model_id, model in self.sam3models_dict.items():
             logger.info(f"Adding SAM3 model {model_id}")
             self.sam_model_list.addItem(model['name'])
-
+            if 'tooltip' in model:
+                idx = self.sam_model_list.count() - 1
+                self.sam_model_list.setItemData(idx, model['tooltip'], Qt.ToolTipRole)
+            
         # Populate YOLO dropdown list with available models
         for model_id, model in self.yolomodels_dict.items():
             logger.info(f"Adding YOLO model {model_id}")
@@ -204,8 +210,11 @@ class octron_widget(QWidget):
         # Connect (global) GUI callbacks 
         self.gui_callback_functions()
         # Connect layer specific callbacks
-        self.octron_sam2_callbacks = sam2_octron_callbacks(self)
-        logger.info(f'OCTRON GUI v{octron_version} initialized')
+        self.sam_octron_callbacks = sam_octron_callbacks(self)
+        self.feed_input_to_predictor_btn.clicked.connect(
+            self.sam_octron_callbacks.feed_rectangles_to_predictor
+        )
+        print(f'OCTRON GUI v{octron_version} initialized')
 
     ###################################################################################################
     
@@ -489,6 +498,20 @@ class octron_widget(QWidget):
             # Enable detection threshold input for SAM3 semantic mode
             self.sam3detect_thresh.setEnabled(True)
             self.threshold_label.setEnabled(True)
+            # Enable the feed-input button for SAM3 semantic mode
+            self.feed_input_to_predictor_btn.setEnabled(True)
+            self.feed_input_to_predictor_btn.setText('▷ Run')
+            # Inform the user about the SAM3 semantic workflow
+            QMessageBox.information(
+                self,
+                'SAM3 Multi — Workflow',
+                'SAM3 Multi is a heavy model that accepts multiple box prompts '
+                'at once.\n\n'
+                'Workflow:\n'
+                '1. Draw one or more rectangles on the canvas.\n'
+                '2. Click "▷ Run" to detect objects.\n'
+                '3. Then forward-predict as usual.',
+            )
 
     def _on_model_loaded(self, model_name):
         """
@@ -497,10 +520,13 @@ class octron_widget(QWidget):
         """
         self.loaded_model_name = model_name
         # Deactivate the dropdown menu upon successful model loading
-        self.sam_model_list.setCurrentIndex(-1)
+        # Keep it showing the loaded model name
+        idx = self.sam_model_list.findText(model_name)
+        if idx >= 0:
+            self.sam_model_list.setCurrentIndex(idx)
         self.sam_model_list.setEnabled(False)
         self.load_sam_model_btn.setEnabled(False)
-        self.load_sam_model_btn.setText(f'{model_name} ✓')
+        self.load_sam_model_btn.setText('Loaded ✓')
 
         # Enable the predict next batch button
         # Take care of chunk size for batch prediction
@@ -509,8 +535,9 @@ class octron_widget(QWidget):
         
         self.predict_next_batch_btn.setText(f'▷ {self.chunk_size} frames')
         self.predict_next_oneframe_btn.setText('▷')
-        self.predict_next_oneframe_btn.setEnabled(True)
-        self.predict_next_batch_btn.setEnabled(True)
+        # Keep disabled until the first SAM prediction has run
+        self.predict_next_oneframe_btn.setEnabled(False)
+        self.predict_next_batch_btn.setEnabled(False)
         
         # Check if you can create a zarr store for video
         # Creating a zarr store for the video is only possible if a video has been loaded
@@ -842,14 +869,14 @@ class octron_widget(QWidget):
         self.predict_video_drop_groupbox.setEnabled(False)
         self.predict_video_predict_groupbox.setEnabled(False)
         if sender == self.predict_next_batch_btn:
-            self.prediction_worker = create_worker(self.octron_sam2_callbacks.batch_predict)
+            self.prediction_worker = create_worker(self.sam_octron_callbacks.batch_predict)
             self.prediction_worker.setAutoDelete(True)
             self.prediction_worker.yielded.connect(self._batch_predict_yielded)
             self.prediction_worker.finished.connect(self._on_prediction_finished)
             self.prediction_worker.start()
         elif sender == self.predict_next_oneframe_btn:
             self.batch_predict_progressbar.setMaximum(1)
-            self.prediction_worker_one = create_worker(self.octron_sam2_callbacks.next_predict)
+            self.prediction_worker_one = create_worker(self.sam_octron_callbacks.next_predict)
             self.prediction_worker_one.setAutoDelete(True)
             self.prediction_worker_one.yielded.connect(self._batch_predict_yielded)
             self.prediction_worker_one.finished.connect(self._on_prediction_finished)
@@ -1305,6 +1332,9 @@ class octron_widget(QWidget):
                 self.all_zarrs = []
                 # SAM2 
                 self._cleanup_predictor()
+                self._semantic_obj_id_map = {}
+                self._semantic_frame_buffer = None
+                self._pending_annotated_frames = {}
                 self.loaded_model_name = None
                 self.sam_model_list.setCurrentIndex(0)
                 self.sam_model_list.setEnabled(True)
@@ -1317,6 +1347,8 @@ class octron_widget(QWidget):
                 self.hard_reset_layer_btn.setEnabled(False)
                 self.sam3detect_thresh.setEnabled(False)
                 self.threshold_label.setEnabled(False)
+                self.feed_input_to_predictor_btn.setEnabled(False)
+                self.feed_input_to_predictor_btn.setText('')
                 # Re-enable Points option (may have been disabled by SAM3 semantic model)
                 self.layer_type_combobox.model().item(2).setEnabled(True)
                 # Object organizer
@@ -1630,7 +1662,7 @@ class octron_widget(QWidget):
         # Add to list of zarrs for cleanup upon closing
         self.all_zarrs.append(self.video_zarr)
         # Set up thread worker to deal with prefetching batches of images
-        self.prefetcher_worker = create_worker(self.octron_sam2_callbacks.prefetch_images)
+        self.prefetcher_worker = create_worker(self.sam_octron_callbacks.prefetch_images)
         self.prefetcher_worker.setAutoDelete(False)
         self.prefetcher_worker.start()
         
@@ -1787,7 +1819,7 @@ class octron_widget(QWidget):
                                               use_selection=True, 
                                               selection=1,
                                               )
-            prediction_layer, zarr_data, zarr_file_path = add_sam2_mask_layer(viewer=self._viewer,
+            prediction_layer, zarr_data, zarr_file_path = add_sam_mask_layer(viewer=self._viewer,
                                                                  video_layer=self.video_layer,
                                                                  name=prediction_layer_name,
                                                                  project_path=self.project_path_video,
@@ -1830,7 +1862,7 @@ class octron_widget(QWidget):
                     for m in self.sam3models_dict.values()
                     if m['name'] == self.loaded_model_name
                 )
-            annotation_layer = add_sam2_shapes_layer(viewer=self._viewer,
+            annotation_layer = add_sam_shapes_layer(viewer=self._viewer,
                                                      name=annotation_layer_name,
                                                      color=obj_color,
                                                      semantic_mode=semantic_mode,
@@ -1840,7 +1872,7 @@ class octron_widget(QWidget):
             annotation_layer.metadata['_hash'] = self.current_video_hash
             organizer_entry.annotation_layer = annotation_layer
             # Connect callback
-            annotation_layer.events.data.connect(self.octron_sam2_callbacks.on_shapes_changed)
+            annotation_layer.events.data.connect(self.sam_octron_callbacks.on_shapes_changed)
             logger.info(f"Created new mask + annotation layer '{layer_name}'")
             
             
@@ -1848,7 +1880,7 @@ class octron_widget(QWidget):
             # Create a point layer
             annotation_layer_name = f"{layer_name} points"
             # Create a shape layer
-            annotation_layer = add_sam2_points_layer(viewer=self._viewer,
+            annotation_layer = add_sam_points_layer(viewer=self._viewer,
                                                      name=annotation_layer_name,
                                                      )
             annotation_layer.metadata['_name']   = annotation_layer_name 
@@ -1856,8 +1888,8 @@ class octron_widget(QWidget):
             annotation_layer.metadata['_hash'] = self.current_video_hash
             organizer_entry.annotation_layer = annotation_layer
             # Connect callback
-            annotation_layer.mouse_drag_callbacks.append(self.octron_sam2_callbacks.on_mouse_press)
-            annotation_layer.events.data.connect(self.octron_sam2_callbacks.on_points_changed)
+            annotation_layer.mouse_drag_callbacks.append(self.sam_octron_callbacks.on_mouse_press)
+            annotation_layer.events.data.connect(self.sam_octron_callbacks.on_points_changed)
             logger.info(f"Created new mask + annotation layer '{layer_name}'")
             
             

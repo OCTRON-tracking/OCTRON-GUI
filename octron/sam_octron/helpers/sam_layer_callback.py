@@ -8,8 +8,9 @@ from octron.sam_octron.helpers.sam2_octron import (
     SAM2_octron,
     run_new_pred,
 )
-from octron.sam_octron.helpers.sam2_colors import sample_maximally_different, create_semantic_colormap
-from octron.sam_octron.helpers.sam2_zarr import mark_frames_annotated
+from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+from octron.sam_octron.helpers.octron_colors import sample_maximally_different, create_semantic_colormap
+from octron.sam_octron.helpers.sam_zarr import mark_frames_annotated
 from napari.utils.notifications import (
     show_warning,
     show_info,
@@ -19,7 +20,7 @@ from napari.utils.notifications import (
 import warnings 
 warnings.simplefilter("ignore")
 
-class sam2_octron_callbacks():
+class sam_octron_callbacks():
     """
     Callback for octron and SAM2.
     """
@@ -63,6 +64,17 @@ class sam2_octron_callbacks():
         
         action = event.action
         if action in ['added','removed','changed']:
+            predictor = self.octron.predictor
+            
+            # SAM3 semantic mode: all shape editing is deferred to the
+            # "▷ Run" button, so ignore every callback here.
+            if isinstance(predictor, SAM3_semantic_octron):
+                # Disable batch predict buttons while unprocessed rectangles exist
+                if action == 'added':
+                    self.octron.predict_next_batch_btn.setEnabled(False)
+                    self.octron.predict_next_oneframe_btn.setEnabled(False)
+                return
+            
             frame_idx = self.viewer.dims.current_step[0] 
             obj_id = shapes_layer.metadata['_obj_id']
             
@@ -76,7 +88,6 @@ class sam2_octron_callbacks():
             
             video_height = self.octron.video_layer.metadata['height']    
             video_width = self.octron.video_layer.metadata['width']   
-            predictor = self.octron.predictor
             
             ############################################################    
             
@@ -96,18 +107,10 @@ class sam2_octron_callbacks():
                 top_left, bottom_right = box[top_left_idx,:], box[bottom_right_idx,:]
                 
                 # Check if Mode B (semantic detection) is active
-                from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
                 if isinstance(predictor, SAM3_semantic_octron):
-                    # Mode B: detect ALL similar objects, then add each to tracker
-                    mask = self._handle_semantic_box_detection(
-                        predictor=predictor,
-                        frame_idx=frame_idx,
-                        obj_id=obj_id,
-                        organizer_entry=organizer_entry,
-                        prediction_layer=prediction_layer,
-                        top_left=top_left,
-                        bottom_right=bottom_right,
-                    )
+                    # Mode B: rectangles stay on canvas until the user
+                    # clicks the "▷ Run" button to feed them to the predictor.
+                    return
                 else:
                     # Mode A / SAM2: single-instance box prompt
                     mask = run_new_pred(predictor=predictor,
@@ -160,6 +163,9 @@ class sam2_octron_callbacks():
                 prediction_layer.data[frame_idx] = mask
                 mark_frames_annotated(prediction_layer.data, frame_idx)
                 prediction_layer.refresh()
+                # Enable batch predict buttons after first prediction
+                self.octron.predict_next_batch_btn.setEnabled(True)
+                self.octron.predict_next_oneframe_btn.setEnabled(True)
   
         else:
             # Catching all above with ['added','removed','changed']
@@ -174,15 +180,13 @@ class sam2_octron_callbacks():
         obj_id,
         organizer_entry,
         prediction_layer,
-        top_left,
-        bottom_right,
+        boxes_xyxy,
     ):
         """
-        Handle Mode B (SAM3 semantic detection) when the user draws a box.
+        Handle Mode B (SAM3 semantic detection) with collected box prompts.
         
-        Runs detection to find ALL similar objects in the frame, then:
-        - Uses the existing organizer entry for the first detected object
-        - Creates new organizer entries for each additional detection
+        Runs detection to find ALL similar objects in the frame using
+        the provided bounding boxes as visual prompts.
         
         Parameters
         ----------
@@ -196,42 +200,17 @@ class sam2_octron_callbacks():
             The organizer entry for the current object.
         prediction_layer : napari.layers.Labels
             The prediction layer for the current object.
-        top_left : np.ndarray
-            Top-left corner [y, x] in video pixel coordinates.
-        bottom_right : np.ndarray
-            Bottom-right corner [y, x] in video pixel coordinates.
+        boxes_xyxy : list of list
+            Bounding boxes in [x1, y1, x2, y2] format.
             
         Returns
         -------
         mask : np.ndarray or None
-            The mask for the first detected object (the one the user drew on).
+            The ID-encoded mask for all detected objects.
         """
-        # Convert to xyxy format: [x1, y1, x2, y2]
-        box_xyxy = [
-            float(top_left[1]),    # x1
-            float(top_left[0]),    # y1
-            float(bottom_right[1]),# x2 
-            float(bottom_right[0]),# y2
-        ]
-        
-        # Buffer box prompts per frame, capped to the most recent N.
-        # The text prompt (label name) provides the category-level prior;
-        # the boxes just show exemplar locations.  Too many box prompts
-        # dilute the transformer's attention and cause mask quality to
-        # degrade (more background co-selected).  2-3 boxes is the sweet
-        # spot; beyond that, the additional exemplars add noise.
-        _MAX_BOX_PROMPTS = 3
-        if not hasattr(organizer_entry, '_semantic_box_prompts'):
-            organizer_entry._semantic_box_prompts = {}
-        if frame_idx not in organizer_entry._semantic_box_prompts:
-            organizer_entry._semantic_box_prompts[frame_idx] = []
-        
-        organizer_entry._semantic_box_prompts[frame_idx].append(box_xyxy)
-        # Keep only the N most recent boxes (drop oldest)
-        if len(organizer_entry._semantic_box_prompts[frame_idx]) > _MAX_BOX_PROMPTS:
-            organizer_entry._semantic_box_prompts[frame_idx] = \
-                organizer_entry._semantic_box_prompts[frame_idx][-_MAX_BOX_PROMPTS:]
-        all_boxes = organizer_entry._semantic_box_prompts[frame_idx]
+        # Store for later reference
+        organizer_entry._semantic_box_prompts = {frame_idx: boxes_xyxy}
+        all_boxes = boxes_xyxy
         
         # Use the label name as a text prompt so the detector knows WHAT
         # to look for, not just WHERE the examples are.  SAM3 is a
@@ -358,6 +337,72 @@ class sam2_octron_callbacks():
         return id_mask
     
     
+    def feed_rectangles_to_predictor(self):
+        """
+        Collect all drawn rectangles from SAM3 semantic shapes layers,
+        feed them as box prompts to the predictor, then clear the shapes.
+        Called when the user clicks the '▷ Run' button.
+        """
+        from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
+        predictor = self.octron.predictor
+        if not isinstance(predictor, SAM3_semantic_octron):
+            show_warning('This function is only available in SAM3 semantic mode.')
+            return
+        if not self.octron.prefetcher_worker:
+            show_warning('Prefetcher worker not initialized.')
+            return
+        
+        frame_idx = self.viewer.dims.current_step[0]
+        
+        for obj_id, entry in self.octron.object_organizer.entries.items():
+            shapes_layer = entry.annotation_layer
+            if shapes_layer is None:
+                continue
+            if not len(shapes_layer.data):
+                continue
+            
+            prediction_layer = entry.prediction_layer
+            if prediction_layer is None:
+                continue
+            
+            # Extract all rectangle shapes as xyxy bounding boxes
+            boxes_xyxy = []
+            for shape_data in shapes_layer.data:
+                box = np.array(shape_data)
+                if len(box) > 4:
+                    box = box[-4:]
+                if len(box) != 4:
+                    continue  # Not a rectangle
+                coords = box[:, 1:]  # drop frame dimension -> [y, x]
+                box_sum = np.sum(coords, axis=1)
+                top_left_idx = np.argmin(box_sum)
+                bottom_right_idx = np.argmax(box_sum)
+                tl = coords[top_left_idx]
+                br = coords[bottom_right_idx]
+                boxes_xyxy.append([float(tl[1]), float(tl[0]), float(br[1]), float(br[0])])
+            
+            if not boxes_xyxy:
+                continue
+            
+            # Run detection with all collected boxes
+            self._handle_semantic_box_detection(
+                predictor=predictor,
+                frame_idx=frame_idx,
+                obj_id=obj_id,
+                organizer_entry=entry,
+                prediction_layer=prediction_layer,
+                boxes_xyxy=boxes_xyxy,
+            )
+            
+            # Clear all shapes from the layer
+            shapes_layer.data = []
+            shapes_layer.refresh()
+        
+        # Re-enable batch predict buttons now that input has been fed
+        self.octron.predict_next_batch_btn.setEnabled(True)
+        self.octron.predict_next_oneframe_btn.setEnabled(True)
+    
+    
     def on_points_changed(self, event):
         """
         Callback function for napari annotation "Points" layer.
@@ -449,6 +494,9 @@ class sam2_octron_callbacks():
                     # sam2hq_octron.add_new_mask / add_new_points_or_box
                     prediction_layer.data[frame_idx,:,:] = mask
                     mark_frames_annotated(prediction_layer.data, frame_idx)
+                    # Enable batch predict buttons after first prediction
+                    self.octron.predict_next_batch_btn.setEnabled(True)
+                    self.octron.predict_next_oneframe_btn.setEnabled(True)
             prediction_layer.refresh()  
         else:
             # Catching all above with ['added','removed','changed']

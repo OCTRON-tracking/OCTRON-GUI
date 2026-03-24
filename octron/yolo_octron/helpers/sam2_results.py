@@ -10,7 +10,7 @@ from scipy.ndimage import gaussian_filter1d
 from skimage.morphology import remove_small_holes, binary_closing, disk
 from tqdm import tqdm
 from skimage.measure import regionprops
-from octron.sam_octron.helpers.sam2_zarr import get_annotated_frames
+from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
 
 class ANNOT_results:
     def __init__(self, annotation_dir, verbose=True, **kwargs):

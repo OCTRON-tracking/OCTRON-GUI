@@ -4,11 +4,12 @@ import numpy as np
 from loguru import logger
 from napari.utils import Colormap
 from napari.utils.notifications import show_info, show_error
-from octron.sam_octron.helpers.sam2_zarr import create_image_zarr, load_image_zarr, get_annotated_frames
+from octron.sam_octron.helpers.sam_zarr import create_image_zarr, load_image_zarr, get_annotated_frames
+from octron.sam_octron.helpers.octron_colors import create_semantic_colormap
 import warnings
 warnings.simplefilter("ignore")
 
-def add_sam2_mask_layer(viewer,
+def add_sam_mask_layer(viewer,
                         video_layer,
                         name,
                         project_path,
@@ -93,7 +94,7 @@ def add_sam2_mask_layer(viewer,
     if status and hasattr(layer_data, 'attrs'):
         max_obj_id = layer_data.attrs.get('max_object_id', 0)
         if max_obj_id > 1:
-            from octron.sam_octron.helpers.sam2_colors import create_semantic_colormap
+            
             colormap_to_use = create_semantic_colormap(int(max_obj_id), label_id=label_id)
     
     # Add the labels layer to the viewer
@@ -123,7 +124,7 @@ def add_sam2_mask_layer(viewer,
     return labels_layer, layer_data, zarr_file_path
 
 
-def add_sam2_shapes_layer(
+def add_sam_shapes_layer(
     viewer,
     name,
     color,
@@ -156,7 +157,7 @@ def add_sam2_shapes_layer(
                                  ndim=3,
                                  name=name, 
                                  scale=(1,1),
-                                 edge_width=4,
+                                 edge_width=2,
                                  edge_color=color,
                                  face_color=[1,1,1,0],
                                  opacity=.4,
@@ -167,7 +168,6 @@ def add_sam2_shapes_layer(
     qctrl = viewer.window.qt_viewer.controls.widgets[shapes_layer]
     if semantic_mode:
         buttons_to_hide = [
-                        'select_button',
                         'direct_button',
                         'ellipse_button',
                         'line_button',
@@ -179,7 +179,6 @@ def add_sam2_shapes_layer(
                         'vertex_remove_button',
                         'move_front_button',
                         'move_back_button',
-                        'delete_button',
                         ]
     else:
         buttons_to_hide = [
@@ -198,7 +197,7 @@ def add_sam2_shapes_layer(
     return shapes_layer
 
 
-def add_sam2_points_layer(    
+def add_sam_points_layer(
     viewer,
     name,
     ):

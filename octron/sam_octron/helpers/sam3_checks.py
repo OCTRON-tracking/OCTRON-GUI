@@ -1,6 +1,7 @@
 # Code for checking the availability of the SAM3 model checkpoint and config
 import os
 from pathlib import Path
+import yaml
 from loguru import logger
 
 
@@ -50,29 +51,41 @@ def download_sam3_file(filename, local_dir, overwrite=False):
     return Path(cached_path)
 
 
-def check_sam3_models(checkpoints_dir, force_download=False):
+def check_sam3_models(models_yaml_path, force_download=False):
     """
-    Ensure the SAM3 checkpoint and config are available locally.
-    Downloads them from HuggingFace if missing.
-    
-    Returns a dictionary describing the two SAM3 modes that can be
-    added to the model-selection dropdown.
+    Load SAM3 model definitions from a YAML file and ensure the
+    checkpoint files are available locally (downloading from
+    HuggingFace if missing).
     
     Parameters
     ----------
-    checkpoints_dir : str or Path
-        Directory where sam3.pt and config.json should reside
-        (typically ``<base_path>/sam_octron/checkpoints``).
+    models_yaml_path : str or Path
+        Path to the sam3_models.yaml file.
     force_download : bool
         Re-download even if files exist.
     
     Returns
     -------
-    sam3_models_dict : dict
+    models_dict : dict
         Keys are model IDs, values contain 'name', 'checkpoint_path',
-        and 'semantic' (bool).  Returns an empty dict if download fails.
+        'semantic' (bool), and optionally 'tooltip'.
+        Returns an empty dict if download fails.
     """
-    checkpoints_dir = Path(checkpoints_dir)
+    models_yaml_path = Path(models_yaml_path)
+    sam3_path = models_yaml_path.parent
+    assert sam3_path.exists(), f"Path {sam3_path} does not exist"
+    assert models_yaml_path.exists(), f"Path {models_yaml_path} does not exist"
+
+    # Load the model YAML file
+    with open(models_yaml_path, 'r') as file:
+        models_dict = yaml.safe_load(file)
+
+    for model_id in models_dict:
+        assert 'name' in models_dict[model_id], f"Name not found for model {model_id} in yaml file"
+        assert 'checkpoint_path' in models_dict[model_id], f"Checkpoint path not found for model {model_id} in yaml file"
+
+    # Collect unique checkpoint files that need downloading
+    checkpoints_dir = sam3_path / 'checkpoints'
     if not checkpoints_dir.exists():
         os.makedirs(checkpoints_dir, exist_ok=True)
 
@@ -96,19 +109,11 @@ def check_sam3_models(checkpoints_dir, force_download=False):
         logger.warning("⚠️  sam3.pt not found after download attempt.")
         return {}
 
-    # Build the models dict (relative to sam_octron/)
-    rel_ckpt = f"checkpoints/sam3.pt"
+    # Verify checkpoint paths from YAML actually exist
+    for model_id, model in models_dict.items():
+        ckpt_path = sam3_path / model['checkpoint_path']
+        if not ckpt_path.exists():
+            print(f"⚠️ {ckpt_path} not found after download attempt.")
+            return {}
 
-    sam3_models_dict = {
-        "sam3_mode_a": {
-            "name": "SAM3",
-            "checkpoint_path": rel_ckpt,
-            "semantic": False,
-        },
-        "sam3_mode_b": {
-            "name": "SAM3 multi",
-            "checkpoint_path": rel_ckpt,
-            "semantic": True,
-        },
-    }
-    return sam3_models_dict
+    return models_dict

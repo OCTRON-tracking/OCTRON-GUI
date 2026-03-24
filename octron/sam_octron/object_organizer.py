@@ -4,11 +4,11 @@ import json
 import datetime
 import numpy as np
 from loguru import logger
-from octron.sam_octron.helpers.sam2_zarr import get_annotated_frames
+from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Union, Dict, List, Any
 
-from octron.sam_octron.helpers.sam2_colors import (
+from octron.sam_octron.helpers.octron_colors import (
     create_label_colors,
     sample_maximally_different,
 )

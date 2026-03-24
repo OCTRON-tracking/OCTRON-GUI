@@ -13,7 +13,7 @@ from sam2.modeling.sam2_hq_base import SAM2HQBase, NO_OBJ_SCORE
 from sam2.utils.misc import concat_points
 
 # Custom Zarr archive class
-from .sam2_zarr import OctoZarr
+from .sam_zarr import OctoZarr
 import warnings
 warnings.simplefilter("ignore")
 
