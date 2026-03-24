@@ -4,6 +4,7 @@ from qtpy.QtCore import QObject, Qt
 from qtpy.QtWidgets import QMessageBox
 from napari.qt import create_worker
 from napari.utils.notifications import show_info, show_warning, show_error
+from loguru import logger
 
 from pathlib import Path           
 from octron.sam_octron.helpers.video_loader import probe_video  
@@ -37,7 +38,7 @@ class YoloHandler(QObject):
             #print(f'MPS is available, but not yet supported. Using CPU instead.')
         else:
             self.device_label = "cpu" #torch.device("cpu")
-        print(f'Using YOLO device: "{self.device_label}"')
+        logger.info(f'Using YOLO device: "{self.device_label}"')
         
         
         # Set up variables
@@ -250,7 +251,7 @@ class YoloHandler(QObject):
                     if warning_dialog.exec_() == QMessageBox.No:
                         return
                     shutil.rmtree(model_subdir)
-                    print(f"Removed model checkpoint directory '{model_subdir.as_posix()}'")
+                    logger.info(f"Removed model checkpoint directory '{model_subdir.as_posix()}'")
                 else:
                     # Only training data will be deleted
                     warning_dialog = QMessageBox()
@@ -268,7 +269,7 @@ class YoloHandler(QObject):
                         return
                 # Remove training data
                 shutil.rmtree(data_path)
-                print(f'Removed training data directory "{data_path.as_posix()}"')
+                logger.info(f'Removed training data directory "{data_path.as_posix()}"')
 
             # Cleanup handled here; prevent _setup_training_directories from cleaning again
             self.yolo.clean_training_dir = False
@@ -291,7 +292,7 @@ class YoloHandler(QObject):
                         verbose=True, 
             )
         except AssertionError as e:
-            print(f"😵 Error when preparing labels: {e}")
+            logger.error(f"Error when preparing labels: {e}")
             return
         
         if not self.yolo.clean_training_dir:
@@ -308,7 +309,7 @@ class YoloHandler(QObject):
                         msg = (f"Train mode mismatch: existing training data was generated for '{existing_mode}' "
                                f"but current mode is '{self.w.train_mode}'. "
                                f"Please enable 'Overwrite' to regenerate training data or switch mode.")
-                        print(msg)
+                        logger.info(msg)
                         show_error(msg)
                         return
                 # TODO: Since we just generated the labels_dict (in prepare_labels above),
@@ -328,7 +329,7 @@ class YoloHandler(QObject):
                 self.training_data_generated = True
                 self._on_training_data_finished()
                 
-                print(f"Training data path '{self.yolo.data_path.as_posix()}' already exists. Using existing directory.")
+                logger.info(f"Training data path '{self.yolo.data_path.as_posix()}' already exists. Using existing directory.")
                 return
 
         # Disable the training groupbox while generating data
@@ -631,7 +632,7 @@ class YoloHandler(QObject):
             msg = (f"Train mode mismatch: training data was generated for '{config_mode}' "
                     f"but current mode is '{self.w.train_mode}'. "
                     f"Please regenerate training data or switch mode.")
-            print(msg)
+            logger.info(msg)
             show_error(msg)
             return
         
@@ -658,7 +659,7 @@ class YoloHandler(QObject):
                         "Nothing to resume. Uncheck 'Resume' to start a new training run."
                     )
                     return
-                print(f"Resuming training from checkpoint: {checkpoint_path} (epoch {ckpt_epoch})")
+                logger.info(f"Resuming training from checkpoint: {checkpoint_path} (epoch {ckpt_epoch})")
                 yolo_model = self.yolo.load_model(checkpoint_path, train_mode=self.w.train_mode)
                 if not yolo_model:
                     show_warning("Could not load checkpoint model.")
@@ -666,7 +667,7 @@ class YoloHandler(QObject):
                 self.resume_training = True
                 self.image_size_yolo = 0  # Ignored by YOLO when resume=True
             else:
-                print("No checkpoint found (last.pt), starting fresh training.")
+                logger.info("No checkpoint found (last.pt), starting fresh training.")
                 show_info("No checkpoint found — starting fresh.")
         
         if not self.resume_training:
@@ -703,9 +704,9 @@ class YoloHandler(QObject):
                 if warning_dialog.exec_() == QMessageBox.No:
                     return
                 shutil.rmtree(model_subdir)
-                print(f"Removed previous model directory '{model_subdir.as_posix()}'")
+                logger.info(f"Removed previous model directory '{model_subdir.as_posix()}'")
             # LOAD YOLO MODEL (select seg or detect variant based on current train_mode)
-            print(f"Loading YOLO model {model_id} (mode: {self.w.train_mode})")
+            logger.info(f"Loading YOLO model {model_id} (mode: {self.w.train_mode})")
             yolo_model = self.yolo.load_model(model_id, train_mode=self.w.train_mode)
             if not yolo_model:
                 show_warning("Could not load YOLO model.")
@@ -785,9 +786,9 @@ class YoloHandler(QObject):
         self.w.train_epochs_progressbar.setValue(current_epoch)        
         self.w.train_finishtime_label.setText(f'↬ {finish_time_str}')
         
-        print(f"Epoch {current_epoch}/{total_epochs} - Time for epoch: {epoch_time:.1f}s")
-        print(f"Estimated time remaining: {remaining_time:.1f} seconds")    
-        print(f"Estimated finish time: {finish_time_str}")  
+        logger.info(f"Epoch {current_epoch}/{total_epochs} - Time for epoch: {epoch_time:.1f}s")
+        logger.info(f"Estimated time remaining: {remaining_time:.1f} seconds")
+        logger.info(f"Estimated finish time: {finish_time_str}")  
 
         if current_epoch == total_epochs: 
             self.training_finished = True
@@ -877,7 +878,7 @@ class YoloHandler(QObject):
                 config_path
             )
             if updated_config:
-                print(f"Configuration for {tracker_name} updated and saved")
+                logger.info(f"Configuration for {tracker_name} updated and saved")
                 
     def on_detailed_extraction_clicked(self):
         """
@@ -891,7 +892,7 @@ class YoloHandler(QObject):
             selected = open_region_properties_dialog(self.w, DEFAULT_REGION_PROPERTIES)
             if selected is not None:
                 self.selected_region_properties = selected
-                print(f"Region properties updated: {selected}")
+                logger.info(f"Region properties updated: {selected}")
             else:
                 # User cancelled — uncheck the box
                 self.w.detailed_extraction_checkBox.setChecked(False)
@@ -947,13 +948,13 @@ class YoloHandler(QObject):
         for v in video_paths:
             p = Path(v)
             if p.name in vdict:
-                print(f"Video {p.name} already in prediction list.")
+                logger.warning(f"Video {p.name} already in prediction list.")
                 continue
             if not p.exists():
-                print(f"File {p} does not exist.")
+                logger.warning(f"File {p} does not exist.")
                 continue
             if p.suffix.lower() != '.mp4':
-                print(f"File {p} is not an mp4 file.")
+                logger.warning(f"File {p} is not an mp4 file.")
                 continue
 
             # probe video metadata & store reader
@@ -966,7 +967,7 @@ class YoloHandler(QObject):
             lst.addItem(p.name)
             n = len(vdict)
             lst.setItemText(0, f"Videos (n={n})" if n else "List of videos to be analyzed ...")
-            print(f"Added video {p.name} to prediction list.")
+            logger.info(f"Added video {p.name} to prediction list.")
 
     def on_video_prediction_change(self):
         """
@@ -996,7 +997,7 @@ class YoloHandler(QObject):
                     video_name = item.text()
                     lst.removeItem(lst.findText(video_name))
                     self.videos_to_predict.pop(video_name, None)
-                    print(f'Removed video "{video_name}"')
+                    logger.info(f'Removed video "{video_name}"')
                 # Refresh header count
                 n = len(self.videos_to_predict)
                 lst.setItemText(0, f"Videos (n={n})" if n else "List of videos to be analyzed ...")
@@ -1175,7 +1176,7 @@ class YoloHandler(QObject):
             save_dir = progress_info.get('save_dir', '')
             if self.view_prediction_results: 
                 for label, track_id, _, _, _, _  in self.yolo.load_predictions(save_dir=save_dir):
-                    print(f"Adding tracking result to viewer | Label: {label}, Track ID: {track_id}")
+                    logger.debug(f"Adding tracking result to viewer | Label: {label}, Track ID: {track_id}")
             
         elif stage == 'skipped_video':
             # Video was skipped (output folder already exists, overwrite=False)
@@ -1240,7 +1241,7 @@ class YoloHandler(QObject):
             self.polygon_worker.finished.disconnect(self._on_polygon_finished)
             self.polygon_worker.quit()
         except Exception as e:
-            print(f"Error when uncoupling polygon worker: {e}")
+            logger.error(f"Error when uncoupling polygon worker: {e}")
 
     def _uncouple_worker_bboxes(self):
         try:
@@ -1248,7 +1249,7 @@ class YoloHandler(QObject):
             self.bbox_worker.finished.disconnect(self._on_bbox_finished)
             self.bbox_worker.quit()
         except Exception as e:
-            print(f"Error when uncoupling bbox worker: {e}")
+            logger.error(f"Error when uncoupling bbox worker: {e}")
 
     def _uncouple_worker_training_data(self):
         try:
@@ -1256,4 +1257,4 @@ class YoloHandler(QObject):
             self.training_data_worker.finished.disconnect(self._on_training_data_finished)
             self.training_data_worker.quit()
         except Exception as e:
-            print(f"Error when uncoupling training data worker: {e}")
+            logger.error(f"Error when uncoupling training data worker: {e}")

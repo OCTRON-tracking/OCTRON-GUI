@@ -1,9 +1,10 @@
 
-import os 
+import os
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 from pathlib import Path
 import torch
+from loguru import logger
 from hydra.core.global_hydra import GlobalHydra
 from hydra import compose, initialize
 from hydra.utils import instantiate
@@ -47,10 +48,10 @@ def build_sam2_octron(
     
     # Is this HQ or normal SAM2?
     if 'hq' in str(config_file_path).lower():
-        print("HQ SAM2 model detected. Setting HQ mode to True.")
+        logger.info("HQ SAM2 model detected. Setting HQ mode to True.")
         hq_mode = True
     else:
-        print("Normal SAM2 model detected. Setting HQ mode to False.")
+        logger.info("Normal SAM2 model detected. Setting HQ mode to False.")
         hq_mode = False
     
     # Find out which device to use
@@ -70,8 +71,8 @@ def build_sam2_octron(
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
     elif device.type == "mps":
-        print(
-            "⚠️  Support for MPS devices is preliminary. SAM 2 is trained with CUDA and might "
+        logger.info(
+            "⚠️ Support for MPS devices is preliminary. SAM 2 is trained with CUDA and might "
             "give numerically different outputs and sometimes degraded performance on MPS. "
             "See e.g. https://github.com/pytorch/pytorch/issues/84936 for a discussion."
         )

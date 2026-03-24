@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import warnings
 # Plugins
+from loguru import logger
 from napari_pyav._reader import FastVideoReader
 from napari.utils import DirectLabelColormap
 from scipy.ndimage import gaussian_filter1d
@@ -97,12 +98,12 @@ class YOLO_results:
                     self.height = video_info.get('height', None)
                     self.width = video_info.get('width', None)
                 if self.verbose:
-                    print(f"Loaded prediction metadata from '{meta_path.name}'")
+                    logger.info(f"Loaded prediction metadata from '{meta_path.name}'")
             except Exception as e:
                 if self.verbose:
-                    print(f"Could not load prediction metadata: {e}")
+                    logger.warning(f"Could not load prediction metadata: {e}")
         elif self.verbose:
-            print(f"No prediction_metadata.json found in '{self.results_dir.name}'")
+            logger.info(f"No prediction_metadata.json found in '{self.results_dir.name}'")
 
     def find_video(self):
         """
@@ -124,19 +125,19 @@ class YOLO_results:
                 # to recover that info from the zarr array ...
                 break
         if video is None and self.verbose:
-            print(f"No video found for '{results_dir.name}'")
+            logger.warning(f"No video found for '{results_dir.name}'")
         self.video, self.video_dict = video, video_dict
             
     def find_csv(self):
         results_dir = self.results_dir
         csvs = natsorted(results_dir.rglob('*track_*.csv'))
         if not csvs and self.verbose:
-            print(f"No tracking CSV files found in '{results_dir.name}'")
+            logger.warning(f"No tracking CSV files found in '{results_dir.name}'")
             self.csvs = None
         else:
             self.csvs = csvs
             if self.verbose:
-                print(f"Found {len(csvs)} tracking CSV files in '{results_dir.name}'")
+                logger.info(f"Found {len(csvs)} tracking CSV files in '{results_dir.name}'")
                       
     def find_zarr_root(self):
         """
@@ -147,19 +148,19 @@ class YOLO_results:
         zarrs = list(results_dir.rglob('predictions.zarr'))
         if len(zarrs) == 0:
             if self.verbose:
-                print(f"No zarr archive in '{results_dir.name}' (detection predictions)")
+                logger.info(f"No zarr archive in '{results_dir.name}' (detection predictions)")
             return
         if len(zarrs) > 1:
             raise ValueError(f"Expected at most one predictions.zarr, got {len(zarrs)}.")
         
         self.zarr = zarrs[0]
         if self.verbose:
-            print(f"Found tracking zarr in '{results_dir.name}'")
-        
+            logger.info(f"Found tracking zarr in '{results_dir.name}'")
+
         store = zarr.storage.LocalStore(self.zarr, read_only=False)
         root = zarr.open_group(store=store, mode='a')
         if self.verbose:
-            print("Existing keys in zarr archive:", natsorted(root.array_keys()))
+            logger.debug("Existing keys in zarr archive: %s", natsorted(root.array_keys()))
         self.zarr_root = root
         self.has_masks = any(k.endswith('_masks') for k in root.array_keys())
         
@@ -177,8 +178,8 @@ class YOLO_results:
                 self.height = example_array.shape[1] if len(example_array.shape) > 1 else None
                 self.width = example_array.shape[2] if len(example_array.shape) > 2 else None   
                 if self.verbose:
-                    print(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
-        
+                    logger.debug(f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}")
+
     def get_track_ids_labels(self, csv_header_lines=None): 
         """
         Compare track IDs that are present across csv files and the zarr archive.
@@ -208,7 +209,7 @@ class YOLO_results:
                 return sorted(list(set(track_ids)))
             else:
                 if self.verbose:
-                    print("Zarr root not found.")
+                    logger.warning("Zarr root not found.")
                 return []
         
         def _track_ids_labels_csv(header_lines):
@@ -224,19 +225,19 @@ class YOLO_results:
                             assert set(df['track_id'].unique()) == set(df['track_id']), f"Duplicate track IDs found in {csv_file.name}"
                             track_ids_from_csv.extend(df['track_id'].unique().tolist())
                         elif self.verbose:
-                            print(f"Column 'track_id' not found in {csv_file.name}")
+                            logger.warning(f"Column 'track_id' not found in {csv_file.name}")
                         if 'label' in df.columns:
                             assert set(df['label'].unique()) == set(df['label']), f"Duplicate labels found in {csv_file.name}"
                             labels_from_csv.extend(df['label'].unique().tolist())
                         elif self.verbose:
-                            print(f"Column 'label' not found in {csv_file.name}")
+                            logger.warning(f"Column 'label' not found in {csv_file.name}")
                         # Collect per-track frame indices for later cross-validation
                         if 'track_id' in df.columns and 'frame_idx' in df.columns:
                             tid = int(df.iloc[0].track_id)
                             csv_frame_indices[tid] = set(df['frame_idx'].astype(int))
                     except Exception as e:
                         if self.verbose:
-                            print(f"Could not read track_ids and labels from {csv_file.name}: {e}")
+                            logger.warning(f"Could not read track_ids and labels from {csv_file.name}: {e}")
                             
                 # Write to a dictionary, sort the track_id key 
                 for track_id, label in zip(track_ids_from_csv, labels_from_csv):
@@ -249,7 +250,7 @@ class YOLO_results:
                 return list(set(track_ids_from_csv)), list(set(labels_from_csv)), track_id_label_dict, csv_frame_indices
             else:
                 if self.verbose:
-                    print("No CSV files found, cannot extract track IDs from CSVs.")
+                    logger.warning("No CSV files found, cannot extract track IDs from CSVs.")
                 return [], [], {}, {}
 
         zarr_ids = _track_ids_zarr()
@@ -265,14 +266,14 @@ class YOLO_results:
             assert set(zarr_ids) == set(csv_ids), f"Track IDs zarr and CSVs do not match: {set(zarr_ids) - set(csv_ids)}"
         elif self.verbose:
             # Detection results: no mask arrays in zarr, rely on CSVs only
-            print("No mask track IDs in zarr (detection model). Using CSV track IDs only.")
-        
+            logger.info("No mask track IDs in zarr (detection model). Using CSV track IDs only.")
+
         self.track_ids = sorted(csv_ids)
         self.labels = sorted(csv_labels)
         self.track_id_label = track_id_label
         self._csv_frame_indices = csv_frame_indices  # {track_id: set(frame_idx)}
         if self.verbose:
-            print(f"Found {len(self.track_id_label)} unique track IDs in zarr and CSVs: {self.track_id_label}")
+            logger.info(f"Found {len(self.track_id_label)} unique track IDs in zarr and CSVs: {self.track_id_label}")
 
     
     
@@ -389,7 +390,7 @@ class YOLO_results:
         if not original_class_id_keys:
             raise ValueError(f"Label '{label}' not found in model class definitions: {classes}")
         if len(original_class_id_keys) > 1 and self.verbose:
-            print(f"Warning: Label '{label}' maps to multiple original class IDs in model definition: {original_class_id_keys}. Using first one: {original_class_id_keys[0]}.")
+            logger.warning(f"Label '{label}' maps to multiple original class IDs in model definition: {original_class_id_keys}. Using first one: {original_class_id_keys[0]}.")
         original_class_id = int(original_class_id_keys[0])
         
         # Determine the occurrence index of this track_id among all tracks sharing the same label string
@@ -493,9 +494,9 @@ class YOLO_results:
                 return val  # NaN or unrecognised — leave as-is
             result = series.map(_parse)
             if tuple_count > 0 and self.verbose:
-                print(f" ⚠ '{col_name}' in {csv_name}: {tuple_count} rows contain "
-                      f"multi-region tuples (averaged for display). "
-                      f"Raw per-region values are preserved in the CSV.")
+                logger.warning(f"'{col_name}' in {csv_name}: {tuple_count} rows contain "
+                               f"multi-region tuples (averaged for display). "
+                               f"Raw per-region values are preserved in the CSV.")
             return result
 
         tracking_data = {}
@@ -538,7 +539,7 @@ class YOLO_results:
                     assert self.num_frames is not None, \
                         "Number of frames (self.num_frames) not set. Cannot interpolate."
                     if self.verbose:
-                        print(f"Frames are not continuous for track_id {track_id} in {csv_file.name}... interpolating")
+                        logger.debug(f"Frames are not continuous for track_id {track_id} in {csv_file.name}... interpolating")
                     df_position_interp = pd.DataFrame({'frame_idx': range(0, self.num_frames)})
                     df_features_interp = pd.DataFrame({'frame_idx': range(0, self.num_frames)})
                     
@@ -577,7 +578,7 @@ class YOLO_results:
                 # Smooth? 
                 if sigma > 0:
                     if self.verbose:
-                        print(f"Smoothing position data for track_id {track_id} with sigma={sigma}")
+                        logger.debug(f"Smoothing position data for track_id {track_id} with sigma={sigma}")
                     cols_to_smooth = [col for col in ['pos_x', 'pos_y'] if col in df_position.columns]
                     for col in cols_to_smooth:
                         df_position.loc[:, col] = gaussian_filter1d(df_position[col].astype(float), sigma=sigma)
@@ -596,7 +597,7 @@ class YOLO_results:
                     raise ValueError(f"Duplicate track ID {track_id} found.")
             except Exception as e:
                 if self.verbose:
-                    print(f"Could not read tracking data from {csv_file.name}: {e}")
+                    logger.warning(f"Could not read tracking data from {csv_file.name}: {e}")
         return tracking_data
     
     
@@ -640,8 +641,8 @@ class YOLO_results:
 
         track_id_to_use = list_of_track_ids[0]
         if len(list_of_track_ids) > 1 and self.verbose:
-            print(f"Warning: Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
-                  f"Using data for the first track ID: {track_id_to_use}.")
+            logger.warning(f"Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
+                           f"Using data for the first track ID: {track_id_to_use}.")
             
         all_tracking_data = self.get_tracking_data(interpolate=interpolate,
                                                    interpolate_method=interpolate_method,
@@ -679,8 +680,8 @@ class YOLO_results:
 
         track_id_to_use = list_of_track_ids[0]
         if len(list_of_track_ids) > 1 and self.verbose:
-            print(f"Warning: Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
-                  f"Using features for the first track ID: {track_id_to_use}.")
+            logger.warning(f"Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
+                           f"Using features for the first track ID: {track_id_to_use}.")
 
         # Note: get_tracking_data() computes both 'data' and 'features'.
         # We call it here without interpolation/smoothing args as features are typically not interpolated/smoothed.
@@ -737,8 +738,8 @@ class YOLO_results:
                             f"Width in mask data ({width}) does not match width in video ({self.width})."
                     # Find out which indices have data
                     frame_indices = get_annotated_frames(masks)
-                    if len(frame_indices) == 0 and self.verbose: 
-                        print(f"Warning: No valid frames found for track ID '{track_id}' (label '{label}') in mask data.")
+                    if len(frame_indices) == 0 and self.verbose:
+                        logger.warning(f"No valid frames found for track ID '{track_id}' (label '{label}') in mask data.")
                     if len(frame_indices) and close_holes: 
                         for f in tqdm(frame_indices, desc=f'Closing holes for id {track_id}', total=len(frame_indices)): 
                             m = masks[f,:,:]
@@ -756,10 +757,10 @@ class YOLO_results:
                     self.frame_indices[track_id] = frame_indices
                 else:
                     if self.verbose:
-                        print(f"Mask key '{mask_key}' not found in zarr archive.")  
+                        logger.warning(f"Mask key '{mask_key}' not found in zarr archive.")
             except Exception as e:
                 if self.verbose:
-                    print(f"Could not read mask data for track ID {track_id}: {e}")
+                    logger.warning(f"Could not read mask data for track ID {track_id}: {e}")
         
         # ── Frame-level alignment check: zarr masks vs CSV tracking ──
         # Compare per-track frame indices from zarr (masks) against CSV
@@ -818,8 +819,8 @@ class YOLO_results:
 
         track_id_to_use = list_of_track_ids[0]
         if len(list_of_track_ids) > 1 and self.verbose:
-            print(f"Warning: Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
-                  f"Using masks for the first track ID: {track_id_to_use}.")
+            logger.warning(f"Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
+                           f"Using masks for the first track ID: {track_id_to_use}.")
             
         all_mask_data = self.get_mask_data(close_holes=close_holes)
         if track_id_to_use not in all_mask_data:

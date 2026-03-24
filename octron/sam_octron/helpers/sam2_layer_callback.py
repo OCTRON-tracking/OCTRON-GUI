@@ -2,6 +2,7 @@
 import time
 import numpy as np
 import cmasher as cmr
+from loguru import logger
 from napari.utils import DirectLabelColormap
 from octron.sam_octron.helpers.sam2_octron import (
     SAM2_octron,
@@ -82,7 +83,7 @@ class sam2_octron_callbacks():
             prediction_layer = organizer_entry.prediction_layer
             if prediction_layer is None:
                 # That should actually never happen 
-                print('No corresponding prediction layer found.')
+                logger.warning('No corresponding prediction layer found.')
                 return   
             
             video_height = self.octron.video_layer.metadata['height']    
@@ -152,7 +153,7 @@ class sam2_octron_callbacks():
                                         )
                 except Exception as e:
                     import traceback
-                    print(f'❌ Error processing shape mask: {e}')
+                    logger.error(f'❌ Error processing shape mask: {e}')
                     traceback.print_exc()
                     return
             if mask is not None:
@@ -234,7 +235,7 @@ class sam2_octron_callbacks():
             if hasattr(predictor.detector, 'names'):
                 predictor.detector.names = []
         
-        print(f'SAM3 Mode B: Running detection for "{text_prompt}" with {len(all_boxes)} box prompt(s)...')
+        logger.info(f'SAM3 Mode B: Running detection for "{text_prompt}" with {len(all_boxes)} box prompt(s)...')
         
         # Read detection threshold from GUI input
         thresh_text = self.octron.sam3detect_thresh.text().strip()
@@ -269,7 +270,7 @@ class sam2_octron_callbacks():
         
         if best_score < _TEXT_FALLBACK_THRESH:
             # Text prompt isn't helping — fall back to box-only ("visual")
-            print(f'  ↳ Text "{text_prompt}" produced low scores (max {best_score:.3f}), '
+            logger.debug(f'  ↳ Text "{text_prompt}" produced low scores (max {best_score:.3f}), '
                   f'retrying with box-only mode...')
             if hasattr(predictor, 'detector'):
                 if hasattr(predictor.detector, 'text_embeddings'):
@@ -306,7 +307,7 @@ class sam2_octron_callbacks():
         n_boxes = len(organizer_entry._semantic_box_prompts.get(frame_idx, []))
         max_score = pred_scores.max().item() if pred_scores is not None and pred_scores.numel() > 0 else 0.0
         n_objects = len(np.unique(id_mask)) - 1  # Exclude background
-        print(
+        logger.info(
             f'SAM3 Mode B: Detected {n_detections} objects ({n_objects} encoded) '
             f'using {n_boxes} box prompt(s). Max score: {max_score:.3f}'
         )
@@ -441,7 +442,7 @@ class sam2_octron_callbacks():
         
         if prediction_layer is None:
             # That should actually never happen 
-            print('No corresponding prediction (mask) layer found.')
+            logger.warning('No corresponding prediction (mask) layer found.')
             return    
         
         if action == 'added':
@@ -531,7 +532,7 @@ class sam2_octron_callbacks():
         if not image_indices:
             return
         
-        print(f'⚡️ Prefetching {len(image_indices)} images, skipping {skip_frames - 1} frames | start: {current_frame}')
+        logger.debug(f'⚡️ Prefetching {len(image_indices)} images, skipping {skip_frames - 1} frames | start: {current_frame}')
         _ = predictor.images[image_indices]
         
         # Pre-compute backbone features so propagation only needs track_step.
@@ -553,7 +554,7 @@ class sam2_octron_callbacks():
                     for idx in prefetch_indices:
                         tracker._get_image_feature(tracker.inference_state, idx, batch_size=1)
             t1 = time.perf_counter()
-            print(f'⚡️ Pre-computed backbone features for {len(prefetch_indices)} frames in {t1-t0:.2f}s')
+            logger.debug(f'⚡️ Pre-computed backbone features for {len(prefetch_indices)} frames in {t1-t0:.2f}s')
 
     
     def next_predict(self):
@@ -601,7 +602,7 @@ class sam2_octron_callbacks():
             counter += 1
             
         end_time = time.time()
-        print(f'Start idx {current_frame} | Predicted 1 frame in {end_time-start_time:.2f} seconds')
+        logger.debug(f'Start idx {current_frame} | Predicted 1 frame in {end_time-start_time:.2f} seconds')
         self.octron.chunk_size = chunk_size_real
         return
 
@@ -654,6 +655,6 @@ class sam2_octron_callbacks():
             counter += 1
             
         end_time = time.time()
-        print(f'Start idx {current_frame} | Predicted {self.octron.chunk_size} frames in {end_time-start_time:.2f} seconds')
+        logger.debug(f'Start idx {current_frame} | Predicted {self.octron.chunk_size} frames in {end_time-start_time:.2f} seconds')
         
         return

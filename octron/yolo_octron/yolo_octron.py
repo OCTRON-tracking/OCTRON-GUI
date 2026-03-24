@@ -11,6 +11,7 @@ import webbrowser # Used to launch tensorboard
 import time
 import random
 import sys
+import struct
 import importlib.util
 import shutil
 from pathlib import Path
@@ -52,7 +53,11 @@ from octron.yolo_octron.helpers.training import (
 )
 
 from .helpers.yolo_results import YOLO_results
+from loguru import logger
 
+MIN_SIZE_RATIO_OBJECT_FRAME = 0.00001 # Minimum size ratio of an object to the whole image
+                                      # 0.00001: for a 1024x1024 image, this is ~ 11 pixels
+MIN_SIZE_RATIO_OBJECT_MAX = 0.01 # Minimum size ratio of an object to the largest object in the frame
 
 class YOLO_octron:
     """
@@ -99,6 +104,7 @@ class YOLO_octron:
         self.config_path = None
         self.models_dict = {}
         self.enable_watershed = False
+        self.prune_empty_labels = True  # Updated by prepare_labels()
         self.train_mode = None  # Set by handler before directory setup ('segment' or 'detect')
         
         if models_yaml_path is not None:
@@ -112,7 +118,7 @@ class YOLO_octron:
                                                 force_download=False
                                                 )
         else:
-            print("No models YAML path provided. Model dictionary will be empty.") 
+            logger.warning("No models YAML path provided. Model dictionary will be empty.")
         
         # If a project path was provided, set it through the property setter
         if project_path is not None:
@@ -170,7 +176,7 @@ class YOLO_octron:
             
         # Path is valid, set it
         self._project_path = path
-        print(f"Project path set to: {self._project_path.as_posix()}")
+        logger.info(f"Project path set to: {self._project_path.as_posix()}")
         
         # Update dependent paths if they were previously set
         if self._project_path is not None:
@@ -218,12 +224,12 @@ class YOLO_octron:
                             model_subdir = self.training_path / 'training'
                             if model_subdir.exists():
                                 shutil.rmtree(model_subdir)
-                                print(f"Train mode mismatch ({existing_mode} → {self.train_mode}): "
-                                      f"removed model checkpoint directory '{model_subdir.as_posix()}'")
+                                logger.warning(f"Train mode mismatch ({existing_mode} → {self.train_mode}): "
+                                               f"removed model checkpoint directory '{model_subdir.as_posix()}'")
                 # Only remove training data, preserving model checkpoints
                 if self.data_path.exists():
                     shutil.rmtree(self.data_path)
-                    print(f'Cleaned training data directory "{self.data_path.as_posix()}"')
+                    logger.info(f'Cleaned training data directory "{self.data_path.as_posix()}"')
 
                     
                     
@@ -239,12 +245,13 @@ class YOLO_octron:
         Check collect_labels() function for input arguments.
         """
         
+        self.prune_empty_labels = prune_empty_labels
         self.label_dict = collect_labels(self.project_path, 
                                          prune_empty_labels=prune_empty_labels, 
                                          min_num_frames=min_num_frames, 
                                          verbose=verbose
                                         )    
-        if verbose: print(f"Found {len(self.label_dict)} organizer files")
+        logger.debug(f"Found {len(self.label_dict)} organizer files")
     
     
     def prepare_polygons(self):
@@ -309,15 +316,10 @@ class YOLO_octron:
         
         """ 
         
-        # Some constants 
-        MIN_SIZE_RATIO_OBJECT_FRAME = 0.00001 # Minimum size ratio of an object to the whole image
-                                              # 0.00001: for a 1024x1024 image, this is ~ 11 pixels
-        MIN_SIZE_RATIO_OBJECT_MAX = 0.01 # Minimum size ratio of an object to the largest object in the frame
-        
         if self.label_dict is None:
             raise ValueError("No labels found. Please run prepare_labels() first.")
 
-        print(f"Watershed: {self.enable_watershed}")
+        logger.debug(f"Watershed: {self.enable_watershed}")
         for no_entry, labels in enumerate(self.label_dict.values(), start=1):  
             min_area = None
 
@@ -446,8 +448,42 @@ class YOLO_octron:
                     # Yield, to update the progress bar
                     yield((no_entry, len(self.label_dict), label, f_no, len(frames)))  
                      
-                labels[entry]['polygons'] = polys  
+                labels[entry]['polygons'] = polys
             
+            # Prune frames that produced no valid polygons.
+            # When prune_empty_labels is True, use cross-label intersection
+            # to keep frame sets synchronized (prevents train/val/test data leakage).
+            # Otherwise, prune each label independently.
+            label_entries = [e for e in labels if e not in ('video', 'video_file_path')]
+            if self.prune_empty_labels:
+                valid_per_label = []
+                for entry in label_entries:
+                    polys = labels[entry].get('polygons', {})
+                    valid = {int(f) for f in labels[entry]['frames']
+                             if len(polys.get(f, [])) > 0}
+                    valid_per_label.append(valid)
+                if valid_per_label:
+                    common_valid = np.array(sorted(set.intersection(*valid_per_label)))
+                    for entry in label_entries:
+                        old_count = len(labels[entry]['frames'])
+                        if len(common_valid) < old_count:
+                            n_dropped = old_count - len(common_valid)
+                            label_name = labels[entry]['label']
+                            print(f"Warning: {n_dropped} frame(s) dropped for label "
+                                  f"'{label_name}' (empty polygons in at least one label)")
+                        labels[entry]['frames'] = common_valid
+            else:
+                for entry in label_entries:
+                    frames = labels[entry]['frames']
+                    polys = labels[entry].get('polygons', {})
+                    valid_frames = np.array([f for f in frames
+                                             if len(polys.get(f, [])) > 0])
+                    if len(valid_frames) < len(frames):
+                        n_dropped = len(frames) - len(valid_frames)
+                        label_name = labels[entry]['label']
+                        print(f"Warning: {n_dropped} frame(s) for label '{label_name}' "
+                              f"had no valid polygons and were excluded")
+                        labels[entry]['frames'] = valid_frames
     
     def prepare_bboxes(self):
         """
@@ -476,14 +512,12 @@ class YOLO_octron:
             Total number of frames for the current label
         """
 
-        # Same size-filtering constants as prepare_polygons
-        MIN_SIZE_RATIO_OBJECT_FRAME = 0.00001
-        MIN_SIZE_RATIO_OBJECT_MAX = 0.01
+       
 
         if self.label_dict is None:
             raise ValueError("No labels found. Please run prepare_labels() first.")
 
-        print(f"Watershed: {self.enable_watershed}")
+        logger.debug(f"Watershed: {self.enable_watershed}")
         for no_entry, labels in enumerate(self.label_dict.values(), start=1):
             min_area = None
 
@@ -584,6 +618,39 @@ class YOLO_octron:
                     yield (no_entry, len(self.label_dict), label, f_no, len(frames))
 
                 labels[entry]['bboxes'] = bboxes_dict
+            
+            # Prune frames that produced no valid bounding boxes.
+            # Same cross-label vs per-label logic as prepare_polygons.
+            label_entries = [e for e in labels if e not in ('video', 'video_file_path')]
+            if self.prune_empty_labels:
+                valid_per_label = []
+                for entry in label_entries:
+                    bboxes = labels[entry].get('bboxes', {})
+                    valid = {int(f) for f in labels[entry]['frames']
+                             if len(bboxes.get(f, [])) > 0}
+                    valid_per_label.append(valid)
+                if valid_per_label:
+                    common_valid = np.array(sorted(set.intersection(*valid_per_label)))
+                    for entry in label_entries:
+                        old_count = len(labels[entry]['frames'])
+                        if len(common_valid) < old_count:
+                            n_dropped = old_count - len(common_valid)
+                            label_name = labels[entry]['label']
+                            print(f"Warning: {n_dropped} frame(s) dropped for label "
+                                  f"'{label_name}' (empty bboxes in at least one label)")
+                        labels[entry]['frames'] = common_valid
+            else:
+                for entry in label_entries:
+                    frames = labels[entry]['frames']
+                    bboxes = labels[entry].get('bboxes', {})
+                    valid_frames = np.array([f for f in frames
+                                             if len(bboxes.get(f, [])) > 0])
+                    if len(valid_frames) < len(frames):
+                        n_dropped = len(frames) - len(valid_frames)
+                        label_name = labels[entry]['label']
+                        print(f"Warning: {n_dropped} frame(s) for label '{label_name}' "
+                              f"had no valid bounding boxes and were excluded")
+                        labels[entry]['frames'] = valid_frames
 
 
     def prepare_split(self,
@@ -654,7 +721,7 @@ class YOLO_octron:
         try:
             from PIL import Image
         except ModuleNotFoundError:
-            print('Please install PIL first, via pip install pillow')
+            logger.error('Please install PIL first, via pip install pillow')
             return
         
         # Completeness checks
@@ -670,18 +737,18 @@ class YOLO_octron:
         # If it already exists and overwrite is enabled, delete it and create a new one
         if self.data_path.exists() and self.clean_training_dir:
             shutil.rmtree(self.data_path)
-            print(f"Removed existing training data directory '{self.data_path.as_posix()}'")
+            logger.info(f"Removed existing training data directory '{self.data_path.as_posix()}'")
         if self.data_path.exists() and not self.clean_training_dir:
-            print(f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory.")
+            logger.info(f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory.")
             # Remove any model subdirectories
             if self.training_path / 'training' in self.training_path.glob('*'):
                 shutil.rmtree(self.training_path / 'training')
-                print(f"Removed existing model subdirectory '{self.training_path / 'training'}'")
+                logger.info(f"Removed existing model subdirectory '{self.training_path / 'training'}'")
             return
         if not self.data_path.exists():
             self.data_path.mkdir(parents=True, exist_ok=False)
-            print(f"Created training data directory '{self.data_path.as_posix()}'")
-            
+            logger.info(f"Created training data directory '{self.data_path.as_posix()}'")
+
 
         # Create subdirectories for train, val, and test
         # If they already exist, delete them and create new ones
@@ -756,7 +823,7 @@ class YOLO_octron:
                         # Yield, to update the progress bar
                         yield((no_entry, len(self.label_dict), label, split, frame_no, len(current_indices)))  
                         
-        if verbose: print(f"Segmentation training data exported to {self.data_path.as_posix()}")
+        logger.info(f"Segmentation training data exported to {self.data_path.as_posix()}")
         return
 
     def create_training_data_detect(self,
@@ -798,7 +865,7 @@ class YOLO_octron:
         try:
             from PIL import Image
         except ModuleNotFoundError:
-            print('Please install PIL first, via pip install pillow')
+            logger.error('Please install PIL first, via pip install pillow')
             return
 
         # Completeness checks
@@ -813,16 +880,16 @@ class YOLO_octron:
         # Create the training root directory
         if self.data_path.exists() and self.clean_training_dir:
             shutil.rmtree(self.data_path)
-            print(f"Removed existing training data directory '{self.data_path.as_posix()}'")
+            logger.info(f"Removed existing training data directory '{self.data_path.as_posix()}'")
         if self.data_path.exists() and not self.clean_training_dir:
-            print(f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory.")
+            logger.info(f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory.")
             if self.training_path / 'training' in self.training_path.glob('*'):
                 shutil.rmtree(self.training_path / 'training')
-                print(f"Removed existing model subdirectory '{self.training_path / 'training'}'")
+                logger.info(f"Removed existing model subdirectory '{self.training_path / 'training'}'")
             return
         if not self.data_path.exists():
             self.data_path.mkdir(parents=True, exist_ok=False)
-            print(f"Created training data directory '{self.data_path.as_posix()}'")
+            logger.info(f"Created training data directory '{self.data_path.as_posix()}'")
 
         # Create subdirectories for train, val, and test
         for split in ['train', 'val', 'test']:
@@ -884,8 +951,7 @@ class YOLO_octron:
 
                         yield (no_entry, len(self.label_dict), label, split, frame_no, len(current_indices))
 
-        if verbose:
-            print(f"Detection training data exported to {self.data_path.as_posix()}")
+        logger.info(f"Detection training data exported to {self.data_path.as_posix()}")
         return
 
     def write_yolo_config(self,
@@ -960,7 +1026,7 @@ class YOLO_octron:
             f.write(header)
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         
-        print(f"YOLO config saved to '{self.config_path.as_posix()}'")
+        logger.info(f"YOLO config saved to '{self.config_path.as_posix()}'")
 
 
     ##### TRAINING AND INFERENCE ############################################################################
@@ -1007,7 +1073,7 @@ class YOLO_octron:
             model_name_path = self.models_yaml_path.parent / f'models/{model_name_path}'
             
         model = YOLO(model_name_path)
-        print(f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})")
+        logger.info(f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})")
         self.model = model
         return model
     
@@ -1143,41 +1209,55 @@ class YOLO_octron:
                 'finish_time': time.time(),
             })
         
-        def _find_train_image_size(data_path): 
+        def _find_train_image_size(data_path, max_samples=500): 
             """
             Helper to find whether rectangular or square training images are used.
             This determines rect parameter in YOLO training.
             
+            Samples up to *max_samples* images across all subdirectories so that
+            the decision is robust even when multiple datasets contribute images
+            with different aspect ratios.
+            
             Returns 
             -------
             height : float
-                Average height of one randomly sampled images
+                Average height of the sampled images.
             width : float
-                Average width of one randomly sampled images
+                Average width of the sampled images.
             rect : bool
-                True if all sampled images are rectangular, False otherwise.            
+                True only if ALL sampled images are landscape (width > height).
+                False otherwise — including mixed or portrait datasets — because
+                of an ultralytics dataloader bug that does not permit rectangular
+                (non-square) batches when height > width.
+                TODO: Re-evaluate this with updates of ultralytics. Current version: 8.3.158
             """
             data_path = Path(data_path)
             assert data_path.exists(), f"Data path {data_path} does not exist."
-            # Find png files and load one to determine image size
             png_files = list(data_path.glob('**/*.png'))
             if len(png_files) == 0:
                 raise FileNotFoundError(f"No .png files found in {data_path.as_posix()}")
-            sample_img = random.choice(png_files)
-            img = Image.open(sample_img)
-            width, height = img.size # This order of output is correct! 
-            img.close()
-            if height > width:
-                rect = False
-                # Decide for square (!) rect = False
-                # This is because of a bug in the dataloader of ultralyics that 
-                # does not permit rectangular (non-square) images with height > width
-                # TODO: Re-evaluate this with updates of ultralytics. Current version: 8.3.158
-            if height < width: 
-                rect = True
-            else: 
-                rect = False
-            return height, width, rect
+            logger.debug(f'Found {len(png_files)} png files')
+            samples = random.sample(png_files, min(max_samples, len(png_files)))
+
+            widths, heights = [], []
+            for fpath in samples:
+                # Read width/height directly from PNG IHDR chunk (bytes 16-23)
+                # I had it on PIL.Image.open() per file first, but this is very slow ... 
+                with open(fpath, 'rb') as f:
+                    f.seek(16)
+                    w, h = struct.unpack('>II', f.read(8))
+                widths.append(w)
+                heights.append(h)
+            
+            avg_h = sum(heights) / len(heights)
+            avg_w = sum(widths) / len(widths)
+            
+            # rect=True only when EVERY sampled image is landscape.
+            # Any portrait or square image forces rect=False (ultralytics bug).
+            all_landscape = all(w > h for w, h in zip(widths, heights))
+            rect = all_landscape
+            
+            return avg_h, avg_w, rect
 
         self.model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
         self.model.add_callback("on_train_end", _on_train_end)
@@ -1189,7 +1269,7 @@ class YOLO_octron:
         if device not in ['cpu', 'cuda', 'mps']:
             raise ValueError(f"Invalid device: {device}")   
         if device == 'mps':
-            print("⚠ MPS is not yet fully supported in PyTorch. Use at your own risk.")
+            logger.warning("MPS is not yet fully supported in PyTorch. Use at your own risk.")
         
         assert imagesz % 32 == 0, 'YOLO image size must be a multiple of 32'
         # Start training in a separate thread
@@ -1203,10 +1283,10 @@ class YOLO_octron:
             try:
                 img_height, img_width, rect = _find_train_image_size(self.data_path)
                 # Start training
-                print(f"Starting training for {epochs} epochs...")
-                print(f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)")
-                print(f"Using device: {device}")
-                print("################################################################")
+                logger.info(f"Starting training for {epochs} epochs...")
+                logger.info(f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)")
+                logger.info(f"Using device: {device}")
+                logger.info("################################################################")
                 # Build training kwargs — shared between segment and detect
                 train_kwargs = dict(
                     data=self.config_path.as_posix() if self.config_path is not None else '', 
@@ -1280,7 +1360,7 @@ class YOLO_octron:
             if training_error:
                 raise training_error
         except KeyboardInterrupt:
-            print("Training interrupted by user")
+            logger.info("Training interrupted by user")
             
     
     def launch_tensorboard(self):
@@ -1302,28 +1382,27 @@ class YOLO_octron:
         import random
         # Check if tensorboard is installed
         if importlib.util.find_spec("tensorboard") is None:
-            print("TensorBoard is not installed. Installing now...")
+            logger.info("TensorBoard is not installed. Installing now...")
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", "tensorboard"])
-                print("TensorBoard installed successfully!")
+                logger.info("TensorBoard installed successfully!")
             except subprocess.CalledProcessError:
-                print("Failed to install TensorBoard. Please install it manually with:")
-                print("pip install tensorboard")
+                logger.error("Failed to install TensorBoard. Please install it manually with: pip install tensorboard")
                 return False
-        
+
         if self.training_path is None:
-            print("No training path set. Set project_path first.")
+            logger.warning("No training path set. Set project_path first.")
             return False
-            
+
         if not self.training_path.exists():
-            print(f"Training path '{self.training_path}' does not exist.")
+            logger.warning(f"Training path '{self.training_path}' does not exist.")
             return False
         
         # Launch tensorboard in a separate process
         log_dir = self.training_path / 'training'
         try:
             port = random.randint(6000, 7000)
-            print(f"Starting TensorBoard on port {port}...")
+            logger.info(f"Starting TensorBoard on port {port}...")
             tensorboard_process = subprocess.Popen(
                 [sys.executable, "-m", "tensorboard.main", 
                 "--logdir", log_dir.as_posix(),
@@ -1340,19 +1419,19 @@ class YOLO_octron:
             if tensorboard_process.poll() is not None:
                 # Process terminated - get error message
                 _, stderr = tensorboard_process.communicate()
-                print(f"Failed to start TensorBoard: {stderr}")
+                logger.error(f"Failed to start TensorBoard: {stderr}")
                 return False
-                
+
             # Open web browser
             tensorboard_url = f"http://localhost:{port}/"
-            print(f"Opening TensorBoard in browser: {tensorboard_url}")
+            logger.info(f"Opening TensorBoard in browser: {tensorboard_url}")
             webbrowser.open(tensorboard_url, new=1) # to open in new browser window (fingers crossed this works...)
-            
-            print("TensorBoard is running.")
+
+            logger.info("TensorBoard is running.")
             return True
-            
+
         except Exception as e:
-            print(f"Error launching TensorBoard: {e}")
+            logger.error(f"Error launching TensorBoard: {e}")
             return False
         
 
@@ -1377,14 +1456,14 @@ class YOLO_octron:
                 if len(parts) >= 2:
                     try:
                         pid = int(parts[1])
-                        print(f"Terminating TensorBoard process with PID {pid}")
+                        logger.info(f"Terminating TensorBoard process with PID {pid}")
                         os.kill(pid, signal.SIGTERM)
                         found_processes = True
                     except (ValueError, ProcessLookupError) as e:
-                        print(f"Failed to terminate TensorBoard process: {e}")
-        
+                        logger.error(f"Failed to terminate TensorBoard process: {e}")
+
         if not found_processes:
-            print("No TensorBoard processes found")
+            logger.info("No TensorBoard processes found")
 
     def _quit_tensorboard_windows(self):
         """Helper method to terminate TensorBoard on Windows"""
@@ -1402,14 +1481,14 @@ class YOLO_octron:
                     parts = line.strip('"').split('","')
                     if len(parts) >= 2:
                         pid = int(parts[1])
-                        print(f"Terminating TensorBoard process with PID {pid}")
+                        logger.info(f"Terminating TensorBoard process with PID {pid}")
                         subprocess.run(["taskkill", "/F", "/PID", str(pid)])
                         found_processes = True
                 except (ValueError, IndexError) as e:
-                    print(f"Failed to terminate TensorBoard process: {e}")
-        
+                    logger.error(f"Failed to terminate TensorBoard process: {e}")
+
         if not found_processes:
-            print("No TensorBoard processes found")
+            logger.info("No TensorBoard processes found")
 
     
     def quit_tensorboard(self):
@@ -1417,8 +1496,8 @@ class YOLO_octron:
         Find and quit all TensorBoard processes on both Unix-like systems 
         and Windows platforms.
         """
-        print("Stopping any running TensorBoard processes...")
-        
+        logger.info("Stopping any running TensorBoard processes...")
+
         try:
             # Check platform-specific approach
             if os.name == 'posix':  # Unix-like systems (macOS, Linux)
@@ -1426,9 +1505,9 @@ class YOLO_octron:
             elif os.name == 'nt':  # Windows
                 self._quit_tensorboard_windows()
             else:
-                print(f"Unsupported platform: {os.name}")
+                logger.warning(f"Unsupported platform: {os.name}")
         except Exception as e:
-            print(f"Error when terminating TensorBoard processes: {e}")
+            logger.error(f"Error when terminating TensorBoard processes: {e}")
     
      
     def validate(self, data=None, device='auto', plots=True):
@@ -1498,7 +1577,7 @@ class YOLO_octron:
         try:
             ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
         except Exception as e:
-            print(f"Could not read checkpoint '{model_path}': {e}")
+            logger.warning(f"Could not read checkpoint '{model_path}': {e}")
             return info
 
         train_args = ckpt.get('train_args', {})
@@ -1684,7 +1763,7 @@ class YOLO_octron:
                             f"Failed to find original index for track {track_id}, class {res_class}: {e}"
                         ) from e
 
-                    if verbose: print(f'Matched\n{res_line} with\n{tracker_input[tracked_idx]}')
+                    logger.debug(f'Matched\n{res_line} with\n{tracker_input[tracked_idx]}')
                     
         assert len(set(tracked_ids)) == len(tracked_ids), f'Duplicate track IDs found: {tracked_ids}'
         assert len(tracked_ids) == len(tracked_idxs), \
@@ -1824,7 +1903,7 @@ class YOLO_octron:
             tracker_config = load_boxmot_tracker_config(tracker_cfg_path)
             # Extract tracker_id from the top-level key of the config YAML
             tracker_id = next(iter(tracker_config))
-            print(f"Using custom tracker config: {tracker_cfg_path} (tracker: {tracker_id})")
+            logger.info(f"Using custom tracker config: {tracker_cfg_path} (tracker: {tracker_id})")
         elif tracker_name is not None:
             # Resolve tracker name via flexible lookup in boxmot_trackers.yaml
             trackers_yaml_path = octron_base_path / 'tracking/boxmot_trackers.yaml'
@@ -1832,7 +1911,7 @@ class YOLO_octron:
             tracker_id, tracker_info = resolve_tracker(tracker_name, trackers_dict)
             tracker_cfg_path = octron_base_path / tracker_info['config_path']
             tracker_config = load_boxmot_tracker_config(tracker_cfg_path)
-            print(f"Resolved tracker '{tracker_name}' -> {tracker_id}")
+            logger.info(f"Resolved tracker '{tracker_name}' -> {tracker_id}")
         else:
             raise ValueError(
                 "Either 'tracker_name' or 'tracker_cfg_path' must be provided. "
@@ -1849,10 +1928,10 @@ class YOLO_octron:
             for param_name, param_value in tracker_params.items():
                 if param_name in config_parameters:
                     tracker_config[tracker_id]['parameters'][param_name]['current_value'] = param_value
-                    print(f"  Tracker param override: {param_name} = {param_value}")
+                    logger.debug(f"Tracker param override: {param_name} = {param_value}")
                 else:
-                    print(f"  ⚠ Unknown tracker parameter '{param_name}' — ignored. "
-                          f"Available: {list(config_parameters.keys())}")
+                    logger.warning(f"Unknown tracker parameter '{param_name}' — ignored. "
+                                   f"Available: {list(config_parameters.keys())}")
 
         # Check YOLO configuration
         model_path = Path(model_path)
@@ -1861,7 +1940,7 @@ class YOLO_octron:
         # Determine model task (detect vs segment)
         model_task = self.get_model_info(model_path).get('task') or 'segment'
         is_segment = (model_task == 'segment')
-        print(f"Model task: {model_task} ({'segmentation' if is_segment else 'detection'})")
+        logger.info(f"Model task: {model_task} ({'segmentation' if is_segment else 'detection'})")
         
         # Detection models do not produce masks — disable mask-dependent options
         region_details = bool(region_properties) or bool(extra_properties)
@@ -1877,19 +1956,19 @@ class YOLO_octron:
         # Try to find model args 
         model_args = self.load_model_args(model_name_path=model_path)
         if model_args is not None:
-            print('Model args loaded from', model_path.parent.parent.as_posix())
+            logger.info(f"Model args loaded from {model_path.parent.parent.as_posix()}")
             imgsz = model_args['imgsz']
             rect = model_args.get('rect', True)
-            print(f'Image size: {imgsz}, rect={rect}')
+            logger.info(f'Image size: {imgsz}, rect={rect}')
         else:
-            print('No model args found, using default image size of 640 and rect=True')
+            logger.info('No model args found, using default image size of 640 and rect=True')
             imgsz = 640
             rect = True
         
         skip_frames = int(max(0, skip_frames))
         
         if one_object_per_label:
-            print("⚠ Tracking only one object per label.")
+            logger.warning("Tracking only one object per label.")
         
         # Calculate total frames across all videos
         total_videos = len(videos_dict)
@@ -1906,7 +1985,7 @@ class YOLO_octron:
         for video_index, (video_name, video_dict) in enumerate(videos_dict.items(), start=0):
             num_frames = video_dict['num_frames_analyzed']
             
-            print(f'\nProcessing video {video_index+1}/{total_videos}: {video_name}')
+            logger.info(f'Processing video {video_index+1}/{total_videos}: {video_name}')
             video_path = Path(video_dict['video_file_path'])
             
             # Check overwrite BEFORE loading the model to avoid unnecessary work
@@ -1914,7 +1993,7 @@ class YOLO_octron:
             if save_dir.exists() and overwrite:
                 shutil.rmtree(save_dir)
             elif save_dir.exists() and not overwrite:
-                print(f"Prediction directory already exists at {save_dir}")
+                logger.info(f"Prediction directory already exists at {save_dir}")
                 yield {
                     'stage': 'skipped_video',
                     'video_name': video_name,
@@ -1928,11 +2007,11 @@ class YOLO_octron:
             try:
                 model = self.load_model(model_name_path=model_path)
                 if not model:
-                    print(f"Failed to load model from {model_path}")
+                    logger.error(f"Failed to load model from {model_path}")
                     return
             except Exception as e:
-                print(f"Error during initialization: {e}")
-                return    
+                logger.error(f"Error during initialization: {e}")
+                return
 
             # DEPRECATED
             # if max(video_dict['height'], video_dict['width']) < imgsz:
@@ -2010,14 +2089,14 @@ class YOLO_octron:
                 # Clear buffer
                 mask_buffers[track_id].clear()
                 buffer_counts[track_id] = 0
-                print(f"Saved mask buffer for track {track_id} to zarr ({len(frame_indices)} frames)")
+                logger.debug(f"Saved mask buffer for track {track_id} to zarr ({len(frame_indices)} frames)")
             
             for frame_no, frame_idx in enumerate(video_dict['frame_iterator'], start=0):
                 try:
                     frame = video[frame_idx]
 
                 except StopIteration:
-                    print(f"Could not read frame {frame_idx} from video {video_name}")
+                    logger.warning(f"Could not read frame {frame_idx} from video {video_name}")
                     continue
                     
                 # Before processing the results, yield progress information 
@@ -2068,7 +2147,7 @@ class YOLO_octron:
                     else:
                         masks = None
                 except AttributeError as e:
-                    print(f'No result for frame_idx {frame_idx}: {e}')
+                    logger.debug(f'No result for frame_idx {frame_idx}: {e}')
                     continue
 
                 # Pass things to the boxmot tracker 
@@ -2079,7 +2158,7 @@ class YOLO_octron:
                                           ])
                 tracking_result = tracker.update(tracker_input, frame)
                 if tracking_result.shape[0] == 0:
-                    print(f'No tracking result found for frame_idx {frame_idx}')
+                    logger.debug(f'No tracking result found for frame_idx {frame_idx}')
                     continue
                 
                 # Map tracking results to original detections
@@ -2090,7 +2169,7 @@ class YOLO_octron:
                                                                      )
                 # Skip if no valid tracks found
                 if not tracked_idxs:
-                    print(f'No valid tracks mapped for frame_idx {frame_idx}')
+                    logger.debug(f'No valid tracks mapped for frame_idx {frame_idx}')
                     continue
                             
                 # Filter all result arrays using tracked_box_indices
@@ -2292,7 +2371,7 @@ class YOLO_octron:
                 with open(csv_path, 'w') as f:
                     f.write('\n'.join(header) + '\n') 
                     df_to_save.to_csv(f, na_rep='NaN', lineterminator='\n')
-                print(f"Saved tracking data for '{label}' (track ID: {track_id}) to {filename}")
+                logger.debug(f"Saved tracking data for '{label}' (track ID: {track_id}) to {filename}")
             
             # Save a json file with all metadata / parameters used for prediction 
             json_meta_path = save_dir / 'prediction_metadata.json'
@@ -2375,7 +2454,7 @@ class YOLO_octron:
             
             with open(json_meta_path, 'w') as f:
                 json.dump(metadata_to_save, f, indent=4)
-            print(f"Saved prediction metadata to {json_meta_path.as_posix()}")
+            logger.info(f"Saved prediction metadata to {json_meta_path.as_posix()}")
             
             yield {
                     'stage': 'video_complete',
@@ -2528,7 +2607,7 @@ class YOLO_octron:
                 add_layer(np.zeros((yolo_results.height, yolo_results.width)), **layer_dict)
             else:
                 if not has_masks:
-                    print("Detection results — no video or mask dimensions available for viewer background.")
+                    logger.warning("Detection results — no video or mask dimensions available for viewer background.")
                 else:
                     raise ValueError("Could not load video or mask metadata for viewer")
         
@@ -2536,7 +2615,7 @@ class YOLO_octron:
         results_per_track = []
         for track_id, label in track_id_label.items():
             if track_id not in tracking_data:
-                print(f"Warning: No tracking data for track_id {track_id} (label '{label}'), skipping.")
+                logger.warning(f"No tracking data for track_id {track_id} (label '{label}'), skipping.")
                 continue
             color, napari_colormap = yolo_results.get_color_for_track_id(track_id)
             tracking_df = tracking_data[track_id]['data']

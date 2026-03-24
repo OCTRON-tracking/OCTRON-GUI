@@ -1,7 +1,8 @@
 # YOLO training related helpers
 from pathlib import Path
 import json
-import numpy as np                                         
+import numpy as np
+from loguru import logger                                         
                 
 def find_files_with_depth_limit(base_path, pattern, max_depth=1):
     """
@@ -57,18 +58,18 @@ def load_object_organizer(file_path):
     """
     file_path = Path(file_path)
     if not file_path.exists():
-        print(f"No organizer file found at {file_path}")
+        logger.warning(f"No organizer file found at {file_path}")
         return
-    if not file_path.suffix == '.json': 
-        print(f"❌ File is not a json file: {file_path}")
+    if not file_path.suffix == '.json':
+        logger.error(f"File is not a json file: {file_path}")
         return
     try:
         with open(file_path, 'r') as f:
             data = json.load(f)
-        print(f"📖 Octron object organizer loaded from {file_path.as_posix()}")
+        logger.info(f"Octron object organizer loaded from {file_path.as_posix()}")
         return data
     except Exception as e:
-        print(f"❌ Error loading json: {e}")
+        logger.error(f"Error loading json: {e}")
         return 
 
 
@@ -131,10 +132,11 @@ def pick_random_frames(frames, n=20):
     else:
         return np.array([], dtype=frames.dtype)
     
-def collect_labels(project_path, 
+def collect_labels(project_path,
                    subfolder=None,
-                   prune_empty_labels=True, 
+                   prune_empty_labels=True,
                    min_num_frames=5,
+                   verify_hash=True,
                    verbose=False,
                    ):
     """
@@ -209,7 +211,7 @@ def collect_labels(project_path,
     current_label_id = 0
     
     for object_organizer in find_files_with_depth_limit(json_parent_path, 'object_organizer.json', 1):
-        if verbose: print(object_organizer.parent)
+        if verbose: logger.debug(object_organizer.parent)
         organizer_dict = load_object_organizer(object_organizer)  
         labels = {}
         video_hash_dict = {}   
@@ -223,15 +225,15 @@ def collect_labels(project_path,
             if label in label_id_map:
                 # Use existing ID for consistency
                 label_id = label_id_map[label]
-                if verbose: print(f'Using existing ID {label_id} for label {label}')
+                if verbose: logger.debug(f'Using existing ID {label_id} for label {label}')
             else:
                 # Assign a new ID and update mapping
                 label_id = current_label_id
                 label_id_map[label] = label_id
                 current_label_id += 1
-                if verbose: print(f'Created new ID {label_id} for label {label}')
-            
-            if verbose: print(f'Found label {label} with id {label_id}')   
+                if verbose: logger.debug(f'Created new ID {label_id} for label {label}')
+
+            if verbose: logger.debug(f'Found label {label} with id {label_id}')   
             if label_id in labels:
                 assert labels[label_id]['label'] == label, 'Label name vs. id do not match'
             else:
@@ -266,7 +268,7 @@ def collect_labels(project_path,
             # Extract annotated frame indices from zarr attribute (fast path)
             annotated_indices = get_annotated_frames(loaded_masks)
             if verbose:
-                print(f'Found {len(annotated_indices)} annotated frames for label {label} in {object_organizer.parent.name}')
+                logger.info(f'Found {len(annotated_indices)} annotated frames for label {label} in {object_organizer.parent.name}')
             # if prune_empty_labels:
                 
             #     # Also get rid of frames where the mask is all zeros
@@ -280,29 +282,42 @@ def collect_labels(project_path,
             labels[label_id]['frames'].extend(annotated_indices) 
             
             expected_video_hash_zarr = loaded_masks.attrs.get('video_hash', None)
-            expected_video_hash_organizer = entry['prediction_layer_metadata']['video_hash']    
-            
+            expected_video_hash_organizer = entry['prediction_layer_metadata']['video_hash']
+
             video_file_path = project_path / Path(entry['prediction_layer_metadata']['video_file_path'])
-            if not video_file_path in video_hash_dict:
-                assert video_file_path.exists(), f'Video file not found at "{video_file_path.as_posix()}"' 
-                actual_video_hash = get_vfile_hash(video_file_path)[-8:] # By default this is shortened to 8 characters
-                video_hash_dict[video_file_path] = actual_video_hash 
-            assert len(video_hash_dict) == 1, 'Different video files found for one object organizer json.'
-            assert expected_video_hash_zarr == expected_video_hash_organizer == video_hash_dict[video_file_path], 'Video hash mismatch'
+            assert video_file_path.exists(), f'Video file not found at "{video_file_path.as_posix()}"'
+
+            if verify_hash:
+                # Full integrity check: re-read the entire video file to verify its hash.
+                # Expensive on large files / network drives — skip for GUI table refreshes.
+                if video_file_path not in video_hash_dict:
+                    actual_video_hash = get_vfile_hash(video_file_path)[-8:]
+                    video_hash_dict[video_file_path] = actual_video_hash
+                assert len(video_hash_dict) == 1, 'Different video files found for one object organizer json.'
+                assert expected_video_hash_zarr == expected_video_hash_organizer == video_hash_dict[video_file_path], 'Video hash mismatch'
+            else:
+                # Lightweight check: just verify internal consistency between zarr and JSON.
+                # The stored hash was written by OCTRON at annotation time, so if they
+                # agree the association is trustworthy without re-reading the file.
+                if video_file_path not in video_hash_dict:
+                    video_hash_dict[video_file_path] = expected_video_hash_organizer
+                assert len(video_hash_dict) == 1, 'Different video files found for one object organizer json.'
+                assert expected_video_hash_zarr == expected_video_hash_organizer, \
+                    f'Hash mismatch between zarr and organizer for {video_file_path}'
             
         # Maintain only unique entries in 'frames' lists
         for label_id in labels:
             _, i = np.unique(labels[label_id]['frames'], return_index=True)
             labels[label_id]['frames'] = np.array(labels[label_id]['frames'])[np.sort(i)]
-            if verbose: print(f'Label {labels[label_id]["label"]} has {len(labels[label_id]["frames"])} annotated frames')
+            if verbose: logger.debug(f'Label {labels[label_id]["label"]} has {len(labels[label_id]["frames"])} annotated frames')
         
         # Prune frames that do not have annotation across all labels
         if prune_empty_labels:
             common_frames = find_common_frames([f['frames'] for f in labels.values()])
             for label_id in labels:
                 labels[label_id]['frames'] = common_frames
-                if verbose: 
-                    print(f'PRUNING: Label {labels[label_id]["label"]} has {len(labels[label_id]["frames"])} common frames') 
+                if verbose:
+                    logger.debug(f'PRUNING: Label {labels[label_id]["label"]} has {len(labels[label_id]["frames"])} common frames') 
         
         # Assert that there is a minimum number of frames available for training data generation
         if min_num_frames > 0: 
@@ -367,21 +382,21 @@ def draw_polygons(labels,
     """
     # Check if cv2 is installed correctly
     try:
-        import cv2 
+        import cv2
     except ModuleNotFoundError:
-        print('Please install cv2 first, via pip install opencv-python')
+        logger.error('Please install cv2 first, via pip install opencv-python')
         return
     # ... and matplotlib
     try:
         import matplotlib.pyplot as plt
     except ModuleNotFoundError:
-        print('Please install matplotlib first, via pip install matplotlib')
+        logger.error('Please install matplotlib first, via pip install matplotlib')
         return
 
     if max_to_plot < 1:
         max_to_plot = 1
-    print(f'Drawing polygons for {len(labels)} labels.')
-    print(f'Max {max_to_plot} frame(s) per label will be plotted.')
+    logger.info(f'Drawing polygons for {len(labels)} labels.')
+    logger.info(f'Max {max_to_plot} frame(s) per label will be plotted.')
     # Draw the polygons on the video frames
     for entry in labels:
         if entry == 'video' or entry == 'video_file_path':
@@ -465,16 +480,21 @@ def train_test_val(frame_indices,
     """
     assert training_fraction + validation_fraction < 1, 'Fractions should sum to less than 1'
     assert training_fraction > validation_fraction, 'Training fraction should be greater than validation fraction'
-    assert len(frame_indices) > 0, 'No frame indices provided'
+    assert len(frame_indices) >= 3, (
+        f'Need at least 3 frames to split into train/val/test, got {len(frame_indices)}'
+    )
     
     # Shuffle the indices
     np.random.seed(random_seed)
     shuffled_indices = np.random.permutation(len(frame_indices))
 
-    # Calculate split points
-    train_size = int(training_fraction * len(frame_indices))
-    val_size = int(validation_fraction * len(frame_indices))
-    # test_size = len(frames) - train_size - val_size (remaining frames)
+    # Calculate split points, ensuring each split gets at least 1 frame
+    n = len(frame_indices)
+    train_size = max(1, int(training_fraction * n))
+    val_size = max(1, int(validation_fraction * n))
+    # Ensure test (remainder) also gets at least 1 frame
+    while train_size + val_size >= n:
+        train_size -= 1
 
     # Split the shuffled indices
     train_indices = shuffled_indices[:train_size]
@@ -487,11 +507,10 @@ def train_test_val(frame_indices,
     test_frames = frame_indices[test_indices]
 
     if verbose:
-        # Print sizes
-        print(f"Total frames: {len(frame_indices)}")
-        print(f"Training set: {len(train_frames)} frames")
-        print(f"Validation set: {len(val_frames)} frames")
-        print(f"Test set: {len(test_frames)} frames")
+        logger.info(f"Total frames: {len(frame_indices)}")
+        logger.info(f"Training set: {len(train_frames)} frames")
+        logger.info(f"Validation set: {len(val_frames)} frames")
+        logger.info(f"Test set: {len(test_frames)} frames")
         
     split_dict = {
         'train': train_frames,
