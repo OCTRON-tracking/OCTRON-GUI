@@ -156,8 +156,11 @@ def run_predict(
     # -------------------------------------------------------------------------
 
     _wall_start = time.time()
-    frame_time = 0.0
-    _frame_times = deque(maxlen=300)
+    # Consumer-side fps: timestamps of the last _FPS_WINDOW seconds of frames.
+    # Time-based eviction means stall outliers fall out of the window immediately
+    # after the stall ends, avoiding both mean-poisoning and median bimodal issues.
+    _FPS_WINDOW = 5.0  # seconds
+    _fps_ts: deque[float] = deque()
     _current_video_frames = 0
     _last_print_t = 0.0
     # In debug mode slow progress updates to 2 Hz so they don't fight with
@@ -240,7 +243,7 @@ def run_predict(
                 num_frames = progress.get("num_frames", 0)
                 save_dir   = progress.get("save_dir", "")
                 _current_video_frames = num_frames
-                _frame_times.clear()  # reset rolling average per video
+                _fps_ts.clear()  # reset fps window per video
                 _close_progress()
                 logger.info(f"Video {vidx}/{total_v}: {video_name}")
                 logger.info(f"Frames:   {num_frames:,}")
@@ -259,21 +262,24 @@ def run_predict(
                 continue
 
             _video_has_results = True
-            frame      = progress.get("frame", 0)
-            total_f    = _current_video_frames or progress.get("total_frames", 0)
-            frame_time = progress.get("frame_time", frame_time)
-            if frame_time > 0:
-                _frame_times.append(frame_time)
-            avg_frame_time = sum(_frame_times) / len(_frame_times) if _frame_times else 0.0
+            frame   = progress.get("frame", 0)
+            total_f = _current_video_frames or progress.get("total_frames", 0)
+
+            # Consumer-side fps: record arrival timestamp, evict entries older
+            # than _FPS_WINDOW seconds, then compute fps from the window.
+            now_t = time.time()
+            _fps_ts.append(now_t)
+            while _fps_ts[0] < now_t - _FPS_WINDOW:
+                _fps_ts.popleft()
+            if len(_fps_ts) >= 2:
+                fps = (len(_fps_ts) - 1) / (_fps_ts[-1] - _fps_ts[0])
+            else:
+                fps = 0.0
 
             pct = 100.0 * frame / total_f if total_f > 0 else 0.0
-            remaining = total_f - frame
-            eta = remaining * avg_frame_time if avg_frame_time > 0 else 0.0
-            fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 0.0
-            eta_s = int(eta)
+            eta_s = int((total_f - frame) / fps) if fps > 0 else 0
             eta_str = f"{eta_s // 3600:02d}:{(eta_s % 3600) // 60:02d}:{eta_s % 60:02d}"
 
-            now_t = time.time()
             if now_t - _last_print_t >= _PRINT_INTERVAL:
                 if debug:
                     logger.info(
