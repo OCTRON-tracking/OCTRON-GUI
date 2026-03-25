@@ -60,9 +60,11 @@ app = typer.Typer(
 @app.callback()
 def default(ctx: typer.Context):
     """Launch the OCTRON napari GUI (default), or run a subcommand."""
-    from octron._logging import setup_logging, print_welcome
-    setup_logging()
-    print_welcome()
+    import sys
+    if "--help" not in sys.argv and "-h" not in sys.argv:
+        from octron._logging import setup_logging, print_welcome
+        setup_logging()
+        print_welcome()
     if ctx.invoked_subcommand is None:
         logger.info("Loading libraries (this may take a moment)...")
         from octron.main import octron_gui
@@ -160,6 +162,7 @@ def predict(
     overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite existing prediction results. Default: skip videos that already have predictions."),
     detailed: bool = typer.Option(False, "--detailed", help="Extract detailed region properties (area, eccentricity, solidity, …) from segmentation masks via scikit-image. Ignored for detection models."),
     buffer_size: int = typer.Option(500, help="Frame buffer size before writing to zarr."),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Directory where octron_predictions/ folders are written. Defaults to alongside each video file."),
 ):
     """Run YOLO prediction and tracking on one or more videos."""
     from octron.tools.predict import run_predict
@@ -215,6 +218,7 @@ def predict(
         overwrite=overwrite,
         buffer_size=buffer_size,
         region_properties=DEFAULT_REGION_PROPERTIES if detailed else None,
+        output_dir=output_dir,
     )
 
 
