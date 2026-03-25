@@ -20,6 +20,7 @@ from typing import List, Optional
 from pathlib import Path
 from enum import Enum
 import typer
+from loguru import logger
 
 
 class YOLOModel(str, Enum):
