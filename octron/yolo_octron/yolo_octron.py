@@ -1788,6 +1788,7 @@ class YOLO_octron:
                   opening_radius=0,
                   overwrite=True,
                   buffer_size=500,
+                  output_dir=None,
                   ):
         """
         Predict and track objects in multiple videos.
@@ -1854,6 +1855,9 @@ class YOLO_octron:
             Whether to overwrite existing prediction results
         buffer_size : int, default=500
             Number of frames to buffer before writing masks to zarr arrays
+        output_dir : str or Path, optional
+            Root directory under which octron_predictions/ folders are written.
+            Defaults to alongside each video file when None.
             
         Yields
         ------
@@ -1989,7 +1993,8 @@ class YOLO_octron:
             video_path = Path(video_dict['video_file_path'])
             
             # Check overwrite BEFORE loading the model to avoid unnecessary work
-            save_dir = video_path.parent / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
+            _pred_root = Path(output_dir) if output_dir else video_path.parent
+            save_dir = _pred_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
             if save_dir.exists() and overwrite:
                 shutil.rmtree(save_dir)
             elif save_dir.exists() and not overwrite:
