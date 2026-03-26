@@ -127,7 +127,7 @@ class YOLO_results:
         if video is None and self.verbose:
             logger.warning(
                 f"No video found for '{results_dir.name}' "
-                f"(looked for {stem}{{{','.join(self.VIDEO_EXTENSIONS)}}} "
+                f"(looked for {stem}.mp4 "
                 f"in '{results_dir.parent.parent}'). "
                 f"Use --video to specify the path explicitly."
             )
