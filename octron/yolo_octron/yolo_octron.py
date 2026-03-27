@@ -1259,6 +1259,25 @@ class YOLO_octron:
             
             return avg_h, avg_w, rect
 
+        # Remove any stale ultralytics disk-cache .npy files from the training
+        # data directory before starting.  ultralytics cache='disk' (older
+        # versions) writes <stem>.npy alongside each source image.  YOLO26's
+        # semantic-segmentation head also scans for <stem>.npy files and
+        # interprets them as per-pixel class-label maps.  Stale cache files
+        # therefore contain raw RGB frames instead of label maps, which poisons
+        # sem_loss and eventually causes a NaN crash (observed at epoch ~76 on
+        # RTX 5090 with yolo26l-seg).  Removing them forces a clean rebuild and
+        # prevents the semantic head from receiving corrupted targets.
+        if self.data_path and self.data_path.exists():
+            stale_npy = list(self.data_path.glob('**/*.npy'))
+            if stale_npy:
+                logger.warning(
+                    f"Found {len(stale_npy)} stale .npy file(s) in training data "
+                    "directory — removing to prevent corrupted semantic-mask targets."
+                )
+                for f in stale_npy:
+                    f.unlink()
+
         self.model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
         self.model.add_callback("on_train_end", _on_train_end)
         
@@ -1304,7 +1323,7 @@ class YOLO_octron:
                     patience=100,
                     plots=True,
                     batch=-1, # auto
-                    cache='disk', # for fast access
+                    cache=False,
                     save=True,
                     save_period=save_period, 
                     exist_ok=True,
@@ -1329,8 +1348,27 @@ class YOLO_octron:
                 )
                 # Segmentation-specific parameters
                 if train_mode == 'segment':
-                    train_kwargs['mask_ratio'] = 2
+                    # mask_ratio=1 matches the YOLO26 prototype head's design
+                    # resolution. Using mask_ratio=2 causes YOLO26's mask
+                    # predictions to be at half the expected resolution, which
+                    # prevents any mask IoU threshold from being met during
+                    # validation — resulting in mask metrics = 0 for all epochs.
+                    train_kwargs['mask_ratio'] = 1
                     train_kwargs['overlap_mask'] = True
+                    # YOLO26 has a semantic-segmentation head (sem_loss) that
+                    # requires per-pixel class-label targets.  OCTRON provides
+                    # instance-level polygon labels only.  Disabling the semantic
+                    # loss prevents sem_loss from diverging to NaN when it cannot
+                    # find valid semantic targets.
+                    # Only set this for YOLO26 models (identified by the Segment26
+                    # head) — YOLO11 does not have this parameter and passing it
+                    # would cause an unrecognised-argument error.
+                    try:
+                        head_type = type(list(self.model.model.model.children())[-1]).__name__
+                    except Exception:
+                        head_type = ''
+                    if 'Segment26' in head_type:
+                        train_kwargs['semseg_loss'] = False
 
                 self.model.train(**train_kwargs)
             except Exception as e:
