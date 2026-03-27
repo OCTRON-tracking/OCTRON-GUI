@@ -1355,20 +1355,11 @@ class YOLO_octron:
                     # validation — resulting in mask metrics = 0 for all epochs.
                     train_kwargs['mask_ratio'] = 1
                     train_kwargs['overlap_mask'] = True
-                    # YOLO26 has a semantic-segmentation head (sem_loss) that
-                    # requires per-pixel class-label targets.  OCTRON provides
-                    # instance-level polygon labels only.  Disabling the semantic
-                    # loss prevents sem_loss from diverging to NaN when it cannot
-                    # find valid semantic targets.
-                    # Only set this for YOLO26 models (identified by the Segment26
-                    # head) — YOLO11 does not have this parameter and passing it
-                    # would cause an unrecognised-argument error.
-                    try:
-                        head_type = type(list(self.model.model.model.children())[-1]).__name__
-                    except Exception:
-                        head_type = ''
-                    if 'Segment26' in head_type:
-                        train_kwargs['semseg_loss'] = False
+                    # Note: YOLO26 was trained with semseg_loss=True in its
+                    # custom ultralytics fork, but the standard ultralytics
+                    # rejects it as an unrecognised argument. Since the standard
+                    # trainer has no semantic-loss code, sem_loss is not computed
+                    # at all — no action needed here.
 
                 self.model.train(**train_kwargs)
             except Exception as e:
