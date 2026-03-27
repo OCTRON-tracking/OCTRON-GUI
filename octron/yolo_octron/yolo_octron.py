@@ -1346,18 +1346,12 @@ class YOLO_octron:
                 # Segmentation-specific parameters
                 if train_mode == 'segment':
                     # mask_ratio=1 matches the YOLO26 prototype head's design
-                    # resolution. Using mask_ratio=2 causes YOLO26's mask
-                    # predictions to be at half the expected resolution, which
-                    # prevents any mask IoU threshold from being met during
-                    # validation — resulting in mask metrics = 0 for all epochs.
+                    # There seem to still be issues with this in ultralytics.
+                    # Issue to watch: 
+                    # https://github.com/ultralytics/ultralytics/issues/20200#issuecomment-3130376932                    
                     train_kwargs['mask_ratio'] = 1
                     train_kwargs['overlap_mask'] = True
-                    # Note: YOLO26 was trained with semseg_loss=True in its
-                    # custom ultralytics fork, but the standard ultralytics
-                    # rejects it as an unrecognised argument. Since the standard
-                    # trainer has no semantic-loss code, sem_loss is not computed
-                    # at all — no action needed here.
-
+                    
                 self.model.train(**train_kwargs)
             except Exception as e:
                 training_error = e
@@ -2159,7 +2153,7 @@ class YOLO_octron:
                     save=False,
                     verbose=False,
                     imgsz=imgsz,
-                    max_det=100,
+                    max_det=2000,
                     conf=conf_thresh,
                     iou=iou_thresh,
                     device=device, 
