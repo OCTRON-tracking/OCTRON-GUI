@@ -1260,20 +1260,17 @@ class YOLO_octron:
             return avg_h, avg_w, rect
 
         # Remove any stale ultralytics disk-cache .npy files from the training
-        # data directory before starting.  ultralytics cache='disk' (older
-        # versions) writes <stem>.npy alongside each source image.  YOLO26's
-        # semantic-segmentation head also scans for <stem>.npy files and
-        # interprets them as per-pixel class-label maps.  Stale cache files
-        # therefore contain raw RGB frames instead of label maps, which poisons
-        # sem_loss and eventually causes a NaN crash (observed at epoch ~76 on
-        # RTX 5090 with yolo26l-seg).  Removing them forces a clean rebuild and
-        # prevents the semantic head from receiving corrupted targets.
+        # data directory before starting.  ultralytics cache='disk' writes
+        # <stem>.npy files alongside source images, and BaseDataset.load_image
+        # will silently load any matching .npy it finds — even when cache='disk'
+        # is not set — instead of reading the actual image file.  Purging them
+        # here ensures a clean cache rebuild each training run.
         if self.data_path and self.data_path.exists():
             stale_npy = list(self.data_path.glob('**/*.npy'))
             if stale_npy:
                 logger.warning(
-                    f"Found {len(stale_npy)} stale .npy file(s) in training data "
-                    "directory — removing to prevent corrupted semantic-mask targets."
+                    f"Found {len(stale_npy)} stale .npy cache file(s) in training data "
+                    "directory — removing before training starts."
                 )
                 for f in stale_npy:
                     f.unlink()
@@ -1323,7 +1320,7 @@ class YOLO_octron:
                     patience=100,
                     plots=True,
                     batch=-1, # auto
-                    cache=False,
+                    cache='disk', # for fast access
                     save=True,
                     save_period=save_period, 
                     exist_ok=True,
