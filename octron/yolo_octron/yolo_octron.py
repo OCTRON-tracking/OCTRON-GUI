@@ -1259,6 +1259,22 @@ class YOLO_octron:
             
             return avg_h, avg_w, rect
 
+        # Remove any stale ultralytics disk-cache .npy files from the training
+        # data directory before starting.  ultralytics cache='disk' writes
+        # <stem>.npy files alongside source images, and BaseDataset.load_image
+        # will silently load any matching .npy it finds — even when cache='disk'
+        # is not set — instead of reading the actual image file.  Purging them
+        # here ensures a clean cache rebuild each training run.
+        if self.data_path and self.data_path.exists():
+            stale_npy = list(self.data_path.glob('**/*.npy'))
+            if stale_npy:
+                logger.warning(
+                    f"Found {len(stale_npy)} stale .npy cache file(s) in training data "
+                    "directory — removing before training starts."
+                )
+                for f in stale_npy:
+                    f.unlink()
+
         self.model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
         self.model.add_callback("on_train_end", _on_train_end)
         
@@ -1329,8 +1345,18 @@ class YOLO_octron:
                 )
                 # Segmentation-specific parameters
                 if train_mode == 'segment':
-                    train_kwargs['mask_ratio'] = 2
+                    # mask_ratio=1 matches the YOLO26 prototype head's design
+                    # resolution. Using mask_ratio=2 causes YOLO26's mask
+                    # predictions to be at half the expected resolution, which
+                    # prevents any mask IoU threshold from being met during
+                    # validation — resulting in mask metrics = 0 for all epochs.
+                    train_kwargs['mask_ratio'] = 1
                     train_kwargs['overlap_mask'] = True
+                    # Note: YOLO26 was trained with semseg_loss=True in its
+                    # custom ultralytics fork, but the standard ultralytics
+                    # rejects it as an unrecognised argument. Since the standard
+                    # trainer has no semantic-loss code, sem_loss is not computed
+                    # at all — no action needed here.
 
                 self.model.train(**train_kwargs)
             except Exception as e:
