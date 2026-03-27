@@ -39,7 +39,7 @@ dependencies = [
     "kornia>=0.8.0",
     "cmasher>=1.9.2",
     "imantics",
-    "ultralytics>=8.4.26",
+    "ultralytics>=8.4.30",
     "setuptools",
     "tensorboard>=2.19.0",
     "lap>=0.5.12",
