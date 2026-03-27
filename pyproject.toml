@@ -46,6 +46,7 @@ dependencies = [
     "opencv-python>=4.11.0",       
     "natsort>=8.4.0",
     "loguru>=0.7",
+    "typer>=0.12.0",
     "huggingface_hub>=1.5.0",
     "transformers>=5.2.0",
     "napari-pyav @ https://github.com/horsto/napari-pyav/releases/download/v0.0.10.2/napari_pyav-0.0.10-py3-none-any.whl",
@@ -59,6 +60,10 @@ dependencies = [
 pyqt5 = ["PyQt5>=5.15.11"]
 pyqt6 = ["PyQt6>=6.10.0"]
 all = ["napari[pyqt6]==0.7.0"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
 
 [project.urls]
 Homepage = "https://github.com/OCTRON-tracking/OCTRON-GUI"
@@ -73,7 +78,7 @@ octron = "octron:napari.yaml"
 octron = "octron.main:octron_gui"
 
 [project.scripts]
-octron = "octron:napari.yaml"
+octron = "octron.cli:main"
 octron-gui = "octron.main:octron_gui"
 octron-gif = "octron.tools.mp4_to_gif:main"
 octron-test-gpu = "octron.test_gpu:check_gpu_access"
@@ -85,6 +90,15 @@ exclude = ["pics", "sample_data"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.svg", "*.md"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.setuptools_scm]
 # write version into code for import

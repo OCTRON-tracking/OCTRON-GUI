@@ -26,8 +26,9 @@ import zarr
 from skimage import measure, color
 from boxmot import create_tracker
 import napari
-from octron import __version__ as octron_version
-from octron.main import base_path as octron_base_path
+from importlib.metadata import version as _get_version
+octron_version = _get_version('octron')
+octron_base_path = Path(__file__).parent.parent
 from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
 from octron.yolo_octron.helpers.polygons import (find_objects_in_mask, 
                                                  watershed_mask,
@@ -1111,13 +1112,14 @@ class YOLO_octron:
         return args
     
 
-    def train(self, 
+    def train(self,
               device='cpu',
-              imagesz = 640,    
-              epochs=30, 
+              imagesz = 640,
+              epochs=30,
               save_period=15,
               train_mode='segment',
               resume=False,
+              batch=-1,
               ):
         """
         Train the YOLO model with epoch progress updates
@@ -1304,14 +1306,20 @@ class YOLO_octron:
                 logger.info(f"Using device: {device}")
                 logger.info("################################################################")
                 # Build training kwargs — shared between segment and detect
+                # When rect=True, images in different batches have different padded heights
+                # (sorted by aspect ratio). copy_paste and mixup can mix images across
+                # batch groups, causing shape mismatches (e.g. 512 vs 384 on axis 0).
+                # Disable these augmentations when rect=True to avoid the IndexError.
+                mixup_prob = 0.0 if rect else 0.25
+                copy_paste_prob = 0.0 if rect else 0.25
                 train_kwargs = dict(
-                    data=self.config_path.as_posix() if self.config_path is not None else '', 
+                    data=self.config_path.as_posix() if self.config_path is not None else '',
                     name='training',
                     project=self.training_path.as_posix() if self.training_path is not None else '',
                     mode=train_mode,
                     device=device,
                     optimizer='auto',
-                    rect=rect, # if square training images then rect=False 
+                    rect=rect, # if square training images then rect=False
                     cos_lr=True,
                     fraction=1.0,
                     epochs=epochs,
@@ -1319,12 +1327,12 @@ class YOLO_octron:
                     resume=resume,
                     patience=100,
                     plots=True,
-                    batch=-1, # auto
+                    batch=batch,
                     cache='disk', # for fast access
                     save=True,
-                    save_period=save_period, 
+                    save_period=save_period,
                     exist_ok=True,
-                    nms=False, 
+                    nms=False,
                     max_det=2000, # Increasing this for dense scenes - I think it might affect val too
                     # Augmentation
                     hsv_v=.25,
@@ -1338,9 +1346,9 @@ class YOLO_octron:
                     flipud=.5,
                     fliplr=.5,
                     mosaic=0.25,
-                    mixup=0.25,
-                    copy_paste=0.25,
-                    copy_paste_mode='mixup', 
+                    mixup=mixup_prob,
+                    copy_paste=copy_paste_prob,
+                    copy_paste_mode='mixup',
                     erasing=0.,
                 )
                 # Segmentation-specific parameters
@@ -1806,7 +1814,7 @@ class YOLO_octron:
                   iou_thresh=.7,
                   conf_thresh=.5,
                   opening_radius=0,
-                  overwrite=True,
+                  overwrite=False,
                   buffer_size=500,
                   output_dir=None,
                   ):
@@ -2018,7 +2026,7 @@ class YOLO_octron:
             if save_dir.exists() and overwrite:
                 shutil.rmtree(save_dir)
             elif save_dir.exists() and not overwrite:
-                logger.info(f"Prediction directory already exists at {save_dir}")
+                logger.info(f"Skipping {video_name}: predictions already exist at {save_dir}. Pass --overwrite to replace.")
                 yield {
                     'stage': 'skipped_video',
                     'video_name': video_name,

@@ -109,23 +109,28 @@ class YOLO_results:
         """
         Check if video is present in the second parent directory, then probe it for properties.
         OCTRON saves results of analyzed mp4 files into a subdirectory /octron_predictions/VIDEONAME/
+        alongside the original video file.
         """
         from octron.sam_octron.helpers.video_loader import probe_video
         results_dir = self.results_dir
         video = None
         video_dict = None
+        stem = '_'.join(results_dir.name.split('_')[:-1])
         for video_path in results_dir.parent.parent.glob('*.mp4'):
-            if video_path.stem == '_'.join(results_dir.name.split('_')[:-1]):
+            if video_path.stem == stem:
                 video = FastVideoReader(video_path, read_format='rgb24')
                 video_dict = probe_video(video_path, verbose=self.verbose)
                 self.height = video_dict['height']
                 self.width = video_dict['width']
                 self.num_frames = video_dict['num_frames']
-                # If height, width, num_frames are not set, there is still a chance
-                # to recover that info from the zarr array ...
                 break
         if video is None and self.verbose:
-            logger.warning(f"No video found for '{results_dir.name}'")
+            logger.warning(
+                f"No video found for '{results_dir.name}' "
+                f"(looked for {stem}.mp4 "
+                f"in '{results_dir.parent.parent}'). "
+                f"Use --video to specify the path explicitly."
+            )
         self.video, self.video_dict = video, video_dict
             
     def find_csv(self):
