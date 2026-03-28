@@ -26,10 +26,6 @@ class Obj(BaseModel):
     model_config = ConfigDict(
         validate_assignment=True,
         arbitrary_types_allowed=True,
-        json_encoders={
-            # Add custom encoders for non-serializable types
-            tuple: lambda v: list(v),  # Convert tuples to lists
-        }
     )
 
     @field_validator("color")
