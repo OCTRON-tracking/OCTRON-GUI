@@ -27,7 +27,8 @@ from skimage import measure, color
 from boxmot import create_tracker
 import napari
 from octron import __version__ as octron_version
-from octron.main import base_path as octron_base_path
+# Compute octron package base path directly to avoid circular import with octron.main
+octron_base_path = Path(__file__).resolve().parent.parent
 from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
 from octron.yolo_octron.helpers.polygons import (find_objects_in_mask, 
                                                  watershed_mask,
