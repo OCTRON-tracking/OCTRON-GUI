@@ -2182,7 +2182,11 @@ class YOLO_octron:
                                            confidences[:,np.newaxis],
                                            classes[:,np.newaxis],
                                           ])
-                tracking_result = tracker.update(tracker_input, frame)
+                try:
+                    tracking_result = tracker.update(tracker_input, frame)
+                except Exception as e:
+                    logger.warning(f'Tracker error on frame {frame_idx}: {e}')
+                    continue
                 if tracking_result.shape[0] == 0:
                     logger.debug(f'No tracking result found for frame_idx {frame_idx}')
                     continue
