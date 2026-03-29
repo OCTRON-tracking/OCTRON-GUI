@@ -15,15 +15,15 @@ def build_sam3_octron(
     **kwargs,
 ):
     """
-    Build the SAM3 model from a checkpoint file for OCTRON usage.
+    Build the SAM3.1 model from a checkpoint file for OCTRON usage.
     
     Uses the ultralytics SAM3 implementation which provides the SAM2-compatible 
-    track_step interface on top of SAM3 weights.
+    track_step interface on top of SAM3.1 weights.
     
     Parameters
     ----------
     ckpt_path : str
-        Path to the SAM3 model checkpoint file (.pt) for the interactive/tracking model.
+        Path to the SAM3.1 model checkpoint file (.pt) for the interactive/tracking model.
     semantic : bool
         If True, also build the SAM3SemanticModel detector and return a
         SAM3_semantic_octron that composes detection + tracking (Mode B).
@@ -60,7 +60,7 @@ def build_sam3_octron(
             torch.backends.cudnn.allow_tf32 = True
     elif device.type == "mps":
         logger.info(
-            "⚠️ Support for MPS devices is preliminary. SAM 3 is trained with CUDA and might "
+            "⚠️ Support for MPS devices is preliminary. SAM 3.1 is trained with CUDA and might "
             "give numerically different outputs and sometimes degraded performance on MPS. "
         )
 
@@ -79,7 +79,7 @@ def build_sam3_octron(
     tracker = SAM3_octron(model=sam3_model, device=device)
     
     if not semantic:
-        logger.info('Loaded SAM3 OCTRON – Mode A (interactive tracking)')
+        logger.info('Loaded SAM3.1 OCTRON – Mode A (interactive tracking)')
         return tracker, device
     
     # --- Mode B: also build the semantic detector ---
@@ -100,5 +100,5 @@ def build_sam3_octron(
         detector_ckpt_path=sem_ckpt,
     )
     
-    logger.info('Loaded SAM3 OCTRON – Mode B (semantic detection + tracking)')
+    logger.info('Loaded SAM3.1 OCTRON – Mode B (semantic detection + tracking)')
     return predictor, device

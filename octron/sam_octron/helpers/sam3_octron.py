@@ -1,5 +1,5 @@
-# Main SAM3 predictor class for OCTRON
-# This wraps the ultralytics SAM3Model (which extends SAM2Model) with 
+# Main SAM3.1 predictor class for OCTRON
+# This wraps the ultralytics SAM3/SAM3.1 Model (which extends SAM2Model) with 
 # the same OCTRON interface as SAM2_octron, using OctoZarr for image loading.
 
 import os
@@ -20,7 +20,7 @@ from .sam_zarr import OctoZarr
 import warnings
 warnings.simplefilter("ignore")
 
-# SAM3 constants
+# SAM3.1 constants
 SAM3_IMAGE_SIZE = 1008
 SAM3_BACKBONE_STRIDE = 14
 _fs = SAM3_IMAGE_SIZE // SAM3_BACKBONE_STRIDE  # base feature size
@@ -29,7 +29,7 @@ SAM3_BB_FEAT_SIZES = [
     (_fs * 2, _fs * 2),
     (_fs,     _fs),
 ]
-# SAM3 normalization: maps [0,1] to [-1,1]
+# SAM3.1 normalization: maps [0,1] to [-1,1]
 SAM3_IMG_MEAN = (0.5, 0.5, 0.5)
 SAM3_IMG_STD  = (0.5, 0.5, 0.5)
 
@@ -39,7 +39,7 @@ NO_OBJ_SCORE = -1024.0
 
 class SAM3_octron:
     """
-    OCTRON wrapper around the ultralytics SAM3Model for interactive video tracking.
+    OCTRON wrapper around the ultralytics SAM3/SAM3.1 Model for interactive video tracking.
     
     Provides the same interface as SAM2_octron:
         - init_state(video_data, zarr_store)
@@ -49,7 +49,7 @@ class SAM3_octron:
         - reset_state()
         - remove_object(obj_id, ...)
     
-    Uses the ultralytics SAM3Model.track_step which has the same signature as SAM2's
+    Uses the ultralytics SAM3/SAM3.1 Model.track_step which has the same signature as SAM2's
     (no image parameter), so the OctoZarr/backbone feature extraction pattern from 
     SAM2_octron carries over directly.
     """
@@ -182,7 +182,7 @@ class SAM3_octron:
         
         # Warm up backbone on frame 0
         self._get_image_feature(inference_state, frame_idx=0, batch_size=1)
-        logger.info('🚀 Initialized SAM3 model')
+        logger.info('🚀 Initialized SAM3.1 model')
         
         self.video_data = video_data
         
@@ -844,7 +844,7 @@ class SAM3_octron:
         else:
             mask_inputs = mask_inputs_orig
         
-        # SAM3's TwoWayTransformer decoder treats mask-only prompts too
+        # SAM3.1's TwoWayTransformer decoder treats mask-only prompts too
         # literally — it follows the polygon shape instead of using visual
         # features to discriminate object vs background within the region.
         # Strategy: derive a bounding box from the polygon as the primary
@@ -883,7 +883,7 @@ class SAM3_octron:
         storage_key = "cond_frame_outputs" if is_cond else "non_cond_frame_outputs"
         
         if point_inputs is not None:
-            # Pure box prompt — let SAM3 use visual features to segment
+            # Pure box prompt — let SAM3.1 use visual features to segment
             current_out, _ = self._run_single_frame_inference(
                 output_dict=obj_output_dict,
                 frame_idx=frame_idx,
@@ -907,8 +907,8 @@ class SAM3_octron:
                 run_mem_encoder=False,
             )
         
-        # Intersect SAM3's prediction with the original polygon.
-        # The box prompt gives SAM3 freedom to find the object using
+        # Intersect SAM3.1's prediction with the original polygon.
+        # The box prompt gives SAM3.1 freedom to find the object using
         # visual features, but may include regions outside the polygon.
         # Clamping logits to strongly negative outside the polygon
         # recovers the polygon's shape specificity.
@@ -967,7 +967,7 @@ class SAM3_octron:
             self.propagate_in_video_preflight()
         except Exception as e:
             import traceback
-            logger.error(f"❌ SAM3 propagate_in_video_preflight failed: {e}")
+            logger.error(f"❌ SAM3.1 propagate_in_video_preflight failed: {e}")
             traceback.print_exc()
             return
         t_preflight_end = _time.perf_counter()
@@ -1021,7 +1021,7 @@ class SAM3_octron:
             for k in [k for k in global_nc if k < stale_cutoff]:
                 global_nc.pop(k)
         
-        logger.info(f"🚀 SAM3 propagation: {batch_size} objects (per-object), "
+        logger.info(f"🚀 SAM3.1 propagation: {batch_size} objects (per-object), "
               f"preflight {t_preflight_end - t_preflight_start:.2f}s, "
               f"backbone cache {len(self.inference_state['cached_features'])} frames, "
               f"memory bank {self._max_memory_frames} frames, "
@@ -1098,14 +1098,14 @@ class SAM3_octron:
                 yield frame_idx, obj_ids, video_res_masks
         except Exception as e:
             import traceback
-            logger.error(f"❌ SAM3 propagate_in_video error at frame {frame_idx}: {e}")
+            logger.error(f"❌ SAM3.1 propagate_in_video error at frame {frame_idx}: {e}")
             traceback.print_exc()
         
         t_loop_end = _time.perf_counter()
         if frame_count > 0:
             avg_total = (t_loop_end - t_loop_start) / frame_count * 1000
             avg_inf = total_inference_ms / frame_count
-            logger.info(f"📊 SAM3 propagation done: {frame_count} frames, "
+            logger.info(f"📊 SAM3.1 propagation done: {frame_count} frames, "
                   f"avg {avg_total:.0f}ms/frame "
                   f"(inference {avg_inf:.0f}ms, "
                   f"{avg_inf / batch_size:.0f}ms/object)")
@@ -1268,8 +1268,8 @@ class SAM3_semantic_octron:
     then track them across frames using the SAM3_octron tracker.
     
     Composes:
-        - SAM3SemanticModel (detector): finds objects from text/visual prompts
-        - SAM3_octron (tracker): tracks detected objects across frames
+        - SAM3.1 SemanticModel (detector): finds objects from text/visual prompts
+        - SAM3.1 tracker (SAM3_octron): tracks detected objects across frames
     
     Usage:
         predictor = build_sam3_octron(ckpt_path, semantic=True)
@@ -1336,7 +1336,7 @@ class SAM3_semantic_octron:
         
         from ultralytics.models.sam.build_sam3 import build_sam3_image_model
         
-        logger.info("♻️ Reloading SAM3 detector for clean state...")
+        logger.info("♻️ Reloading SAM3.1 detector for clean state...")
         self.detector = build_sam3_image_model(self.detector_ckpt_path)
         self.detector = self.detector.to(self.device)
         self.detector.eval()
@@ -1476,7 +1476,7 @@ class SAM3_semantic_octron:
         )[:, None].expand_as(pred_scores)
         
         # Diagnostic output: show score distribution before filtering
-        logger.debug(f"🔍 SAM3 detection: {pred_scores.numel()} raw queries, "
+        logger.debug(f"🔍 SAM3.1 detection: {pred_scores.numel()} raw queries, "
               f"max score={pred_scores.max().item():.3f}, "
               f"scores > 0.1: {(pred_scores > 0.1).sum().item()}, "
               f"scores > 0.25: {(pred_scores > 0.25).sum().item()}, "
@@ -1603,7 +1603,7 @@ def run_new_pred(predictor,
     Parameters
     ----------
     predictor : SAM3_octron
-        The SAM3_octron predictor object.
+        The SAM3_octron predictor object (SAM3.1).
     frame_idx : int
         The current frame index.
     obj_id : int

@@ -66,7 +66,7 @@ class sam_octron_callbacks():
         if action in ['added','removed','changed']:
             predictor = self.octron.predictor
             
-            # SAM3 semantic mode: all shape editing is deferred to the
+            # SAM3.1 semantic mode: all shape editing is deferred to the
             # "▷ Run" button, so ignore every callback here.
             if isinstance(predictor, SAM3_semantic_octron):
                 # Disable batch predict buttons while unprocessed rectangles exist
@@ -183,7 +183,7 @@ class sam_octron_callbacks():
         boxes_xyxy,
     ):
         """
-        Handle Mode B (SAM3 semantic detection) with collected box prompts.
+        Handle Mode B (SAM3.1 semantic detection) with collected box prompts.
         
         Runs detection to find ALL similar objects in the frame using
         the provided bounding boxes as visual prompts.
@@ -213,7 +213,7 @@ class sam_octron_callbacks():
         all_boxes = boxes_xyxy
         
         # Use the label name as a text prompt so the detector knows WHAT
-        # to look for, not just WHERE the examples are.  SAM3 is a
+        # to look for, not just WHERE the examples are.  SAM3.1 is a
         # vision-language model — with the generic "visual" text, a single
         # box prompt often yields low-confidence results.  Passing the
         # actual category name (e.g. "fly", "screw") dramatically improves
@@ -234,7 +234,7 @@ class sam_octron_callbacks():
             if hasattr(predictor.detector, 'names'):
                 predictor.detector.names = []
         
-        logger.info(f'SAM3 Mode B: Running detection for "{text_prompt}" with {len(all_boxes)} box prompt(s)...')
+        logger.info(f'SAM3.1 Mode B: Running detection for "{text_prompt}" with {len(all_boxes)} box prompt(s)...')
         
         # Read detection threshold from GUI input
         thresh_text = self.octron.sam3detect_thresh.text().strip()
@@ -283,7 +283,7 @@ class sam_octron_callbacks():
             )
         
         if pred_masks is None or pred_masks.shape[0] == 0:
-            show_warning('SAM3 Mode B: No objects detected.')
+            show_warning('SAM3.1 Mode B: No objects detected.')
             return None
         
         n_detections = pred_masks.shape[0]
@@ -307,7 +307,7 @@ class sam_octron_callbacks():
         max_score = pred_scores.max().item() if pred_scores is not None and pred_scores.numel() > 0 else 0.0
         n_objects = len(np.unique(id_mask)) - 1  # Exclude background
         logger.info(
-            f'SAM3 Mode B: Detected {n_detections} objects ({n_objects} encoded) '
+            f'SAM3.1 Mode B: Detected {n_detections} objects ({n_objects} encoded) '
             f'using {n_boxes} box prompt(s). Max score: {max_score:.3f}'
         )
         
@@ -346,7 +346,7 @@ class sam_octron_callbacks():
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         predictor = self.octron.predictor
         if not isinstance(predictor, SAM3_semantic_octron):
-            show_warning('This function is only available in SAM3 semantic mode.')
+            show_warning('This function is only available in SAM3.1 semantic mode.')
             return
         if not self.octron.prefetcher_worker:
             show_warning('Prefetcher worker not initialized.')
@@ -425,11 +425,11 @@ class sam_octron_callbacks():
         frame_idx  = self.viewer.dims.current_step[0] 
         obj_id = points_layer.metadata['_obj_id']
         
-        # Check if using SAM3 semantic mode with points (not supported)
+        # Check if using SAM3.1 semantic mode with points (not supported)
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         if isinstance(predictor, SAM3_semantic_octron) and action == 'added':
             show_warning(
-                'SAM3 semantic mode does not support point prompts for detection. '
+                'SAM3.1 semantic mode does not support point prompts for detection. '
                 'Point prompts will perform single-object segmentation only. '
                 'Use the rectangle tool (box prompt) for semantic detection of all similar objects.'
             )
