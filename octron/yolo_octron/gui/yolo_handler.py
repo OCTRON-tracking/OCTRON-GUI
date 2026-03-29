@@ -647,30 +647,45 @@ class YoloHandler(QObject):
         
         # Check for resume first: model/image-size selections are irrelevant when resuming
         self.resume_training = False
+        self.init_from_checkpoint = False
         if self.w.train_resume_checkBox.isChecked():
             checkpoint_path = self.yolo.training_path / 'training' / 'weights' / 'last.pt'
             if checkpoint_path.exists():
                 # Check whether the previous training run already completed
                 ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
                 ckpt_epoch = ckpt.get('epoch', -1)
-                if ckpt_epoch == -1:
-                    show_warning(
-                        "The previous training run already completed all epochs. "
-                        "Nothing to resume. Uncheck 'Resume' to start a new training run."
-                    )
+                train_args = ckpt.get('train_args', {})
+                if 'imgsz' not in train_args:
+                    show_warning("Checkpoint does not contain image size info. Cannot continue from checkpoint.")
                     return
-                logger.info(f"Resuming training from checkpoint: {checkpoint_path} (epoch {ckpt_epoch})")
+                self.image_size_yolo = int(train_args['imgsz'])
+
+                if ckpt_epoch == -1:
+                    # Completed run: strict resume is not possible, but we can continue
+                    # training by initializing a new run from last.pt.
+                    logger.info(
+                        "Resume requested, but checkpoint indicates a completed run "
+                        f"(epoch={ckpt_epoch}). Initializing new training from {checkpoint_path}."
+                    )
+                    show_info(
+                        "Checkpoint is from a completed run. Continuing training from last.pt "
+                        "as initialization (new run), not strict resume."
+                    )
+                    self.init_from_checkpoint = True
+                else:
+                    logger.info(f"Resuming training from checkpoint: {checkpoint_path} (epoch {ckpt_epoch})")
+                    self.resume_training = True
+
                 yolo_model = self.yolo.load_model(checkpoint_path, train_mode=self.w.train_mode)
                 if not yolo_model:
                     show_warning("Could not load checkpoint model.")
                     return
-                self.resume_training = True
-                self.image_size_yolo = 0  # Ignored by YOLO when resume=True
+                logger.info(f"Resumed image size from checkpoint: {self.image_size_yolo}")
             else:
                 logger.info("No checkpoint found (last.pt), starting fresh training.")
                 show_info("No checkpoint found — starting fresh.")
         
-        if not self.resume_training:
+        if not self.resume_training and not self.init_from_checkpoint:
             index_model_list = self.w.yolomodel_list.currentIndex()
             if index_model_list == 0:
                 show_warning("Please select a YOLO model")
