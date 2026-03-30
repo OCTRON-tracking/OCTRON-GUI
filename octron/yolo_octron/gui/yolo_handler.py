@@ -659,6 +659,17 @@ class YoloHandler(QObject):
                     show_warning("Checkpoint does not contain image size info. Cannot continue from checkpoint.")
                     return
                 self.image_size_yolo = int(train_args['imgsz'])
+                if self.image_size_yolo <= 0:
+                    # imgsz was corrupted (e.g. by a previous bad resume) —
+                    # recompute it from the actual training images so the scale
+                    # the model was originally trained on is exactly preserved.
+                    _avg_h, _avg_w, _ = self.yolo._find_train_image_size(self.yolo.data_path)
+                    _largest = max(_avg_h, _avg_w)
+                    self.image_size_yolo = int(((_largest + 31) // 32) * 32)
+                    logger.warning(
+                        f"Checkpoint imgsz was 0 (corrupted). "
+                        f"Recomputed from training data: imgsz={self.image_size_yolo}"
+                    )
 
                 if ckpt_epoch == -1:
                     # Completed run: strict resume is not possible, but we can continue
