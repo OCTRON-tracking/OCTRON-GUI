@@ -1261,6 +1261,22 @@ class YOLO_octron:
             
             return avg_h, avg_w, rect
 
+        # Remove any stale ultralytics disk-cache .npy files from the training
+        # data directory before starting.  ultralytics cache='disk' writes
+        # <stem>.npy files alongside source images, and BaseDataset.load_image
+        # will silently load any matching .npy it finds — even when cache='disk'
+        # is not set — instead of reading the actual image file.  Purging them
+        # here ensures a clean cache rebuild each training run.
+        if self.data_path and self.data_path.exists():
+            stale_npy = list(self.data_path.glob('**/*.npy'))
+            if stale_npy:
+                logger.warning(
+                    f"Found {len(stale_npy)} stale .npy cache file(s) in training data "
+                    "directory — removing before training starts."
+                )
+                for f in stale_npy:
+                    f.unlink()
+
         self.model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
         self.model.add_callback("on_train_end", _on_train_end)
         
@@ -1337,9 +1353,13 @@ class YOLO_octron:
                 )
                 # Segmentation-specific parameters
                 if train_mode == 'segment':
-                    train_kwargs['mask_ratio'] = 2
+                    # mask_ratio=1 matches the YOLO26 prototype head's design
+                    # There seem to still be issues with this in ultralytics.
+                    # Issue to watch: 
+                    # https://github.com/ultralytics/ultralytics/issues/20200#issuecomment-3130376932                    
+                    train_kwargs['mask_ratio'] = 1
                     train_kwargs['overlap_mask'] = True
-
+                    
                 self.model.train(**train_kwargs)
             except Exception as e:
                 training_error = e
@@ -2141,7 +2161,7 @@ class YOLO_octron:
                     save=False,
                     verbose=False,
                     imgsz=imgsz,
-                    max_det=100,
+                    max_det=2000,
                     conf=conf_thresh,
                     iou=iou_thresh,
                     device=device, 
@@ -2169,7 +2189,11 @@ class YOLO_octron:
                                            confidences[:,np.newaxis],
                                            classes[:,np.newaxis],
                                           ])
-                tracking_result = tracker.update(tracker_input, frame)
+                try:
+                    tracking_result = tracker.update(tracker_input, frame)
+                except Exception as e:
+                    logger.warning(f'Tracker error on frame {frame_idx}: {e}')
+                    continue
                 if tracking_result.shape[0] == 0:
                     logger.debug(f'No tracking result found for frame_idx {frame_idx}')
                     continue

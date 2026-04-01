@@ -26,8 +26,9 @@ classifiers = [
 
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "setuptools",
     "napari==0.7.0",
-    "numpy<=2.1.1",
+    "numpy>=2.1.0",
     "qtpy>=2.4.3",
     "torch>=2.5.1",
     "torchvision>=0.20.1",
@@ -39,8 +40,7 @@ dependencies = [
     "kornia>=0.8.0",
     "cmasher>=1.9.2",
     "imantics",
-    "ultralytics>=8.4.26",
-    "setuptools",
+    "ultralytics>=8.4.30",
     "tensorboard>=2.19.0",
     "lap>=0.5.12",
     "opencv-python>=4.11.0",       
