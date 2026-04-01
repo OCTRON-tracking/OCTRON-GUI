@@ -60,8 +60,11 @@ app = typer.Typer(
 @app.callback()
 def default(ctx: typer.Context):
     """Launch the OCTRON napari GUI (default), or run a subcommand."""
-    import sys
-    if "--help" not in sys.argv and "-h" not in sys.argv:
+    # ctx.resilient_parsing is True during shell-completion parsing.
+    # ctx.args contains args that will be forwarded to the subcommand (e.g. ['--help']).
+    # Using ctx.args works with both real sys.argv and typer.testing.CliRunner.
+    _remaining = list(ctx.protected_args or []) + list(ctx.args or [])
+    if not ctx.resilient_parsing and "--help" not in _remaining and "-h" not in _remaining:
         from octron._logging import setup_logging, print_welcome
         setup_logging()
         print_welcome()
