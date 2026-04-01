@@ -160,6 +160,7 @@ def test_render_help():
     assert '--track-ids' in result.output
     assert '--min-observations' in result.output
     assert '--bbox-sizes' in result.output
+    assert '--debug' in result.output
 
 
 # ---------------------------------------------------------------------------
