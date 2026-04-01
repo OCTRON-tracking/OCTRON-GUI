@@ -275,11 +275,16 @@ def render(
     tracklet_smooth_order: int = typer.Option(
         4, "--tracklet-smooth-order", help="Butterworth filter order (higher = steeper rolloff).",
     ),
-    tracklet_min_frames: int = typer.Option(
-        0, "--tracklet-min-frames", help="Skip tracks with fewer than this many frames. 0 = keep all tracks.",
-    ),
     tracklet_interpolate: int = typer.Option(
         0, "--tracklet-interpolate", help="Fill gaps between track segments with cubic spline interpolation. Value is the maximum gap in frames to bridge. 0 = off.",
+    ),
+    # --- Filtering ---
+    track_ids: Optional[str] = typer.Option(
+        None, "--track-ids",
+        help="Comma-separated list of track IDs to render (e.g. 1,3,5). Renders all tracks if omitted.",
+    ),
+    min_observations: int = typer.Option(
+        0, "--min-observations", help="Skip tracks with fewer than this many observations. 0 = keep all tracks.",
     ),
     bbox_sizes: bool = typer.Option(
         False, "--bbox-sizes",
@@ -308,6 +313,11 @@ def render(
         resolved_boxes = draw_boxes if draw_boxes is not None else True
         resolved_labels = draw_labels if draw_labels is not None else True
 
+    parsed_track_ids = (
+        [int(x.strip()) for x in track_ids.split(",") if x.strip()]
+        if track_ids is not None else None
+    )
+
     run_render(
         predictions_path=predictions_path,
         video_path=video_path,
@@ -325,8 +335,9 @@ def render(
         tracklet_mask_centroids=tracklet_mask_centroids,
         tracklet_smooth_cutoff_hz=tracklet_smooth_cutoff_hz,
         tracklet_smooth_order=tracklet_smooth_order,
-        tracklet_min_frames=tracklet_min_frames,
         tracklet_interpolate_max_gap=tracklet_interpolate,
+        track_ids=parsed_track_ids,
+        min_observations=min_observations,
     )
 
 

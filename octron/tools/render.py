@@ -318,7 +318,8 @@ def run_tracklets(
     draw_boxes=False,
     start=None,
     end=None,
-    min_track_frames=0,
+    track_ids=None,
+    min_observations=0,
     interpolate_max_gap=0,
 ):
     """
@@ -400,21 +401,23 @@ def run_tracklets(
     for tid, td in tracking_data.items():
         pos_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["data"].iterrows()}
         bbox_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["features"].iterrows()}
-        n = len(pos_lookup[tid])
-        skipped = " (skipped)" if min_track_frames > 0 and n < min_track_frames else ""
-        print(f"  Track {tid} ({td['label']}): {n} frames{skipped}")
+        print(f"  Track {tid} ({td['label']}): {len(pos_lookup[tid])} frames")
 
-    render_tids = [
-        tid for tid in results.track_ids
-        if min_track_frames <= 0 or len(pos_lookup.get(tid, {})) >= min_track_frames
-    ]
-    if min_track_frames > 0:
-        print(f"  Keeping {len(render_tids)}/{len(results.track_ids)} tracks with ≥{min_track_frames} frames")
+    render_tids = list(results.track_ids)
+    if track_ids is not None:
+        missing = set(track_ids) - set(render_tids)
+        if missing:
+            print(f"  Warning: requested track ID(s) not found: {sorted(missing)}")
+        render_tids = [t for t in render_tids if t in set(track_ids)]
+    if min_observations > 0:
+        render_tids = [t for t in render_tids if len(pos_lookup.get(t, {})) >= min_observations]
+    if track_ids is not None or min_observations > 0:
+        print(f"  Rendering {len(render_tids)}/{len(results.track_ids)} track(s)")
 
     if mask_centroids and results.has_masks:
         print("Computing mask centre-of-mass centroids...")
         mask_cent = compute_mask_centroids(
-            results.zarr_root, results.track_ids, frame_start, frame_end,
+            results.zarr_root, render_tids, frame_start, frame_end,
         )
         replaced = 0
         for tid, frame_centroids in mask_cent.items():
@@ -436,7 +439,7 @@ def run_tracklets(
         interpolate_tracklet_gaps(pos_lookup, max_gap=interpolate_max_gap)
 
     track_colors = {}
-    for tid in results.track_ids:
+    for tid in render_tids:
         rgba, _ = results.get_color_for_track_id(tid)
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
         track_colors[tid] = (b, g, r)
@@ -463,7 +466,7 @@ def run_tracklets(
     # Pre-compute downscale indices for overlay masks
     _y_idx = _x_idx = None
     if also_overlay and draw_masks and scale != 1.0 and results.has_masks:
-        for tid in results.track_ids:
+        for tid in render_tids:
             arr_key = f"{tid}_masks"
             if arr_key in results.zarr_root:
                 _H, _W = results.zarr_root[arr_key].shape[1:3]
@@ -495,7 +498,7 @@ def run_tracklets(
             _batch_start = frame_idx
             _batch_end = min(_batch_start + _BATCH, frame_end)
             _batch_masks = {}
-            for tid in results.track_ids:
+            for tid in render_tids:
                 arr_key = f"{tid}_masks"
                 if arr_key not in results.zarr_root:
                     continue
@@ -519,7 +522,7 @@ def run_tracklets(
                 frame_small = orig_frame
             overlay = frame_small.astype(np.float32)
 
-            for tid in results.track_ids:
+            for tid in render_tids:
                 color_bgr = track_colors[tid]
                 label = results.track_id_label[tid]
 
@@ -594,7 +597,6 @@ def run_render(
     tracklet_mask_centroids=False,
     tracklet_smooth_cutoff_hz=2.0,
     tracklet_smooth_order=4,
-    tracklet_min_frames=0,
     tracklet_interpolate_max_gap=0,
     alpha=0.4,
     draw_masks=True,
@@ -602,6 +604,8 @@ def run_render(
     draw_labels=True,
     start=None,
     end=None,
+    track_ids=None,
+    min_observations=0,
 ):
     """
     Render annotated video(s) from OCTRON prediction output.
@@ -662,7 +666,8 @@ def run_render(
             draw_boxes=draw_boxes,
             start=start,
             end=end,
-            min_track_frames=tracklet_min_frames,
+            track_ids=track_ids,
+            min_observations=min_observations,
             interpolate_max_gap=tracklet_interpolate_max_gap,
         )
         return
@@ -702,8 +707,19 @@ def run_render(
         bbox_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["features"].iterrows()}
         print(f"  Track {tid} ({td['label']}): {len(bbox_lookup[tid])} frames with bbox data")
 
+    render_tids = list(results.track_ids)
+    if track_ids is not None:
+        missing = set(track_ids) - set(render_tids)
+        if missing:
+            print(f"  Warning: requested track ID(s) not found: {sorted(missing)}")
+        render_tids = [t for t in render_tids if t in set(track_ids)]
+    if min_observations > 0:
+        render_tids = [t for t in render_tids if len(bbox_lookup.get(t, {})) >= min_observations]
+    if track_ids is not None or min_observations > 0:
+        print(f"  Rendering {len(render_tids)}/{len(results.track_ids)} track(s)")
+
     track_colors = {}
-    for tid in results.track_ids:
+    for tid in render_tids:
         rgba, _ = results.get_color_for_track_id(tid)
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
         track_colors[tid] = (b, g, r)
@@ -715,7 +731,7 @@ def run_render(
     # Pre-compute downscale indices for masks
     _y_idx = _x_idx = None
     if draw_masks and scale != 1.0 and results.has_masks:
-        for tid in results.track_ids:
+        for tid in render_tids:
             arr_key = f"{tid}_masks"
             if arr_key in results.zarr_root:
                 _H, _W = results.zarr_root[arr_key].shape[1:3]
@@ -749,7 +765,7 @@ def run_render(
             _batch_start = frame_idx
             _batch_end = min(_batch_start + _BATCH, frame_end)
             _batch_masks = {}
-            for tid in results.track_ids:
+            for tid in render_tids:
                 arr_key = f"{tid}_masks"
                 if arr_key not in results.zarr_root:
                     continue
@@ -770,7 +786,7 @@ def run_render(
             frame_small = orig_frame
         overlay = frame_small.astype(np.float32)
 
-        for tid in results.track_ids:
+        for tid in render_tids:
             color_bgr = track_colors[tid]
             label = results.track_id_label[tid]
 
