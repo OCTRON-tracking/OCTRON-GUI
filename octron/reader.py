@@ -80,8 +80,8 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
     
     
     # Case D 
-    # Check if the folder has any kind of video or mj2 files 
-    video_formats = [".avi", ".mov", ".mj2", ".mpg", ".mpeg", ".mjpeg", ".mjpg", ".wmv", ".mp4", ".mkv", ".mts"]
+    # Check if the folder has any kind of video or multi-frame TIFF files
+    video_formats = [".avi", ".mov", ".mj2", ".mpg", ".mpeg", ".mjpeg", ".mjpg", ".wmv", ".mp4", ".mkv", ".mts", ".tif", ".tiff"]
     video_formats.extend([fmt.upper() for fmt in video_formats])
     
     # Find all video files in the folder
@@ -93,7 +93,7 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
 
     # If we found video files, offer to transcode them
     if video_files:
-        logger.info(f"Found {len(video_files)} video files in {path}")
+        logger.info(f"Found {len(video_files)} transcodable files in {path}")
         
         # Create a dialog for transcoding options
         from qtpy.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -108,7 +108,7 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
         layout = QVBoxLayout()
         
         # Add description
-        layout.addWidget(QLabel(f"Found {len(video_files)} videos. Select which to transcode to mp4:"))
+        layout.addWidget(QLabel(f"Found {len(video_files)} inputs. Select which to transcode to mp4:"))
         
         # Add file list with multi-selection
         file_list = QListWidget()
@@ -195,7 +195,7 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
             selected_videos = [item.data(Qt.UserRole) for item in selected_items]
             
             if not selected_videos:
-                logger.info("No videos selected for transcoding.")
+                logger.info("No inputs selected for transcoding.")
                 return [(None,)]
             
             # Create output folder if needed
@@ -205,13 +205,16 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
             else:
                 output_folder = path
                 
-            logger.info(f"Transcoding {len(selected_videos)} videos to MP4 (CRF: {crf_value})...")
+            logger.info(f"Transcoding {len(selected_videos)} inputs to MP4 (CRF: {crf_value})...")
             
-            # Process one video at a time
+            # Process one input at a time
             successful = 0
             for i, video_path in enumerate(selected_videos, 1):
-                logger.info(f"Processing {i}/{len(selected_videos)}: {video_path.name}")
+                is_tiff = video_path.suffix.lower() in {".tif", ".tiff"}
+                input_label = video_path.name
                 output_path = output_folder / f"{video_path.stem}.mp4"
+
+                logger.info(f"Processing {i}/{len(selected_videos)}: {input_label}")
                 
                 # Check if file exists and overwrite is not selected
                 if not overwrite_existing and output_path.exists():
@@ -219,38 +222,106 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
                     continue
 
                 # Define FFmpeg command
-                cmd = [
-                    "ffmpeg", "-i", str(video_path), 
-                    "-c:v", "libx264", "-preset", "superfast", 
-                    "-crf", str(crf_value),
-                    "-c:a", "aac", "-b:a", "128k",  # Audio settings
-                    str(output_path),
-                ]
+                if is_tiff:
+                    try:
+                        import numpy as np
+                        import tifffile
+                    except ImportError as e:
+                        logger.error(f"TIFF transcoding requires numpy+tifffile: {e}")
+                        continue
+
+                    stack = tifffile.imread(str(video_path))
+                    if stack.ndim == 2:
+                        stack = stack[np.newaxis, ...]
+
+                    # Accept grayscale (T,H,W) and RGB(A) (T,H,W,C) only.
+                    if stack.ndim == 3:
+                        if stack.dtype != np.uint8:
+                            smin, smax = stack.min(), stack.max()
+                            if smax > smin:
+                                stack = ((stack - smin) / (smax - smin) * 255).astype(np.uint8)
+                            else:
+                                stack = np.zeros_like(stack, dtype=np.uint8)
+                        stack = np.repeat(stack[..., np.newaxis], 3, axis=-1)
+                    elif stack.ndim == 4 and stack.shape[-1] in (3, 4):
+                        if stack.shape[-1] == 4:
+                            stack = stack[..., :3]
+                        if stack.dtype != np.uint8:
+                            smin, smax = stack.min(), stack.max()
+                            if smax > smin:
+                                stack = ((stack - smin) / (smax - smin) * 255).astype(np.uint8)
+                            else:
+                                stack = np.zeros_like(stack, dtype=np.uint8)
+                    else:
+                        logger.error(f"Unsupported TIFF shape for video conversion: {stack.shape}")
+                        continue
+
+                    frame_count, height, width, _ = stack.shape
+                    logger.info(f"Detected TIFF stack with {frame_count} frame(s): {video_path.name}")
+                    if frame_count < 2:
+                        logger.warning(f"'{video_path.name}' has only one frame; output will be a single-frame video.")
+
+                    cmd = [
+                        "ffmpeg",
+                        "-f", "rawvideo",
+                        "-pixel_format", "rgb24",
+                        "-video_size", f"{width}x{height}",
+                        "-framerate", "30",
+                        "-i", "-",
+                        "-c:v", "libx264", "-preset", "superfast",
+                        "-crf", str(crf_value),
+                        "-an",
+                        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                        str(output_path),
+                    ]
+                else:
+                    cmd = [
+                        "ffmpeg", "-i", str(video_path),
+                        "-c:v", "libx264", "-preset", "superfast",
+                        "-crf", str(crf_value),
+                        "-an",  # Disable audio for all outputs
+                        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                        str(output_path),
+                    ]
                 if overwrite_existing:
                     cmd.append("-y") # Overwrite output if it exists
                 
                 # Time the transcoding process
                 start_time = time.time()
                 try:
-                    subprocess.run(
-                        cmd, 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.PIPE, 
-                        check=True
-                    )
+                    if is_tiff:
+                        result = subprocess.run(
+                            cmd,
+                            input=stack.tobytes(),
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            check=True,
+                        )
+                    else:
+                        result = subprocess.run(
+                            cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            check=True,
+                        )
                     elapsed_time = time.time() - start_time
                     # Calculate file sizes for comparison
-                    input_size = video_path.stat().st_size / (1024 * 1024)  # MB
+                    input_bytes = video_path.stat().st_size
+                    input_size = input_bytes / (1024 * 1024)  # MB
                     output_size = output_path.stat().st_size / (1024 * 1024)  # MB
                     size_reduction = 100 * (1 - output_size / input_size) if input_size > 0 else 0
                     
                     logger.info(f"Successfully transcoded in {elapsed_time:.2f} seconds | Input: {input_size:.2f} MB, Output: {output_size:.2f} MB ({size_reduction:.1f}%)")
                     successful += 1
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed: {str(e)}")
+                    stderr_msg = e.stderr.decode("utf-8", errors="ignore").strip()
+                    if stderr_msg:
+                        logger.error(f"Failed: {stderr_msg.splitlines()[-1]}")
+                    else:
+                        logger.error(f"Failed: {str(e)}")
             
             # Report final results
-            logger.info(f"Successfully transcoded {successful}/{len(selected_videos)} videos")
+            logger.info(f"Successfully transcoded {successful}/{len(selected_videos)} inputs")
         
         return [(None,)]
     
