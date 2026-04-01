@@ -7,6 +7,15 @@ except importlib.metadata.PackageNotFoundError:
     __version__ = "no version"
 
 
+__all__ = (
+    "octron_widget",
+    "octron_reader",
+    "YOLO_octron",
+    "YOLO_results",
+    "ANNOT_results",
+)
+
+
 def __getattr__(name):
     if name == "octron_widget":
         from .main import octron_widget
@@ -24,11 +33,3 @@ def __getattr__(name):
         from .yolo_octron.helpers.sam2_results import ANNOT_results
         return ANNOT_results
     raise AttributeError(f"module 'octron' has no attribute {name!r}")
-
-
-__all__ = (
-    "octron_widget",
-    "octron_reader",
-    "YOLO_octron",
-    "YOLO_results",
-)
