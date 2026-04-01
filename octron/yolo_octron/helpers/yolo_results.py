@@ -150,6 +150,25 @@ class YOLO_results:
         self.num_frames = vd['num_frames']
         self.video_dict = vd
 
+    def get_observation_counts(self):
+        """Return {track_id: n_rows} by counting CSV lines without full parsing.
+
+        Used to pre-filter tracks by observation count before loading data,
+        avoiding tuple-warning noise for tracks that will not be rendered.
+        """
+        import re as _re
+        counts = {}
+        for csv_file in (self.csvs or []):
+            m = _re.search(r'_track_(\d+)\.csv$', csv_file.name)
+            if not m:
+                continue
+            tid = int(m.group(1))
+            with open(csv_file, 'r') as f:
+                n = sum(1 for _ in f)
+            # subtract fixed header lines + 1 column-header row
+            counts[tid] = max(0, n - self.csv_header_lines - 1)
+        return counts
+
     def find_csv(self):
         results_dir = self.results_dir
         csvs = natsorted(results_dir.rglob('*track_*.csv'))

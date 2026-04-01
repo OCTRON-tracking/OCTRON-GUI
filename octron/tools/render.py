@@ -520,7 +520,18 @@ def run_tracklets(
     out_h += out_h % 2
     out_w += out_w % 2
 
-    tracking_data = results.get_tracking_data(interpolate=False, track_ids=track_ids)
+    # Pre-filter: combine explicit track_ids with min_observations row-count check
+    # so get_tracking_data only loads (and warns about) the CSVs we will render.
+    _prefilter_ids = set(track_ids) if track_ids is not None else None
+    if min_observations > 0:
+        _obs_counts = results.get_observation_counts()
+        _obs_ids = {tid for tid, n in _obs_counts.items() if n >= min_observations}
+        _prefilter_ids = _obs_ids if _prefilter_ids is None else _prefilter_ids & _obs_ids
+
+    tracking_data = results.get_tracking_data(
+        interpolate=False,
+        track_ids=list(_prefilter_ids) if _prefilter_ids is not None else None,
+    )
 
     pos_lookup = {}
     bbox_lookup = {}
@@ -918,7 +929,18 @@ def run_render(
     out_h += out_h % 2
     out_w += out_w % 2
 
-    tracking_data = results.get_tracking_data(interpolate=False, track_ids=track_ids)
+    # Pre-filter: combine explicit track_ids with min_observations row-count check
+    # so get_tracking_data only loads (and warns about) the CSVs we will render.
+    _prefilter_ids = set(track_ids) if track_ids is not None else None
+    if min_observations > 0:
+        _obs_counts = results.get_observation_counts()
+        _obs_ids = {tid for tid, n in _obs_counts.items() if n >= min_observations}
+        _prefilter_ids = _obs_ids if _prefilter_ids is None else _prefilter_ids & _obs_ids
+
+    tracking_data = results.get_tracking_data(
+        interpolate=False,
+        track_ids=list(_prefilter_ids) if _prefilter_ids is not None else None,
+    )
 
     bbox_lookup = {}
     for tid, td in tracking_data.items():
