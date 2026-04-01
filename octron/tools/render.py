@@ -11,6 +11,8 @@ run_tracklets   : Render one stabilised crop video per tracked animal.
 report_bbox_sizes : Report bounding-box sizes to help choose tracklet crop size.
 """
 
+import subprocess
+import shutil
 from pathlib import Path
 
 PRESETS = {
@@ -18,6 +20,126 @@ PRESETS = {
     "draft": {"scale": 0.5},
     "final": {"scale": 1.0},
 }
+
+
+# ---------------------------------------------------------------------------
+# Encoder helpers
+# ---------------------------------------------------------------------------
+
+def _detect_encoder():
+    """Return the best available video encoder: 'h264_nvenc', 'libx264', or 'mp4v'."""
+    if shutil.which("ffmpeg") is None:
+        return "mp4v"
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-encoders", "-v", "quiet"],
+            capture_output=True, text=True, timeout=5,
+        )
+        text = result.stdout + result.stderr
+        if "h264_nvenc" in text:
+            return "h264_nvenc"
+        if "libx264" in text:
+            return "libx264"
+    except Exception:
+        pass
+    return "mp4v"
+
+
+def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
+    """Open an ffmpeg subprocess pipe for encoding. Returns a Popen object."""
+    if encoder == "h264_nvenc":
+        codec_args = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "20"]
+    else:
+        codec_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "rawvideo", "-vcodec", "rawvideo",
+        "-pix_fmt", "bgr24",
+        "-s", f"{width}x{height}",
+        "-r", str(fps),
+        "-i", "pipe:0",
+    ] + codec_args + [str(output_path)]
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+
+def _start_mask_prefetch(zarr_root, track_ids, frame_start, frame_end, batch_size):
+    """
+    Start a background thread that pre-loads zarr mask batches into a queue.
+
+    Masks are stored at their native inference resolution (e.g. 640×384).
+    The remap to output resolution is applied per-frame in the blend loop so
+    that the prefetch thread never allocates more than
+    ``batch_size × n_tracks × inference_H × inference_W`` bytes at once
+    instead of ``batch_size × n_tracks × output_H × output_W``.
+
+    Returns a ``queue.Queue`` that yields ``(batch_start, batch_end, masks_dict)``
+    tuples in order, followed by a ``None`` sentinel when all batches are done.
+
+    Using ``maxsize=2`` means the thread runs at most one batch ahead of the
+    consumer, bounding peak RAM usage while hiding I/O latency.
+    """
+    import threading
+    import queue as _queue_module
+    import numpy as np
+    import time
+    from loguru import logger
+
+    q = _queue_module.Queue(maxsize=2)
+
+    def _worker():
+        for bs in range(frame_start, frame_end, batch_size):
+            be = min(bs + batch_size, frame_end)
+            t0 = time.perf_counter()
+            masks = {}
+            for tid in track_ids:
+                arr_key = f"{tid}_masks"
+                if arr_key not in zarr_root:
+                    continue
+                zarr_arr = zarr_root[arr_key]
+                end_idx = min(be, zarr_arr.shape[0])
+                if bs >= end_idx:
+                    continue
+                masks[tid] = np.asarray(zarr_arr[bs:end_idx])
+            dt_ms = (time.perf_counter() - t0) * 1000
+            logger.debug(
+                f"[mask_load] batch {bs}–{be} ({len(masks)} tracks) in {dt_ms:.1f}ms"
+            )
+            q.put((bs, be, masks))
+        q.put(None)  # sentinel — no more batches
+
+    t = threading.Thread(target=_worker, daemon=True, name="mask-prefetch")
+    t.start()
+    return q
+
+
+def _letterbox_bounds(mask_h, mask_w, vid_h, vid_w):
+    """
+    Compute the video-content region within a mask stored at inference resolution.
+
+    YOLO (retina_masks=False) letterboxes frames to fit within imgsz and then
+    pads to the nearest multiple of stride (32).  The padding is centred, so the
+    actual video content starts at (pad_y, pad_x) within the stored mask.
+
+    Returns
+    -------
+    content_h, content_w : int
+        Height and width of the video content area within the mask.
+    pad_y, pad_x : int
+        Top and left padding in mask pixels.
+    """
+    content_h = round(vid_h * mask_w / vid_w)
+    if content_h <= mask_h:
+        # Width is the constraining dimension; y-axis may have padding
+        content_w = mask_w
+        pad_y = (mask_h - content_h) // 2
+        pad_x = 0
+    else:
+        # Height is the constraining dimension; x-axis may have padding
+        content_h = mask_h
+        content_w = round(vid_w * mask_h / vid_h)
+        pad_y = 0
+        pad_x = (mask_w - content_w) // 2
+    return content_h, content_w, pad_y, pad_x
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +195,14 @@ def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsam
             continue
         zarr_arr = zarr_root[arr_key]
         n_mask_frames = zarr_arr.shape[0]
+        # Masks may be stored at inference resolution; read stored video dims so
+        # centroids are returned in video-pixel coordinates, not mask-pixel coords.
+        _mask_h, _mask_w = zarr_arr.shape[1], zarr_arr.shape[2]
+        _vid_h = zarr_arr.attrs.get('video_height', _mask_h) or _mask_h
+        _vid_w = zarr_arr.attrs.get('video_width',  _mask_w) or _mask_w
+        # Account for letterbox padding: the mask includes stride-alignment padding
+        # that does not correspond to video content; subtract it before scaling.
+        _c_h, _c_w, _p_y, _p_x = _letterbox_bounds(_mask_h, _mask_w, _vid_h, _vid_w)
 
         for batch_start in range(frame_start, min(frame_end, n_mask_frames), _BATCH):
             batch_end = min(batch_start + _BATCH, frame_end, n_mask_frames)
@@ -87,8 +217,9 @@ def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsam
             cy_ds = (mask * ys).sum(axis=(1, 2)) / np.maximum(count, 1)
             cx_ds = (mask * xs).sum(axis=(1, 2)) / np.maximum(count, 1)
 
-            cx_full = cx_ds * downsample
-            cy_full = cy_ds * downsample
+            # Convert from downsampled-mask coords → full-mask coords → content coords → video coords
+            cx_full = (cx_ds * downsample - _p_x) * _vid_w / _c_w
+            cy_full = (cy_ds * downsample - _p_y) * _vid_h / _c_h
 
             for i, frame_idx in enumerate(range(batch_start, batch_end)):
                 if count[i] > 0:
@@ -163,7 +294,8 @@ def butterworth_smooth_tracklet_positions(pos_lookup, fps, cutoff_hz=2.0, order=
             row["pos_y"] = ys_smooth[i]
             pos_lookup[tid][f] = row
 
-    print(f"Tracklet centroids smoothed (Butterworth order={order}, cutoff={cutoff_hz} Hz)")
+    from loguru import logger
+    logger.info(f"Tracklet centroids smoothed (Butterworth order={order}, cutoff={cutoff_hz} Hz)")
     return pos_lookup
 
 
@@ -223,7 +355,8 @@ def interpolate_tracklet_gaps(pos_lookup, max_gap):
                 total_filled += 1
 
     if total_filled:
-        print(f"Tracklet gaps interpolated (cubic spline, max_gap={max_gap}): {total_filled} frame(s) filled")
+        from loguru import logger
+        logger.info(f"Tracklet gaps interpolated (cubic spline, max_gap={max_gap}): {total_filled} frame(s) filled")
     return pos_lookup
 
 
@@ -318,9 +451,11 @@ def run_tracklets(
     draw_boxes=False,
     start=None,
     end=None,
+    min_track_frames=0,
+    interpolate_max_gap=0,
     track_ids=None,
     min_observations=0,
-    interpolate_max_gap=0,
+    debug=False,
 ):
     """
     Render one stabilised crop video per tracked animal.
@@ -370,6 +505,9 @@ def run_tracklets(
     import numpy as np
     import time
     from collections import deque
+    from loguru import logger
+    from octron._logging import setup_logging as _setup_logging
+    _setup_logging(debug=debug)
 
     results = _load_results(predictions_path, video_path)
 
@@ -401,23 +539,40 @@ def run_tracklets(
     for tid, td in tracking_data.items():
         pos_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["data"].iterrows()}
         bbox_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["features"].iterrows()}
-        print(f"  Track {tid} ({td['label']}): {len(pos_lookup[tid])} frames")
 
-    render_tids = list(results.track_ids)
+    # Only include tracks that have at least one detection in [frame_start, frame_end).
+    active_tids = [
+        tid for tid in results.track_ids
+        if any(frame_start <= f < frame_end for f in pos_lookup.get(tid, {}))
+    ]
+    skipped_range = len(results.track_ids) - len(active_tids)
+    logger.info(
+        f"Tracks in range: {len(active_tids)}/{len(results.track_ids)}"
+        + (f" ({skipped_range} skipped — no detections in frames {frame_start}–{frame_end})" if skipped_range else "")
+    )
+
+    render_tids = [
+        tid for tid in active_tids
+        if min_track_frames <= 0 or len(pos_lookup.get(tid, {})) >= min_track_frames
+    ]
+    if min_track_frames > 0:
+        skipped_min = len(active_tids) - len(render_tids)
+        logger.info(f"Keeping {len(render_tids)}/{len(active_tids)} tracks with ≥{min_track_frames} frames ({skipped_min} skipped)")
+
     if track_ids is not None:
         missing = set(track_ids) - set(render_tids)
         if missing:
-            print(f"  Warning: requested track ID(s) not found: {sorted(missing)}")
+            logger.warning(f"Requested track ID(s) not found: {sorted(missing)}")
         render_tids = [t for t in render_tids if t in set(track_ids)]
     if min_observations > 0:
         render_tids = [t for t in render_tids if len(pos_lookup.get(t, {})) >= min_observations]
     if track_ids is not None or min_observations > 0:
-        print(f"  Rendering {len(render_tids)}/{len(results.track_ids)} track(s)")
+        logger.info(f"Rendering {len(render_tids)}/{len(results.track_ids)} track(s) after filtering")
 
     if mask_centroids and results.has_masks:
-        print("Computing mask centre-of-mass centroids...")
+        logger.info("Computing mask centre-of-mass centroids...")
         mask_cent = compute_mask_centroids(
-            results.zarr_root, render_tids, frame_start, frame_end,
+            results.zarr_root, results.track_ids, frame_start, frame_end,
         )
         replaced = 0
         for tid, frame_centroids in mask_cent.items():
@@ -428,7 +583,7 @@ def run_tracklets(
                     row["pos_y"] = cy
                     pos_lookup[tid][frame_idx] = row
                     replaced += 1
-        print(f"  Replaced {replaced} centroid(s) with mask CoM")
+        logger.info(f"Replaced {replaced} centroid(s) with mask CoM")
 
     if smooth_cutoff_hz and smooth_cutoff_hz > 0:
         butterworth_smooth_tracklet_positions(
@@ -450,8 +605,8 @@ def run_tracklets(
         max_w = int(np.ceil((feats["bbox_x_max"] - feats["bbox_x_min"]).max()))
         max_h = int(np.ceil((feats["bbox_y_max"] - feats["bbox_y_min"]).max()))
         if max(max_w, max_h) > size:
-            print(
-                f"Warning: track {tid} ({td['label']}) has bounding boxes up to "
+            logger.warning(
+                f"Track {tid} ({td['label']}) has bounding boxes up to "
                 f"{max_w}×{max_h} px, which exceeds size={size}. "
                 f"Consider --tracklet-size {max(max_w, max_h) + 20}."
             )
@@ -463,22 +618,37 @@ def run_tracklets(
         tp = output_path / f"tracklet_{label}_track{tid}_{preset}.mp4"
         writers[tid] = cv2.VideoWriter(str(tp), fourcc, fps, (size, size))
 
-    # Pre-compute downscale indices for overlay masks
-    _y_idx = _x_idx = None
-    if also_overlay and draw_masks and scale != 1.0 and results.has_masks:
+    # Detect inference resolution and letterbox bounds for overlay masks.
+    _mask_inf_h = _mask_inf_w = None
+    _lb_py = _lb_px = _lb_ch = _lb_cw = 0
+    if also_overlay and draw_masks and results.has_masks:
         for tid in render_tids:
             arr_key = f"{tid}_masks"
             if arr_key in results.zarr_root:
-                _H, _W = results.zarr_root[arr_key].shape[1:3]
-                _y_idx = np.round(np.linspace(0, _H - 1, out_h)).astype(int)
-                _x_idx = np.round(np.linspace(0, _W - 1, out_w)).astype(int)
+                _mask_inf_h, _mask_inf_w = results.zarr_root[arr_key].shape[1:3]
+                _lb_ch, _lb_cw, _lb_py, _lb_px = _letterbox_bounds(
+                    _mask_inf_h, _mask_inf_w, height, width
+                )
                 break
 
-    _BATCH = 500
+    _BATCH = 100
     _batch_masks = {}
-    _batch_start = None
+    _batch_start = -1
+    _batch_end = -1
 
-    print(f"Rendering {n_frames} tracklet frames | preset={preset} | size={size}px")
+    # Start background zarr prefetch thread when overlay masks are needed.
+    _mask_q = None
+    if also_overlay and draw_masks and results.has_masks:
+        logger.info("Starting mask prefetch thread...")
+        _mask_q = _start_mask_prefetch(
+            results.zarr_root, render_tids,
+            frame_start, frame_end, _BATCH,
+        )
+        _first = _mask_q.get(timeout=120)
+        if _first is not None:
+            _batch_start, _batch_end, _batch_masks = _first
+
+    logger.info(f"Rendering {n_frames} tracklet frames | preset={preset} | size={size}px | {len(render_tids)} track(s)")
     cap = cv2.VideoCapture(str(src_path))
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start)
 
@@ -486,32 +656,38 @@ def run_tracklets(
     _frame_times = deque(maxlen=30)
     _t_frame = time.time()
 
+    # Debug timing accumulators
+    if debug:
+        _dbg_n = 0
+        _dbg_t_decode = _dbg_t_queue = _dbg_t_blend = _dbg_t_crop = 0.0
+        _dbg_next_report = time.perf_counter() + 2.0
+
     for i, frame_idx in enumerate(range(frame_start, frame_end)):
+        if debug:
+            _t0 = time.perf_counter()
+
         ok, orig_frame = cap.read()
         if not ok:
-            print(f"\nWarning: could not read frame {frame_idx}, stopping early.")
+            logger.warning(f"Could not read frame {frame_idx}, stopping early.")
             break
 
-        # Lazy-load overlay mask batches when needed
-        if also_overlay and draw_masks and results.has_masks \
-                and (_batch_start is None or frame_idx >= _batch_start + _BATCH):
-            _batch_start = frame_idx
-            _batch_end = min(_batch_start + _BATCH, frame_end)
-            _batch_masks = {}
-            for tid in render_tids:
-                arr_key = f"{tid}_masks"
-                if arr_key not in results.zarr_root:
-                    continue
-                zarr_arr = results.zarr_root[arr_key]
-                end_idx = min(_batch_end, zarr_arr.shape[0])
-                if _batch_start >= end_idx:
-                    continue
-                raw = np.asarray(zarr_arr[_batch_start:end_idx])
-                if _y_idx is not None:
-                    raw = raw[:, _y_idx[:, None], _x_idx[None, :]]
-                _batch_masks[tid] = raw
+        if debug:
+            _t1 = time.perf_counter()
+            _dbg_t_decode += _t1 - _t0
 
-        j = frame_idx - _batch_start if _batch_start is not None else 0
+        # Advance to next mask batch when current one is exhausted.
+        if _mask_q is not None and frame_idx >= _batch_end:
+            _item = _mask_q.get(timeout=120)
+            if _item is not None:
+                _batch_start, _batch_end, _batch_masks = _item
+            else:
+                _batch_masks = {}
+
+        j = frame_idx - _batch_start if _batch_start >= 0 else 0
+
+        if debug:
+            _t2 = time.perf_counter()
+            _dbg_t_queue += _t2 - _t1
 
         # Build overlay frame if requested
         out_frame = None
@@ -520,20 +696,37 @@ def run_tracklets(
                 frame_small = cv2.resize(orig_frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
             else:
                 frame_small = orig_frame
-            overlay = frame_small.astype(np.float32)
+
+            # Build combined mask at inference resolution, crop letterbox,
+            # then resize once to output — same approach as run_render.
+            if draw_masks and results.has_masks and _batch_masks and _mask_inf_h:
+                _comb_mask = np.zeros((_mask_inf_h, _mask_inf_w), dtype=np.uint8)
+                _comb_color = np.zeros((_mask_inf_h, _mask_inf_w, 3), dtype=np.uint8)
+                _drew_any = False
+                for tid in render_tids:
+                    if tid in _batch_masks:
+                        batch = _batch_masks[tid]
+                        if j < batch.shape[0]:
+                            obj = batch[j] == 1
+                            if obj.any():
+                                _comb_mask[obj] = 255
+                                _comb_color[obj] = track_colors[tid]
+                                _drew_any = True
+                if _drew_any:
+                    _mc = _comb_mask[_lb_py:_lb_py + _lb_ch, _lb_px:_lb_px + _lb_cw]
+                    _cc = _comb_color[_lb_py:_lb_py + _lb_ch, _lb_px:_lb_px + _lb_cw]
+                    mask_full = cv2.resize(_mc, (out_w, out_h), interpolation=cv2.INTER_NEAREST) > 0
+                    color_full = cv2.resize(_cc, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+                    color_layer = frame_small.copy()
+                    color_layer[mask_full] = color_full[mask_full]
+                    out_frame = cv2.addWeighted(frame_small, 1.0 - alpha, color_layer, alpha, 0)
+                else:
+                    out_frame = frame_small.copy()
+            else:
+                out_frame = frame_small.copy()
 
             for tid in render_tids:
                 color_bgr = track_colors[tid]
-                label = results.track_id_label[tid]
-
-                if draw_masks and results.has_masks and tid in _batch_masks:
-                    batch = _batch_masks[tid]
-                    if j < batch.shape[0]:
-                        obj = batch[j] == 1
-                        if obj.any():
-                            color_f = np.array(color_bgr, dtype=np.float32)
-                            overlay[obj] = (1 - alpha) * overlay[obj] + alpha * color_f
-
                 if draw_boxes:
                     row = bbox_lookup.get(tid, {}).get(frame_idx)
                     if row is not None:
@@ -542,10 +735,12 @@ def run_tracklets(
                         x2 = int(row["bbox_x_max"] * scale)
                         y2 = int(row["bbox_y_max"] * scale)
                         lw = max(1, int(2 * scale + 0.5))
-                        cv2.rectangle(overlay, (x1 - 1, y1 - 1), (x2 + 1, y2 + 1), (0, 0, 0), lw)
-                        cv2.rectangle(overlay, (x1, y1), (x2, y2), color_bgr, lw)
+                        cv2.rectangle(out_frame, (x1 - 1, y1 - 1), (x2 + 1, y2 + 1), (0, 0, 0), lw)
+                        cv2.rectangle(out_frame, (x1, y1), (x2, y2), color_bgr, lw)
 
-            out_frame = np.clip(overlay, 0, 255).astype(np.uint8)
+        if debug:
+            _t3 = time.perf_counter()
+            _dbg_t_blend += _t3 - _t2
 
         # Crop each track
         for tid in render_tids:
@@ -563,6 +758,23 @@ def run_tracklets(
                 crop = np.zeros((size, size, 3), dtype=np.uint8)
             writers[tid].write(crop)
 
+        if debug:
+            _t4 = time.perf_counter()
+            _dbg_t_crop += _t4 - _t3
+            _dbg_n += 1
+            now_pc = _t4
+            if now_pc >= _dbg_next_report and _dbg_n > 0:
+                logger.debug(
+                    f"[decode] {_dbg_t_decode/_dbg_n*1000:.1f}ms  "
+                    f"[queue-wait] {_dbg_t_queue/_dbg_n*1000:.1f}ms  "
+                    f"[blend] {_dbg_t_blend/_dbg_n*1000:.1f}ms  "
+                    f"[crop+write] {_dbg_t_crop/_dbg_n*1000:.1f}ms  "
+                    f"(avg over {_dbg_n} frames)"
+                )
+                _dbg_n = 0
+                _dbg_t_decode = _dbg_t_queue = _dbg_t_blend = _dbg_t_crop = 0.0
+                _dbg_next_report = now_pc + 2.0
+
         now = time.time()
         _frame_times.append(now - _t_frame)
         _t_frame = now
@@ -579,11 +791,11 @@ def run_tracklets(
             end="\r",
         )
 
-    print()
+    print()  # close the \r progress line
     cap.release()
     for w in writers.values():
         w.release()
-    print(f"Tracklet(s) saved → {output_path}")
+    logger.info(f"Tracklet(s) saved → {output_path}")
 
 
 def run_render(
@@ -597,15 +809,17 @@ def run_render(
     tracklet_mask_centroids=False,
     tracklet_smooth_cutoff_hz=2.0,
     tracklet_smooth_order=4,
+    tracklet_min_frames=0,
     tracklet_interpolate_max_gap=0,
+    track_ids=None,
+    min_observations=0,
     alpha=0.4,
     draw_masks=True,
     draw_boxes=True,
     draw_labels=True,
     start=None,
     end=None,
-    track_ids=None,
-    min_observations=0,
+    debug=False,
 ):
     """
     Render annotated video(s) from OCTRON prediction output.
@@ -666,9 +880,11 @@ def run_render(
             draw_boxes=draw_boxes,
             start=start,
             end=end,
+            min_track_frames=tracklet_min_frames,
+            interpolate_max_gap=tracklet_interpolate_max_gap,
             track_ids=track_ids,
             min_observations=min_observations,
-            interpolate_max_gap=tracklet_interpolate_max_gap,
+            debug=debug,
         )
         return
 
@@ -676,6 +892,9 @@ def run_render(
     import numpy as np
     import time
     from collections import deque
+    from loguru import logger
+    from octron._logging import setup_logging as _setup_logging
+    _setup_logging(debug=debug)
 
     results = _load_results(predictions_path, video_path)
 
@@ -705,18 +924,28 @@ def run_render(
     bbox_lookup = {}
     for tid, td in tracking_data.items():
         bbox_lookup[tid] = {int(r["frame_idx"]): r for _, r in td["features"].iterrows()}
-        print(f"  Track {tid} ({td['label']}): {len(bbox_lookup[tid])} frames with bbox data")
 
-    render_tids = list(results.track_ids)
+    # Only render tracks that have at least one detection in [frame_start, frame_end).
+    active_tids = [
+        tid for tid in results.track_ids
+        if any(frame_start <= f < frame_end for f in bbox_lookup.get(tid, {}))
+    ]
+    skipped = len(results.track_ids) - len(active_tids)
+    logger.info(
+        f"Tracks in range: {len(active_tids)}/{len(results.track_ids)}"
+        + (f" ({skipped} skipped — no detections in frames {frame_start}–{frame_end})" if skipped else "")
+    )
+
+    render_tids = list(active_tids)
     if track_ids is not None:
         missing = set(track_ids) - set(render_tids)
         if missing:
-            print(f"  Warning: requested track ID(s) not found: {sorted(missing)}")
+            logger.warning(f"Requested track ID(s) not found: {sorted(missing)}")
         render_tids = [t for t in render_tids if t in set(track_ids)]
     if min_observations > 0:
         render_tids = [t for t in render_tids if len(bbox_lookup.get(t, {})) >= min_observations]
     if track_ids is not None or min_observations > 0:
-        print(f"  Rendering {len(render_tids)}/{len(results.track_ids)} track(s)")
+        logger.info(f"Rendering {len(render_tids)}/{len(results.track_ids)} track(s) after filtering")
 
     track_colors = {}
     for tid in render_tids:
@@ -724,29 +953,66 @@ def run_render(
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
         track_colors[tid] = (b, g, r)
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    # Detect best encoder and open writer
     overlay_out = output_path / f"overlay_{preset}.mp4"
-    writer = cv2.VideoWriter(str(overlay_out), fourcc, fps, (out_w, out_h))
+    _encoder = _detect_encoder()
+    if _encoder != "mp4v":
+        logger.info(f"Encoder:  {_encoder} (ffmpeg)")
+        _ffmpeg_proc = _open_ffmpeg_writer(overlay_out, fps, out_w, out_h, _encoder)
+        _cv2_writer = None
+    else:
+        logger.info("Encoder:  mp4v (cv2.VideoWriter)")
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        _cv2_writer = cv2.VideoWriter(str(overlay_out), fourcc, fps, (out_w, out_h))
+        _ffmpeg_proc = None
 
-    # Pre-compute downscale indices for masks
-    _y_idx = _x_idx = None
-    if draw_masks and scale != 1.0 and results.has_masks:
+    # Detect inference resolution and letterbox bounds.
+    # Masks are stored at inference resolution (e.g. 640×384) and may include
+    # stride-alignment padding.  _letterbox_bounds() gives the content-only
+    # slice so upscaling aligns mask pixels with video-coordinate bboxes.
+    _mask_inf_h = _mask_inf_w = None
+    _lb_py = _lb_px = _lb_ch = _lb_cw = 0
+    if draw_masks and results.has_masks:
         for tid in render_tids:
             arr_key = f"{tid}_masks"
             if arr_key in results.zarr_root:
-                _H, _W = results.zarr_root[arr_key].shape[1:3]
-                _y_idx = np.round(np.linspace(0, _H - 1, out_h)).astype(int)
-                _x_idx = np.round(np.linspace(0, _W - 1, out_w)).astype(int)
+                _mask_inf_h, _mask_inf_w = results.zarr_root[arr_key].shape[1:3]
+                _lb_ch, _lb_cw, _lb_py, _lb_px = _letterbox_bounds(
+                    _mask_inf_h, _mask_inf_w, height, width
+                )
+                logger.debug(
+                    f"Mask dims: {_mask_inf_w}×{_mask_inf_h}  "
+                    f"content: {_lb_cw}×{_lb_ch}  padding: top={_lb_py}px left={_lb_px}px"
+                )
                 break
 
-    _BATCH = 500
+    # Batch size for zarr mask reads.  100 frames balances first-frame latency
+    # (~1–7s on network) against memory usage; the prefetch thread ensures the
+    # next batch is ready before the current one is exhausted.
+    _BATCH = 100
     _batch_masks = {}
-    _batch_start = None
+    _batch_start = -1
+    _batch_end = -1
 
-    print(
+    logger.info(
         f"Rendering {n_frames} frames | preset={preset} | scale={scale:.0%} "
         f"| output {out_w}×{out_h} px"
     )
+
+    # Start background zarr prefetch thread (only when masks are present).
+    _mask_q = None
+    if draw_masks and results.has_masks:
+        logger.info("Starting mask prefetch thread...")
+        _mask_q = _start_mask_prefetch(
+            results.zarr_root, render_tids,
+            frame_start, frame_end, _BATCH,
+        )
+        # Pull first batch — blocks for initial load (batch_size frames only)
+        _first = _mask_q.get(timeout=120)
+        if _first is not None:
+            _batch_start, _batch_end, _batch_masks = _first
+            logger.debug(f"[mask_load] first batch ready: frames {_batch_start}–{_batch_end}")
+
     cap = cv2.VideoCapture(str(src_path))
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start)
 
@@ -754,49 +1020,81 @@ def run_render(
     _frame_times = deque(maxlen=30)
     _t_frame = time.time()
 
+    # Debug timing accumulators (all using perf_counter for consistency)
+    if debug:
+        _dbg_n = 0
+        _dbg_t_decode = _dbg_t_queue = _dbg_t_blend = _dbg_t_encode = 0.0
+        _dbg_next_report = time.perf_counter() + 2.0
+
     for i, frame_idx in enumerate(range(frame_start, frame_end)):
+        if debug:
+            _t0 = time.perf_counter()
+
         ok, orig_frame = cap.read()
         if not ok:
             print(f"\nWarning: could not read frame {frame_idx}, stopping early.")
             break
 
-        if draw_masks and results.has_masks \
-                and (_batch_start is None or frame_idx >= _batch_start + _BATCH):
-            _batch_start = frame_idx
-            _batch_end = min(_batch_start + _BATCH, frame_end)
-            _batch_masks = {}
-            for tid in render_tids:
-                arr_key = f"{tid}_masks"
-                if arr_key not in results.zarr_root:
-                    continue
-                zarr_arr = results.zarr_root[arr_key]
-                end_idx = min(_batch_end, zarr_arr.shape[0])
-                if _batch_start >= end_idx:
-                    continue
-                raw = np.asarray(zarr_arr[_batch_start:end_idx])
-                if _y_idx is not None:
-                    raw = raw[:, _y_idx[:, None], _x_idx[None, :]]
-                _batch_masks[tid] = raw
+        if debug:
+            _t1 = time.perf_counter()
+            _dbg_t_decode += _t1 - _t0
 
-        j = frame_idx - _batch_start if _batch_start is not None else 0
+        # Advance to next mask batch when the current one is exhausted.
+        # The prefetch thread already has the next batch loading in the background,
+        # so queue.get() returns almost instantly in the common case.
+        # Any non-trivial wait here means zarr I/O is slower than rendering.
+        if _mask_q is not None and frame_idx >= _batch_end:
+            _item = _mask_q.get(timeout=120)
+            if _item is not None:
+                _batch_start, _batch_end, _batch_masks = _item
+            else:
+                _batch_masks = {}  # no more masks
+
+        j = frame_idx - _batch_start if _batch_start >= 0 else 0
+
+        if debug:
+            _t2 = time.perf_counter()
+            _dbg_t_queue += _t2 - _t1
 
         if scale != 1.0:
             frame_small = cv2.resize(orig_frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
         else:
             frame_small = orig_frame
-        overlay = frame_small.astype(np.float32)
+
+        # Build combined mask at inference resolution, crop letterbox padding,
+        # then resize to output once.  This replaces n_tracks per-frame fancy-
+        # index remap ops (each allocating out_H×out_W bools) with a single
+        # cv2.resize call, giving ~10× speedup on large outputs with many tracks.
+        if draw_masks and results.has_masks and _batch_masks and _mask_inf_h:
+            _comb_mask = np.zeros((_mask_inf_h, _mask_inf_w), dtype=np.uint8)
+            _comb_color = np.zeros((_mask_inf_h, _mask_inf_w, 3), dtype=np.uint8)
+            _drew_any = False
+            for tid in render_tids:
+                if tid in _batch_masks:
+                    batch = _batch_masks[tid]
+                    if j < batch.shape[0]:
+                        obj = batch[j] == 1
+                        if obj.any():
+                            _comb_mask[obj] = 255
+                            _comb_color[obj] = track_colors[tid]
+                            _drew_any = True
+            if _drew_any:
+                # Crop letterbox padding so the content region maps 1:1 to output
+                _mc = _comb_mask[_lb_py:_lb_py + _lb_ch, _lb_px:_lb_px + _lb_cw]
+                _cc = _comb_color[_lb_py:_lb_py + _lb_ch, _lb_px:_lb_px + _lb_cw]
+                mask_full = cv2.resize(_mc, (out_w, out_h), interpolation=cv2.INTER_NEAREST) > 0
+                color_full = cv2.resize(_cc, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+                color_layer = frame_small.copy()
+                color_layer[mask_full] = color_full[mask_full]
+                out_frame = cv2.addWeighted(frame_small, 1.0 - alpha, color_layer, alpha, 0)
+            else:
+                out_frame = frame_small.copy()
+        else:
+            out_frame = frame_small.copy()
 
         for tid in render_tids:
             color_bgr = track_colors[tid]
             label = results.track_id_label[tid]
-
-            if draw_masks and results.has_masks and tid in _batch_masks:
-                batch = _batch_masks[tid]
-                if j < batch.shape[0]:
-                    obj = batch[j] == 1
-                    if obj.any():
-                        color_f = np.array(color_bgr, dtype=np.float32)
-                        overlay[obj] = (1 - alpha) * overlay[obj] + alpha * color_f
 
             if draw_boxes:
                 row = bbox_lookup.get(tid, {}).get(frame_idx)
@@ -806,18 +1104,42 @@ def run_render(
                     x2 = int(row["bbox_x_max"] * scale)
                     y2 = int(row["bbox_y_max"] * scale)
                     lw = max(1, int(2 * scale + 0.5))
-                    cv2.rectangle(overlay, (x1 - 1, y1 - 1), (x2 + 1, y2 + 1), (0, 0, 0), lw)
-                    cv2.rectangle(overlay, (x1, y1), (x2, y2), color_bgr, lw)
+                    cv2.rectangle(out_frame, (x1 - 1, y1 - 1), (x2 + 1, y2 + 1), (0, 0, 0), lw)
+                    cv2.rectangle(out_frame, (x1, y1), (x2, y2), color_bgr, lw)
                     if draw_labels:
                         txt = f"{label} {tid}"
                         font_scale = max(0.3, 0.45 * scale / 0.5)
                         txt_lw = max(1, lw)
-                        cv2.putText(overlay, txt, (x1 + 1, max(y1 - 5, 13)),
+                        cv2.putText(out_frame, txt, (x1 + 1, max(y1 - 5, 13)),
                                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), txt_lw + 1, cv2.LINE_AA)
-                        cv2.putText(overlay, txt, (x1, max(y1 - 6, 12)),
+                        cv2.putText(out_frame, txt, (x1, max(y1 - 6, 12)),
                                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, color_bgr, txt_lw, cv2.LINE_AA)
 
-        writer.write(np.clip(overlay, 0, 255).astype(np.uint8))
+        if debug:
+            _t3 = time.perf_counter()
+            _dbg_t_blend += _t3 - _t2
+
+        if _ffmpeg_proc is not None:
+            _ffmpeg_proc.stdin.write(out_frame.tobytes())
+        else:
+            _cv2_writer.write(out_frame)
+
+        if debug:
+            _t4 = time.perf_counter()
+            _dbg_t_encode += _t4 - _t3
+            _dbg_n += 1
+            now = _t4
+            if now >= _dbg_next_report and _dbg_n > 0:
+                logger.debug(
+                    f"[decode] {_dbg_t_decode/_dbg_n*1000:.1f}ms  "
+                    f"[queue-wait] {_dbg_t_queue/_dbg_n*1000:.1f}ms  "
+                    f"[blend] {_dbg_t_blend/_dbg_n*1000:.1f}ms  "
+                    f"[encode] {_dbg_t_encode/_dbg_n*1000:.1f}ms  "
+                    f"(avg over {_dbg_n} frames)"
+                )
+                _dbg_n = 0
+                _dbg_t_decode = _dbg_t_queue = _dbg_t_blend = _dbg_t_encode = 0.0
+                _dbg_next_report = now + 2.0
 
         now = time.time()
         _frame_times.append(now - _t_frame)
@@ -837,5 +1159,11 @@ def run_render(
 
     print()
     cap.release()
-    writer.release()
-    print(f"Overlay saved → {overlay_out}")
+    if _ffmpeg_proc is not None:
+        _ffmpeg_proc.stdin.close()
+        rc = _ffmpeg_proc.wait()
+        if rc != 0:
+            logger.warning(f"ffmpeg exited with code {rc} — output may be incomplete.")
+    else:
+        _cv2_writer.release()
+    logger.info(f"Overlay saved → {overlay_out}")
