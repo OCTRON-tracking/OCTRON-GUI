@@ -368,20 +368,8 @@ def _load_results(predictions_path, video_path):
     if not predictions_path.exists():
         raise FileNotFoundError(f"Predictions directory not found: {predictions_path}")
 
-    results = YOLO_results(predictions_path, verbose=True)
-
-    if video_path is not None:
-        video_path = Path(video_path)
-        if not video_path.exists():
-            raise FileNotFoundError(f"Video not found: {video_path}")
-        from octron.sam_octron.helpers.video_loader import probe_video
-        from napari_pyav._reader import FastVideoReader
-
-        results.video = FastVideoReader(video_path, read_format="rgb24")
-        results.video_dict = probe_video(video_path, verbose=False)
-        results.height = results.video_dict["height"]
-        results.width = results.video_dict["width"]
-        results.num_frames = results.video_dict["num_frames"]
+    results = YOLO_results(predictions_path, verbose=True,
+                           **({"video_path": video_path} if video_path is not None else {}))
 
     if results.video_dict is None:
         raise FileNotFoundError(
@@ -442,7 +430,7 @@ def run_tracklets(
     output_path=None,
     preset="draft",
     also_overlay=False,
-    size=160,
+    size=None,
     mask_centroids=False,
     smooth_cutoff_hz=2.0,
     smooth_order=4,
@@ -532,7 +520,7 @@ def run_tracklets(
     out_h += out_h % 2
     out_w += out_w % 2
 
-    tracking_data = results.get_tracking_data(interpolate=False)
+    tracking_data = results.get_tracking_data(interpolate=False, track_ids=track_ids)
 
     pos_lookup = {}
     bbox_lookup = {}
@@ -569,6 +557,29 @@ def run_tracklets(
     if track_ids is not None or min_observations > 0:
         logger.info(f"Rendering {len(render_tids)}/{len(results.track_ids)} track(s) after filtering")
 
+    if size is None:
+        max_dim = 0
+        for tid in render_tids:
+            feats = tracking_data[tid]["features"]
+            max_w = int(np.ceil((feats["bbox_x_max"] - feats["bbox_x_min"]).max()))
+            max_h = int(np.ceil((feats["bbox_y_max"] - feats["bbox_y_min"]).max()))
+            max_dim = max(max_dim, max_w, max_h)
+        size = max_dim + 20 if max_dim > 0 else 160
+        logger.info(f"Auto tracklet size: {size}px (largest bbox {max_dim}px + 20px padding)")
+
+    if size is not None:  # always true now, but defensive
+        for tid in render_tids:
+            td = tracking_data[tid]
+            feats = td["features"]
+            max_w = int(np.ceil((feats["bbox_x_max"] - feats["bbox_x_min"]).max()))
+            max_h = int(np.ceil((feats["bbox_y_max"] - feats["bbox_y_min"]).max()))
+            if max(max_w, max_h) > size:
+                logger.warning(
+                    f"Track {tid} ({td['label']}) has bounding boxes up to "
+                    f"{max_w}×{max_h} px, which exceeds size={size}. "
+                    f"Consider --tracklet-size {max(max_w, max_h) + 20}."
+                )
+
     if mask_centroids and results.has_masks:
         logger.info("Computing mask centre-of-mass centroids...")
         mask_cent = compute_mask_centroids(
@@ -598,18 +609,6 @@ def run_tracklets(
         rgba, _ = results.get_color_for_track_id(tid)
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
         track_colors[tid] = (b, g, r)
-
-    # Pre-flight: warn if any bbox exceeds the requested crop size
-    for tid, td in tracking_data.items():
-        feats = td["features"]
-        max_w = int(np.ceil((feats["bbox_x_max"] - feats["bbox_x_min"]).max()))
-        max_h = int(np.ceil((feats["bbox_y_max"] - feats["bbox_y_min"]).max()))
-        if max(max_w, max_h) > size:
-            logger.warning(
-                f"Track {tid} ({td['label']}) has bounding boxes up to "
-                f"{max_w}×{max_h} px, which exceeds size={size}. "
-                f"Consider --tracklet-size {max(max_w, max_h) + 20}."
-            )
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writers = {}
@@ -805,7 +804,7 @@ def run_render(
     preset="draft",
     tracklets=False,
     also_overlay=False,
-    tracklet_size=160,
+    tracklet_size=None,
     tracklet_mask_centroids=False,
     tracklet_smooth_cutoff_hz=2.0,
     tracklet_smooth_order=4,
@@ -919,7 +918,7 @@ def run_render(
     out_h += out_h % 2
     out_w += out_w % 2
 
-    tracking_data = results.get_tracking_data(interpolate=False)
+    tracking_data = results.get_tracking_data(interpolate=False, track_ids=track_ids)
 
     bbox_lookup = {}
     for tid, td in tracking_data.items():

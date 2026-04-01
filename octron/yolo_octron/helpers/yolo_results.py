@@ -69,7 +69,11 @@ class YOLO_results:
         # Load prediction metadata (JSON) if available
         self._load_metadata()
         # Find video, csv and zarr files associated with prediction output
-        self.find_video()
+        provided_video_path = kwargs.get('video_path', None)
+        if provided_video_path is not None:
+            self._init_video_from_path(provided_video_path)
+        else:
+            self.find_video()
         self.find_csv()
         self.find_zarr_root()
         # Ensure track IDs and labels are loaded
@@ -132,7 +136,20 @@ class YOLO_results:
                 f"Use --video to specify the path explicitly."
             )
         self.video, self.video_dict = video, video_dict
-            
+
+    def _init_video_from_path(self, video_path):
+        """Use a caller-supplied video path directly, bypassing auto-detection."""
+        from octron.sam_octron.helpers.video_loader import probe_video
+        vp = Path(video_path)
+        if not vp.exists():
+            raise FileNotFoundError(f"Video not found: {vp}")
+        self.video = FastVideoReader(vp, read_format='rgb24')
+        vd = probe_video(vp, verbose=self.verbose)
+        self.height = vd['height']
+        self.width = vd['width']
+        self.num_frames = vd['num_frames']
+        self.video_dict = vd
+
     def find_csv(self):
         results_dir = self.results_dir
         csvs = natsorted(results_dir.rglob('*track_*.csv'))
@@ -422,6 +439,7 @@ class YOLO_results:
                           interpolate_method: str = 'linear',
                           interpolate_limit=None,
                           sigma=0,
+                          track_ids=None,
                           ):
         """
         
@@ -504,8 +522,14 @@ class YOLO_results:
                                f"Raw per-region values are preserved in the CSV.")
             return result
 
+        import re as _re
         tracking_data = {}
         for csv_file in self.csvs:
+            # Extract track_id from filename to skip unwanted CSVs without reading them
+            if track_ids is not None:
+                m = _re.search(r'_track_(\d+)\.csv$', csv_file.name)
+                if m and int(m.group(1)) not in set(track_ids):
+                    continue
             try:
                 df = pd.read_csv(csv_file, skiprows=self.csv_header_lines)
                 assert set(EXPECTED_CSV_COLUMNS).issubset(df.columns), \

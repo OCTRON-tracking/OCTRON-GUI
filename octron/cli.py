@@ -264,7 +264,7 @@ def render(
         False, "--tracklet-overlay",
         help="Render masks and/or boxes onto the tracklet crops (useful for inspection). Nothing drawn by default.",
     ),
-    tracklet_size: int = typer.Option(160, "--tracklet-size", help="Side length in pixels of each tracklet crop."),
+    tracklet_size: Optional[str] = typer.Option("auto", "--tracklet-size", help="Side length in pixels of each tracklet crop, or 'auto' to use the largest bounding box + 20px padding."),
     tracklet_mask_centroids: bool = typer.Option(
         False, "--tracklet-mask-centroids",
         help="Use mask centre-of-mass instead of bbox centre for tracklet positioning.",
@@ -318,6 +318,8 @@ def render(
         if track_ids is not None else None
     )
 
+    parsed_tracklet_size = None if tracklet_size is None or tracklet_size.lower() == "auto" else int(tracklet_size)
+
     run_render(
         predictions_path=predictions_path,
         video_path=video_path,
@@ -331,7 +333,7 @@ def render(
         draw_labels=resolved_labels,
         tracklets=tracklets,
         also_overlay=tracklet_overlay,
-        tracklet_size=tracklet_size,
+        tracklet_size=parsed_tracklet_size,
         tracklet_mask_centroids=tracklet_mask_centroids,
         tracklet_smooth_cutoff_hz=tracklet_smooth_cutoff_hz,
         tracklet_smooth_order=tracklet_smooth_order,
