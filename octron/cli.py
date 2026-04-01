@@ -286,6 +286,9 @@ def render(
     min_observations: int = typer.Option(
         0, "--min-observations", help="Skip tracks with fewer than this many observations. 0 = keep all tracks.",
     ),
+    trim: bool = typer.Option(
+        False, "--trim", help="Trim each tracklet video to the track's first and last observation (within --start/--end if given).",
+    ),
     bbox_sizes: bool = typer.Option(
         False, "--bbox-sizes",
         help="Report per-track bounding-box sizes to help choose --tracklet-size, then exit.",
@@ -340,6 +343,7 @@ def render(
         tracklet_interpolate_max_gap=tracklet_interpolate,
         track_ids=parsed_track_ids,
         min_observations=min_observations,
+        trim=trim,
     )
 
 

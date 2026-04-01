@@ -443,6 +443,7 @@ def run_tracklets(
     interpolate_max_gap=0,
     track_ids=None,
     min_observations=0,
+    trim=False,
     debug=False,
 ):
     """
@@ -615,6 +616,25 @@ def run_tracklets(
     if interpolate_max_gap and interpolate_max_gap > 0:
         interpolate_tracklet_gaps(pos_lookup, max_gap=interpolate_max_gap)
 
+    # Trim: per-track active span (first→last observation within current range)
+    trim_starts = {}
+    trim_ends = {}
+    if trim:
+        for tid in render_tids:
+            frames_in_range = [f for f in pos_lookup.get(tid, {}) if frame_start <= f < frame_end]
+            if frames_in_range:
+                trim_starts[tid] = min(frames_in_range)
+                trim_ends[tid] = max(frames_in_range) + 1
+            else:
+                trim_starts[tid] = frame_start
+                trim_ends[tid] = frame_start  # zero-length — writer will be empty
+        # Shrink the global decode range to avoid reading frames no track needs
+        if trim_starts:
+            frame_start = min(trim_starts.values())
+            frame_end = max(trim_ends.values())
+            n_frames = frame_end - frame_start
+            logger.info(f"Trim enabled: decoding frames {frame_start}–{frame_end} (union of track spans)")
+
     track_colors = {}
     for tid in render_tids:
         rgba, _ = results.get_color_for_track_id(tid)
@@ -754,6 +774,8 @@ def run_tracklets(
 
         # Crop each track
         for tid in render_tids:
+            if trim and not (trim_starts[tid] <= frame_idx < trim_ends[tid]):
+                continue
             row = pos_lookup.get(tid, {}).get(frame_idx)
             if row is not None:
                 if also_overlay and out_frame is not None:
@@ -823,6 +845,7 @@ def run_render(
     tracklet_interpolate_max_gap=0,
     track_ids=None,
     min_observations=0,
+    trim=False,
     alpha=0.4,
     draw_masks=True,
     draw_boxes=True,
@@ -894,6 +917,7 @@ def run_render(
             interpolate_max_gap=tracklet_interpolate_max_gap,
             track_ids=track_ids,
             min_observations=min_observations,
+            trim=trim,
             debug=debug,
         )
         return
