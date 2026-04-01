@@ -15,6 +15,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install ffmpeg
+        run: sudo apt-get install -y ffmpeg
+
       # Install CPU-only torch first so pip doesn't pull in a CUDA wheel.
       # The project requires torch>=2.5.1; CPU wheels are available for
       # Linux x86_64 via PyTorch's own index.
