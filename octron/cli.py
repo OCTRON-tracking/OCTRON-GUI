@@ -263,10 +263,6 @@ def render(
     ),
     # --- Tracklet options ---
     tracklets: bool = typer.Option(False, "--tracklets", help="Generate one crop video per tracked animal."),
-    tracklet_overlay: bool = typer.Option(
-        False, "--tracklet-overlay",
-        help="Render masks and/or boxes onto the tracklet crops (useful for inspection). Nothing drawn by default.",
-    ),
     tracklet_size: Optional[str] = typer.Option("auto", "--tracklet-size", help="Side length in pixels of each tracklet crop, or 'auto' to use the largest bounding box + 20px padding."),
     tracklet_mask_centroids: bool = typer.Option(
         False, "--tracklet-mask-centroids",
@@ -342,7 +338,7 @@ def render(
         draw_boxes=resolved_boxes,
         draw_labels=resolved_labels,
         tracklets=tracklets,
-        also_overlay=tracklet_overlay,
+        also_overlay=resolved_masks or resolved_boxes,
         tracklet_size=parsed_tracklet_size,
         tracklet_mask_centroids=tracklet_mask_centroids,
         tracklet_smooth_cutoff_hz=tracklet_smooth_cutoff_hz,

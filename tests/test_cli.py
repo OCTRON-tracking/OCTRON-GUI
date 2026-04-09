@@ -151,7 +151,6 @@ def test_render_help():
     assert '--labels' in result.output
     assert '--no-labels' in result.output
     assert '--tracklets' in result.output
-    assert '--tracklet-overlay' in result.output
     assert '--tracklet-size' in result.output
     assert '--tracklet-mask-centroids' in result.output
     assert '--tracklet-smooth-cutoff' in result.output
