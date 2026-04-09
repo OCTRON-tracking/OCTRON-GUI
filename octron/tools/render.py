@@ -595,7 +595,7 @@ def run_tracklets(
     if mask_centroids and results.has_masks:
         logger.info("Computing mask centre-of-mass centroids...")
         mask_cent = compute_mask_centroids(
-            results.zarr_root, results.track_ids, frame_start, frame_end,
+            results.zarr_root, render_tids, frame_start, frame_end,
         )
         replaced = 0
         for tid, frame_centroids in mask_cent.items():
