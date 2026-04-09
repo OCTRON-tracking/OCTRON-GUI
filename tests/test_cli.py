@@ -33,7 +33,7 @@ from typer.testing import CliRunner
 from octron.cli import app
 
 # Wide terminal so Rich/typer never truncates long flag names in help output
-runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1"}, mix_stderr=False)
+runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1"})
 
 
 # ---------------------------------------------------------------------------
