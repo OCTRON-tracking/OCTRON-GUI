@@ -15,7 +15,7 @@ train       --help: --model, --mode, --device, --epochs, --imagesz,
 predict     --help: --model, --tracker, --tracker-config, --device,
                     --conf-thresh, --iou-thresh, --skip-frames,
                     --one-object-per-label, --opening-radius, --overwrite,
-                    --detailed, --buffer-size, --output-dir, --local-cache-dir
+                    --detailed, --buffer-size, --output-dir, --local-cache
 render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --masks/--no-masks, --boxes/--no-boxes,
                     --labels/--no-labels, --tracklets, --tracklet-overlay,
@@ -33,7 +33,7 @@ from typer.testing import CliRunner
 from octron.cli import app
 
 # Wide terminal so Rich/typer never truncates long flag names in help output
-runner = CliRunner(env={"COLUMNS": "200"})
+runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1"}, mix_stderr=False)
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ def test_predict_help():
     assert '--detailed' in result.output
     assert '--buffer-size' in result.output
     assert '--output-dir' in result.output
-    assert '--local-cache-dir' in result.output
+    assert '--local-cache' in result.output
 
 
 # ---------------------------------------------------------------------------
