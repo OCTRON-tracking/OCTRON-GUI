@@ -277,6 +277,10 @@ def render(
     tracklet_interpolate: int = typer.Option(
         0, "--tracklet-interpolate", help="Fill gaps between track segments with cubic spline interpolation. Value is the maximum gap in frames to bridge. 0 = off.",
     ),
+    tracklet_segment_only: bool = typer.Option(
+        False, "--tracklet-segment-only",
+        help="Black out all pixels outside each animal's segmentation mask (requires mask data).",
+    ),
     # --- Filtering ---
     track_ids: Optional[str] = typer.Option(
         None, "--track-ids",
@@ -344,6 +348,7 @@ def render(
         tracklet_smooth_cutoff_hz=tracklet_smooth_cutoff_hz,
         tracklet_smooth_order=tracklet_smooth_order,
         tracklet_interpolate_max_gap=tracklet_interpolate,
+        tracklet_segment_only=tracklet_segment_only,
         track_ids=parsed_track_ids,
         min_observations=min_observations,
         trim=trim,

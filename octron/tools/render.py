@@ -437,6 +437,7 @@ def run_tracklets(
     alpha=0.4,
     draw_masks=False,
     draw_boxes=False,
+    segment_only=False,
     start=None,
     end=None,
     min_track_frames=0,
@@ -485,6 +486,9 @@ def run_tracklets(
     draw_boxes : bool
         Draw bounding boxes when ``also_overlay=True``.  Default False.
         Labels are never drawn on tracklet crops.
+    segment_only : bool
+        If True, black out all pixels outside each animal's segmentation mask.
+        Requires mask data; pixels with no mask are set to zero.  Default False.
     start : int, optional
         First frame index (inclusive).  Default: beginning of video.
     end : int, optional
@@ -651,7 +655,8 @@ def run_tracklets(
     # Detect inference resolution and letterbox bounds for overlay masks.
     _mask_inf_h = _mask_inf_w = None
     _lb_py = _lb_px = _lb_ch = _lb_cw = 0
-    if also_overlay and draw_masks and results.has_masks:
+    _need_masks = (also_overlay and draw_masks or segment_only) and results.has_masks
+    if _need_masks:
         for tid in render_tids:
             arr_key = f"{tid}_masks"
             if arr_key in results.zarr_root:
@@ -666,9 +671,9 @@ def run_tracklets(
     _batch_start = -1
     _batch_end = -1
 
-    # Start background zarr prefetch thread when overlay masks are needed.
+    # Start background zarr prefetch thread when masks are needed.
     _mask_q = None
-    if also_overlay and draw_masks and results.has_masks:
+    if _need_masks:
         logger.info("Starting mask prefetch thread...")
         _mask_q = _start_mask_prefetch(
             results.zarr_root, render_tids,
@@ -786,6 +791,19 @@ def run_tracklets(
                     cx = float(row["pos_x"])
                     cy = float(row["pos_y"])
                     crop = cv2.getRectSubPix(orig_frame, (size, size), (cx, cy))
+
+                if segment_only and _batch_masks and tid in _batch_masks:
+                    batch = _batch_masks[tid]
+                    if j < batch.shape[0]:
+                        raw_mask = batch[j]  # (inf_h, inf_w) uint8 0/1
+                        mask_content = raw_mask[_lb_py:_lb_py + _lb_ch, _lb_px:_lb_px + _lb_cw]
+                        # Resize mask to match the source frame resolution used for cropping
+                        if also_overlay and out_frame is not None:
+                            mask_src = cv2.resize(mask_content, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+                        else:
+                            mask_src = cv2.resize(mask_content, (width, height), interpolation=cv2.INTER_NEAREST)
+                        mask_crop = cv2.getRectSubPix(mask_src.astype(np.float32), (size, size), (cx, cy))
+                        crop[mask_crop < 0.5] = 0
             else:
                 crop = np.zeros((size, size, 3), dtype=np.uint8)
             writers[tid].write(crop)
@@ -843,6 +861,7 @@ def run_render(
     tracklet_smooth_order=4,
     tracklet_min_frames=0,
     tracklet_interpolate_max_gap=0,
+    tracklet_segment_only=False,
     track_ids=None,
     min_observations=0,
     trim=False,
@@ -911,6 +930,7 @@ def run_render(
             alpha=alpha,
             draw_masks=draw_masks,
             draw_boxes=draw_boxes,
+            segment_only=tracklet_segment_only,
             start=start,
             end=end,
             min_track_frames=tracklet_min_frames,
