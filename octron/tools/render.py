@@ -438,6 +438,7 @@ def run_tracklets(
     draw_masks=False,
     draw_boxes=False,
     segment_only=False,
+    segment_keep_n=0,
     start=None,
     end=None,
     min_track_frames=0,
@@ -489,6 +490,10 @@ def run_tracklets(
     segment_only : bool
         If True, black out all pixels outside each animal's segmentation mask.
         Requires mask data; pixels with no mask are set to zero.  Default False.
+    segment_keep_n : int
+        When ``segment_only=True``, keep only the N largest connected components
+        of the mask (by pixel area in video space).  0 = keep all components.
+        Default 0.
     start : int, optional
         First frame index (inclusive).  Default: beginning of video.
     end : int, optional
@@ -792,18 +797,32 @@ def run_tracklets(
                     cy = float(row["pos_y"])
                     crop = cv2.getRectSubPix(orig_frame, (size, size), (cx, cy))
 
-                if segment_only and _batch_masks and tid in _batch_masks:
-                    batch = _batch_masks[tid]
-                    if j < batch.shape[0]:
-                        raw_mask = batch[j]  # (inf_h, inf_w) uint8 0/1
-                        mask_content = raw_mask[_lb_py:_lb_py + _lb_ch, _lb_px:_lb_px + _lb_cw]
-                        # Resize mask to match the source frame resolution used for cropping
-                        if also_overlay and out_frame is not None:
-                            mask_src = cv2.resize(mask_content, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
-                        else:
-                            mask_src = cv2.resize(mask_content, (width, height), interpolation=cv2.INTER_NEAREST)
-                        mask_crop = cv2.getRectSubPix(mask_src.astype(np.float32), (size, size), (cx, cy))
-                        crop[mask_crop < 0.5] = 0
+                if segment_only:
+                    masked = False
+                    if _batch_masks and tid in _batch_masks:
+                        batch = _batch_masks[tid]
+                        if j < batch.shape[0]:
+                            # zarr fill_value=-1 (int8); use == 1 to get clean binary uint8
+                            raw_mask = (batch[j] == 1).astype(np.uint8)
+                            mask_content = raw_mask[_lb_py:_lb_py + _lb_ch, _lb_px:_lb_px + _lb_cw]
+                            # Resize mask to match the source frame resolution used for cropping
+                            if also_overlay and out_frame is not None:
+                                mask_src = cv2.resize(mask_content, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+                            else:
+                                mask_src = cv2.resize(mask_content, (width, height), interpolation=cv2.INTER_NEAREST)
+                            # Optionally keep only the N largest connected components
+                            if segment_keep_n > 0 and mask_src.any():
+                                n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask_src, connectivity=8)
+                                if n_labels > 1:  # label 0 is background
+                                    areas = [(stats[i, cv2.CC_STAT_AREA], i) for i in range(1, n_labels)]
+                                    areas.sort(reverse=True)
+                                    keep = {i for _, i in areas[:segment_keep_n]}
+                                    mask_src = np.where(np.isin(labels, list(keep)), mask_src, 0).astype(np.uint8)
+                            mask_crop = cv2.getRectSubPix(mask_src.astype(np.float32), (size, size), (cx, cy))
+                            crop[mask_crop < 0.5] = 0
+                            masked = True
+                    if not masked:
+                        crop[:] = 0
             else:
                 crop = np.zeros((size, size, 3), dtype=np.uint8)
             writers[tid].write(crop)
@@ -862,6 +881,7 @@ def run_render(
     tracklet_min_frames=0,
     tracklet_interpolate_max_gap=0,
     tracklet_segment_only=False,
+    tracklet_segment_keep_n=0,
     track_ids=None,
     min_observations=0,
     trim=False,
@@ -931,6 +951,7 @@ def run_render(
             draw_masks=draw_masks,
             draw_boxes=draw_boxes,
             segment_only=tracklet_segment_only,
+            segment_keep_n=tracklet_segment_keep_n,
             start=start,
             end=end,
             min_track_frames=tracklet_min_frames,

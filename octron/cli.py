@@ -281,6 +281,10 @@ def render(
         False, "--tracklet-segment-only",
         help="Black out all pixels outside each animal's segmentation mask (requires mask data).",
     ),
+    tracklet_segment_keep: int = typer.Option(
+        0, "--tracklet-segment-keep",
+        help="When --tracklet-segment-only is set, keep only the N largest connected components of the mask. 0 = keep all components (default).",
+    ),
     # --- Filtering ---
     track_ids: Optional[str] = typer.Option(
         None, "--track-ids",
@@ -349,6 +353,7 @@ def render(
         tracklet_smooth_order=tracklet_smooth_order,
         tracklet_interpolate_max_gap=tracklet_interpolate,
         tracklet_segment_only=tracklet_segment_only,
+        tracklet_segment_keep_n=tracklet_segment_keep,
         track_ids=parsed_track_ids,
         min_observations=min_observations,
         trim=trim,
