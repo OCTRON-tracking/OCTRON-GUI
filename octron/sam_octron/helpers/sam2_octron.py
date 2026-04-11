@@ -208,6 +208,46 @@ class SAM2_octron(SAM2VideoPredictor):
         return compact_current_out, pred_masks_gpu
 
 
+    def _run_memory_encoder(
+        self,
+        inference_state,
+        frame_idx,
+        batch_size,
+        high_res_masks,
+        object_score_logits,
+        is_mask_from_pts,
+    ):
+        """
+        Override parent to use float32 on MPS instead of bfloat16.
+        
+        The parent class unconditionally casts maskmem_features to bfloat16,
+        but MPS requires all operands in matrix multiplications to share the
+        same dtype.  Since _run_single_frame_inference already stores memory
+        as float32 on MPS, the preflight memory encoder must do the same;
+        otherwise _prepare_memory_conditioned_features will concatenate
+        bfloat16 (from preflight) with float32 (from propagation) tensors,
+        crashing in MPSNDArrayMatrixMultiplication.
+        """
+        _, _, current_vision_feats, _, feat_sizes = self._get_image_feature(
+            inference_state, frame_idx, batch_size
+        )
+        maskmem_features, maskmem_pos_enc = self._encode_new_memory(
+            current_vision_feats=current_vision_feats,
+            feat_sizes=feat_sizes,
+            pred_masks_high_res=high_res_masks,
+            object_score_logits=object_score_logits,
+            is_mask_from_pts=is_mask_from_pts,
+        )
+
+        storage_device = inference_state["storage_device"]
+        mem_dtype = torch.float32 if storage_device.type == "mps" else torch.bfloat16
+        maskmem_features = maskmem_features.to(mem_dtype)
+        maskmem_features = maskmem_features.to(storage_device, non_blocking=True)
+        maskmem_pos_enc = self._get_maskmem_pos_enc(
+            inference_state, {"maskmem_pos_enc": maskmem_pos_enc}
+        )
+        return maskmem_features, maskmem_pos_enc
+
     @torch.inference_mode()
     def propagate_in_video(
         self,
