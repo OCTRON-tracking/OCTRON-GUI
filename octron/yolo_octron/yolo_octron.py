@@ -2375,6 +2375,15 @@ class YOLO_octron:
                 for track_id in all_ids:
                     _flush_mask_buffer(track_id)
                 
+                # Build collapsed mask arrays (one per class, pixel value = track_id)
+                self._build_collapsed_masks(
+                    prediction_store,
+                    track_id_label_dict,
+                    mask_stores,
+                    model.names,
+                    video_dict,
+                )
+                
             # Save each tracking DataFrame with a label column added
             for track_id, tr_df in tracking_df_dict.items():
                 label = tr_df.attrs["label"]
@@ -2574,10 +2583,108 @@ class YOLO_octron:
         
         return df
 
+    def _build_collapsed_masks(
+            self,
+            prediction_store,
+            track_id_label_dict,
+            mask_stores,
+            model_names,
+            video_dict,
+    ):
+        """
+        Build collapsed mask arrays in the prediction zarr store.
+        For each model class, all per-track binary masks are merged into a single
+        array where the pixel value equals the track_id (0 = background).
+        
+        Parameters
+        ----------
+        prediction_store : zarr.storage.LocalStore
+            The zarr store containing per-track mask arrays.
+        track_id_label_dict : dict
+            Mapping of track_id -> label name.
+        mask_stores : dict
+            Mapping of track_id -> zarr.Array (the per-track mask arrays).
+        model_names : dict
+            Model class names mapping {class_id: label_name}.
+        video_dict : dict
+            Video metadata dict with 'num_frames', 'height', 'width'.
+        """
+        from collections import defaultdict
+        
+        if not track_id_label_dict or not mask_stores:
+            return
+        
+        # Group track_ids by label
+        label_to_tids = defaultdict(list)
+        for tid, label in track_id_label_dict.items():
+            if tid in mask_stores:
+                label_to_tids[label].append(tid)
+        
+        # Reverse-map label -> class_id from model_names {class_id: label_name}
+        label_to_class_id = {v: k for k, v in model_names.items()}
+        
+        num_frames = video_dict['num_frames']
+        height = video_dict['height']
+        width = video_dict['width']
+        
+        for label, track_ids in label_to_tids.items():
+            class_id = label_to_class_id.get(label)
+            if class_id is None:
+                logger.warning(f"Could not find class_id for label '{label}', skipping collapsed mask.")
+                continue
+            
+            # Read chunk size from the first source mask
+            first_source = mask_stores[track_ids[0]]
+            source_chunk_t = first_source.chunks[0]
+            
+            array_name = f'collapsed_{class_id}_masks'
+            collapsed = zarr.create_array(
+                store=prediction_store,
+                name=array_name,
+                shape=(num_frames, height, width),
+                chunks=(source_chunk_t, height, width),
+                fill_value=0,
+                dtype='uint16',
+                overwrite=True,
+            )
+            collapsed.attrs['track_ids'] = [int(t) for t in track_ids]
+            collapsed.attrs['label'] = label
+            collapsed.attrs['class_id'] = int(class_id)
+            
+            # Process chunk-aligned slabs
+            overlap_warned = False
+            for start in range(0, num_frames, source_chunk_t):
+                end = min(start + source_chunk_t, num_frames)
+                slab = np.zeros((end - start, height, width), dtype=np.uint16)
+                
+                for tid in track_ids:
+                    src = np.asarray(mask_stores[tid][start:end])
+                    tid_mask = (src > 0).astype(np.uint16) * tid
+                    # Check for overlaps before merging
+                    if not overlap_warned:
+                        overlap = (slab > 0) & (tid_mask > 0)
+                        if np.any(overlap):
+                            logger.warning(
+                                f"Overlapping masks detected for class '{label}' "
+                                f"(class_id={class_id}). Collapsed array uses last-writer-wins "
+                                f"(np.maximum) — some mask information may be lost."
+                            )
+                            overlap_warned = True
+                    np.maximum(slab, tid_mask, out=slab)
+                
+                collapsed[start:end] = slab
+            
+            logger.info(
+                f"Built collapsed mask '{array_name}' for class '{label}' "
+                f"({len(track_ids)} tracks: {track_ids})"
+            )
+
     def load_predictions(self, 
                          save_dir,
                          sigma_tracking_pos=2,
                          open_viewer=True,
+                         collapse=False,
+                         collapse_threshold=10,
                          ):
         """
         Load the predictions in a OCTRON (YOLO) output directory 
@@ -2592,6 +2699,14 @@ class YOLO_octron:
             CURRENTLY FIXED TO 2
         open_viewer : bool
             Whether to open the napari viewer or not
+        collapse : bool
+            If True, merge all tracks of the same class into single mask and
+            track layers. This dramatically reduces the number of napari layers
+            and improves viewer performance for many tracked objects.
+        collapse_threshold : int or None
+            When set and the total number of tracked objects exceeds this
+            threshold, collapse mode is activated automatically even if
+            ``collapse`` is False.
 
 
         Yields
@@ -2612,6 +2727,9 @@ class YOLO_octron:
             
             
         """
+        import pandas as pd
+        from collections import defaultdict
+        
         yolo_results = YOLO_results(save_dir)
         track_id_label = yolo_results.track_id_label
         assert track_id_label is not None, "No track ID - label mapping found in the results"
@@ -2653,29 +2771,83 @@ class YOLO_octron:
             masks = mask_data[track_id]['data'] if track_id in mask_data else None
             results_per_track.append((track_id, label, color, napari_colormap, tracking_df, features_df, masks))
 
+        # Determine whether to use collapsed layers
+        do_collapse = collapse or (
+            collapse_threshold is not None and len(results_per_track) > collapse_threshold
+        )
+        if do_collapse:
+            logger.info(
+                f"Collapse mode active ({len(results_per_track)} tracks). "
+                f"Grouping layers by class."
+            )
+
         if open_viewer:
-            # Add mask layers first (bottom)
-            for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
-                if masks is not None:
-                    viewer.add_labels(
-                        masks,
-                        name=f'{label} - MASKS - id {track_id}',
-                        opacity=0.5,
+            if do_collapse:
+                # ── Collapsed mode: one mask layer + one tracks layer per class ──
+                # Group results by label
+                grouped = defaultdict(list)
+                for item in results_per_track:
+                    grouped[item[1]].append(item)  # item[1] = label
+                
+                # Collapsed mask layers (bottom)
+                if has_masks:
+                    collapsed_mask_data = yolo_results.get_collapsed_mask_data()
+                    for class_id, cdata in collapsed_mask_data.items():
+                        cmap = yolo_results.get_collapsed_colormap(cdata['track_ids'])
+                        viewer.add_labels(
+                            cdata['data'],
+                            name=f"{cdata['label']} - MASKS (collapsed)",
+                            opacity=0.5,
+                            blending='translucent',
+                            colormap=cmap,
+                            visible=True,
+                        )
+                
+                # Collapsed tracks layers (on top)
+                for label, items in grouped.items():
+                    all_tracks = np.vstack([it[4].values for it in items])
+                    all_features = pd.concat(
+                        [it[5] for it in items], ignore_index=True
+                    ).to_dict(orient='list')
+                    layer_name = f'{label} - tracks (collapsed)'
+                    viewer.add_tracks(
+                        all_tracks,
+                        features=all_features,
                         blending='translucent',
-                        colormap=napari_colormap,
-                        visible=True,
+                        name=layer_name,
+                        colormap='hsv',
                     )
-            # Add track layers second (on top)
-            for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
-                viewer.add_tracks(tracking_df.values,
-                                  features=features_df.to_dict(orient='list'),
-                                  blending='translucent',
-                                  name=f'{label} - id {track_id}',
-                                  colormap='hsv',
-                            )
-                viewer.layers[f'{label} - id {track_id}'].tail_width = 3
-                viewer.layers[f'{label} - id {track_id}'].tail_length = min(yolo_results.num_frames, 250)
-                viewer.layers[f'{label} - id {track_id}'].color_by = 'frame_idx'
+                    viewer.layers[layer_name].tail_width = 3
+                    viewer.layers[layer_name].tail_length = min(
+                        yolo_results.num_frames, 250
+                    )
+                    viewer.layers[layer_name].color_by = 'track_id'
+                
+            else:
+                # ── Per-track mode (original behavior) ──
+                # Add mask layers first (bottom)
+                for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
+                    if masks is not None:
+                        viewer.add_labels(
+                            masks,
+                            name=f'{label} - MASKS - id {track_id}',
+                            opacity=0.5,
+                            blending='translucent',
+                            colormap=napari_colormap,
+                            visible=True,
+                        )
+                # Add track layers second (on top)
+                for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
+                    viewer.add_tracks(tracking_df.values,
+                                      features=features_df.to_dict(orient='list'),
+                                      blending='translucent',
+                                      name=f'{label} - id {track_id}',
+                                      colormap='hsv',
+                                )
+                    viewer.layers[f'{label} - id {track_id}'].tail_width = 3
+                    viewer.layers[f'{label} - id {track_id}'].tail_length = min(yolo_results.num_frames, 250)
+                    viewer.layers[f'{label} - id {track_id}'].color_by = 'frame_idx'
+            
             viewer.dims.set_point(0, 0)
 
         for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:

@@ -788,6 +788,159 @@ class YOLO_results:
 
         return mask_data
     
+    def get_collapsed_mask_data(self):
+        """
+        Get collapsed mask data where all tracks of the same class are merged
+        into a single array with pixel values equal to the track_id.
+        
+        If pre-built collapsed arrays exist in the zarr store (created by
+        predict_batch), they are returned directly. Otherwise, they are built
+        on the fly from individual per-track mask arrays and saved into the
+        zarr store for future reuse.
+        
+        Returns
+        -------
+        collapsed_data : dict
+            {class_id: {'label': str, 'data': zarr.Array, 'track_ids': list of int}}
+        """
+        if self.zarr_root is None:
+            raise ValueError("No zarr root found, cannot extract collapsed mask data.")
+        
+        # Check for existing collapsed arrays
+        collapsed_keys = [
+            k for k in self.zarr_root.array_keys()
+            if k.startswith('collapsed_') and k.endswith('_masks')
+        ]
+        
+        if collapsed_keys:
+            # Pre-built collapsed arrays exist — load them directly
+            collapsed_data = {}
+            for key in collapsed_keys:
+                arr = self.zarr_root[key]
+                class_id = int(arr.attrs.get('class_id', key.split('_')[1]))
+                collapsed_data[class_id] = {
+                    'label': str(arr.attrs.get('label', '')),
+                    'data': arr,
+                    'track_ids': [int(t) for t in arr.attrs.get('track_ids', [])],
+                }
+            if self.verbose:
+                logger.info(
+                    f"Loaded {len(collapsed_data)} pre-built collapsed mask array(s) "
+                    f"from zarr store."
+                )
+            return collapsed_data
+        
+        # No pre-built arrays — build from individual per-track masks
+        if self.verbose:
+            logger.info("No collapsed masks found in zarr; building from per-track masks.")
+        
+        if self.classes is None:
+            raise ValueError(
+                "Model class definitions not available. Cannot group tracks by class."
+            )
+        
+        from collections import defaultdict
+        
+        # Group track_ids by label
+        label_to_tids = defaultdict(list)
+        for tid, label in self.track_id_label.items():
+            mask_key = f"{tid}_masks"
+            if mask_key in self.zarr_root.array_keys():
+                label_to_tids[label].append(tid)
+        
+        # Reverse-map label -> class_id
+        label_to_class_id = {v: k for k, v in self.classes.items()}
+        
+        collapsed_data = {}
+        store = self.zarr_root.store
+        
+        for label, track_ids in label_to_tids.items():
+            class_id = label_to_class_id.get(label)
+            if class_id is None:
+                logger.warning(
+                    f"Could not find class_id for label '{label}', skipping."
+                )
+                continue
+            
+            # Read shape and chunks from first source
+            first_source = self.zarr_root[f"{track_ids[0]}_masks"]
+            num_frames, height, width = first_source.shape
+            source_chunk_t = first_source.chunks[0]
+            
+            array_name = f'collapsed_{class_id}_masks'
+            collapsed = zarr.create_array(
+                store=store,
+                name=array_name,
+                shape=(num_frames, height, width),
+                chunks=(source_chunk_t, height, width),
+                fill_value=0,
+                dtype='uint16',
+                overwrite=True,
+            )
+            collapsed.attrs['track_ids'] = [int(t) for t in track_ids]
+            collapsed.attrs['label'] = label
+            collapsed.attrs['class_id'] = int(class_id)
+            
+            # Process chunk-aligned slabs
+            overlap_warned = False
+            for start in range(0, num_frames, source_chunk_t):
+                end = min(start + source_chunk_t, num_frames)
+                slab = np.zeros((end - start, height, width), dtype=np.uint16)
+                
+                for tid in track_ids:
+                    src = np.asarray(self.zarr_root[f"{tid}_masks"][start:end])
+                    tid_mask = (src > 0).astype(np.uint16) * tid
+                    if not overlap_warned:
+                        overlap = (slab > 0) & (tid_mask > 0)
+                        if np.any(overlap):
+                            logger.warning(
+                                f"Overlapping masks detected for class '{label}' "
+                                f"(class_id={class_id}). Collapsed array uses "
+                                f"np.maximum — some mask information may be lost."
+                            )
+                            overlap_warned = True
+                    np.maximum(slab, tid_mask, out=slab)
+                
+                collapsed[start:end] = slab
+            
+            collapsed_data[class_id] = {
+                'label': label,
+                'data': collapsed,
+                'track_ids': [int(t) for t in track_ids],
+            }
+            if self.verbose:
+                logger.info(
+                    f"Built collapsed mask '{array_name}' for class '{label}' "
+                    f"({len(track_ids)} tracks)"
+                )
+        
+        return collapsed_data
+    
+    def get_collapsed_colormap(self, track_ids):
+        """
+        Build a DirectLabelColormap for a collapsed mask layer where
+        pixel values are track_ids.
+        
+        Parameters
+        ----------
+        track_ids : list of int
+            Track IDs present in the collapsed mask array.
+            
+        Returns
+        -------
+        DirectLabelColormap
+            Colormap mapping each track_id to its color.
+        """
+        color_dict = {None: np.array([0., 0., 0., 0.])}  # unmapped -> transparent
+        for tid in track_ids:
+            color, _ = self.get_color_for_track_id(tid)
+            color_dict[int(tid)] = color
+        
+        return DirectLabelColormap(
+            color_dict=color_dict,
+            use_selection=False,
+        )
+
     def get_masks_for_label(self, label, close_holes=False):
         """
         Get the mask data for a given label.
