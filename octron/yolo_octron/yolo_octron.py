@@ -1110,7 +1110,57 @@ class YOLO_octron:
             args = None
         
         return args
-    
+
+    @staticmethod
+    def _find_train_image_size(data_path, max_samples=500):
+        """
+        Find whether rectangular or square training images are used.
+        This determines the rect parameter and the correct imgsz for YOLO training.
+
+        Samples up to *max_samples* images across all subdirectories so that
+        the decision is robust even when multiple datasets contribute images
+        with different aspect ratios.
+
+        Returns
+        -------
+        height : float
+            Average height of the sampled images.
+        width : float
+            Average width of the sampled images.
+        rect : bool
+            True only if ALL sampled images are landscape (width > height).
+            False otherwise — including mixed or portrait datasets — because
+            of an ultralytics dataloader bug that does not permit rectangular
+            (non-square) batches when height > width.
+            TODO: Re-evaluate this with updates of ultralytics. Current version: 8.3.158
+        """
+        data_path = Path(data_path)
+        assert data_path.exists(), f"Data path {data_path} does not exist."
+        png_files = list(data_path.glob('**/*.png'))
+        if len(png_files) == 0:
+            raise FileNotFoundError(f"No .png files found in {data_path.as_posix()}")
+        logger.debug(f'Found {len(png_files)} png files')
+        samples = random.sample(png_files, min(max_samples, len(png_files)))
+
+        widths, heights = [], []
+        for fpath in samples:
+            # Read width/height directly from PNG IHDR chunk (bytes 16-23)
+            # PIL.Image.open() per file is very slow for large datasets.
+            with open(fpath, 'rb') as f:
+                f.seek(16)
+                w, h = struct.unpack('>II', f.read(8))
+            widths.append(w)
+            heights.append(h)
+
+        avg_h = sum(heights) / len(heights)
+        avg_w = sum(widths) / len(widths)
+
+        # rect=True only when EVERY sampled image is landscape.
+        # Any portrait or square image forces rect=False (ultralytics bug).
+        all_landscape = all(w > h for w, h in zip(widths, heights))
+        rect = all_landscape
+
+        return avg_h, avg_w, rect
 
     def train(self, 
               device='cpu',
@@ -1209,58 +1259,7 @@ class YOLO_octron:
                 'remaining_time': 0,
                 'finish_time': time.time(),
             })
-        
-        def _find_train_image_size(data_path, max_samples=500): 
-            """
-            Helper to find whether rectangular or square training images are used.
-            This determines rect parameter in YOLO training.
-            
-            Samples up to *max_samples* images across all subdirectories so that
-            the decision is robust even when multiple datasets contribute images
-            with different aspect ratios.
-            
-            Returns 
-            -------
-            height : float
-                Average height of the sampled images.
-            width : float
-                Average width of the sampled images.
-            rect : bool
-                True only if ALL sampled images are landscape (width > height).
-                False otherwise — including mixed or portrait datasets — because
-                of an ultralytics dataloader bug that does not permit rectangular
-                (non-square) batches when height > width.
-                TODO: Re-evaluate this with updates of ultralytics. Current version: 8.3.158
-            """
-            data_path = Path(data_path)
-            assert data_path.exists(), f"Data path {data_path} does not exist."
-            png_files = list(data_path.glob('**/*.png'))
-            if len(png_files) == 0:
-                raise FileNotFoundError(f"No .png files found in {data_path.as_posix()}")
-            logger.debug(f'Found {len(png_files)} png files')
-            samples = random.sample(png_files, min(max_samples, len(png_files)))
-
-            widths, heights = [], []
-            for fpath in samples:
-                # Read width/height directly from PNG IHDR chunk (bytes 16-23)
-                # I had it on PIL.Image.open() per file first, but this is very slow ... 
-                with open(fpath, 'rb') as f:
-                    f.seek(16)
-                    w, h = struct.unpack('>II', f.read(8))
-                widths.append(w)
-                heights.append(h)
-            
-            avg_h = sum(heights) / len(heights)
-            avg_w = sum(widths) / len(widths)
-            
-            # rect=True only when EVERY sampled image is landscape.
-            # Any portrait or square image forces rect=False (ultralytics bug).
-            all_landscape = all(w > h for w, h in zip(widths, heights))
-            rect = all_landscape
-            
-            return avg_h, avg_w, rect
-
-        # Remove any stale ultralytics disk-cache .npy files from the training
+        # Remove any stale ultralytics disk-cache .npy files
         # data directory before starting.  ultralytics cache='disk' writes
         # <stem>.npy files alongside source images, and BaseDataset.load_image
         # will silently load any matching .npy it finds — even when cache='disk'
@@ -1288,7 +1287,7 @@ class YOLO_octron:
         if device == 'mps':
             logger.warning("MPS is not yet fully supported in PyTorch. Use at your own risk.")
         
-        assert imagesz % 32 == 0, 'YOLO image size must be a multiple of 32'
+        assert imagesz > 0 and imagesz % 32 == 0, 'YOLO image size must be a positive multiple of 32'
         # Start training in a separate thread
         training_complete = threading.Event()
         training_error = None
@@ -1298,7 +1297,7 @@ class YOLO_octron:
             # overlap_mask - https://github.com/ultralytics/ultralytics/issues/3213#issuecomment-2799841153
             nonlocal training_error
             try:
-                img_height, img_width, rect = _find_train_image_size(self.data_path)
+                img_height, img_width, rect = self._find_train_image_size(self.data_path)
                 # Start training
                 logger.info(f"Starting training for {epochs} epochs...")
                 logger.info(f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)")
@@ -1313,6 +1312,7 @@ class YOLO_octron:
                     device=device,
                     optimizer='auto',
                     rect=rect, # if square training images then rect=False 
+                    amp=True,
                     cos_lr=True,
                     fraction=1.0,
                     epochs=epochs,
