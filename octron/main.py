@@ -152,7 +152,7 @@ class octron_widget(QWidget):
                                                  models_yaml_path=sam2models_yaml_path,
                                                  force_download=False,
                                                  )
-        # Model yaml for SAM3
+        # Model yaml for SAM3.1
         sam3models_yaml_path = self.base_path / 'sam_octron/sam3_models.yaml'
         self.sam3models_dict = check_sam3_models(models_yaml_path=sam3models_yaml_path,
                                                  force_download=False,
@@ -186,9 +186,9 @@ class octron_widget(QWidget):
                 idx = self.sam_model_list.count() - 1
                 self.sam_model_list.setItemData(idx, model['tooltip'], Qt.ToolTipRole)
         
-        # Populate SAM3 entries in the same dropdown
+        # Populate SAM3.1 entries in the same dropdown
         for model_id, model in self.sam3models_dict.items():
-            logger.info(f"Adding SAM3 model {model_id}")
+            logger.info(f"Adding SAM3.1 model {model_id}")
             self.sam_model_list.addItem(model['name'])
             if 'tooltip' in model:
                 idx = self.sam_model_list.count() - 1
@@ -275,7 +275,7 @@ class octron_widget(QWidget):
         # Disable layer annotation until SAM2 model is loaded
         self.annotate_layer_create_groupbox.setEnabled(False)
         
-        # Disable SAM3 detection threshold until a SAM3 semantic model is loaded
+        # Disable SAM3.1 detection threshold until a SAM3.1 semantic model is loaded
         self.sam3detect_thresh.setEnabled(False)
         self.threshold_label.setEnabled(False)
         
@@ -361,7 +361,7 @@ class octron_widget(QWidget):
 
         # Determine image size expected by the model being loaded
         is_sam3 = any(m['name'] == model_name for m in self.sam3models_dict.values())
-        new_image_size = 1008 if is_sam3 else 1024
+        new_image_size = 1008 if is_sam3 else 1024  # SAM3/3.1 use 1008, SAM2 uses 1024
 
         try:
             store = zarr.storage.LocalStore(video_zarr_path, read_only=True)
@@ -378,13 +378,13 @@ class octron_widget(QWidget):
         if existing_image_size == new_image_size:
             return True
 
-        existing_family = "SAM2" if existing_image_size == 1024 else "SAM3"
-        new_family = "SAM3" if is_sam3 else "SAM2"
+        existing_family = "SAM2" if existing_image_size == 1024 else "SAM3.1"
+        new_family = "SAM3.1" if is_sam3 else "SAM2"
         show_error(
             f"Model incompatibility: existing annotations were created with "
             f"{existing_family} ({existing_image_size}x{existing_image_size}). "
             f"Cannot load {new_family} model ({new_image_size}x{new_image_size}). "
-            f"SAM2 and SAM3 use different image resolutions and are not interchangeable."
+            f"SAM2 and SAM3.1 use different image resolutions and are not interchangeable."
         )
         return False
 
@@ -404,7 +404,7 @@ class octron_widget(QWidget):
         if not self._check_model_data_compatibility(model_name):
             return
 
-        # Check SAM3 first
+        # Check SAM3.1 first
         for model_id, model in self.sam3models_dict.items():
             if model['name'] == model_name:
                 self.load_sam3model(model_name=model_name)
@@ -455,12 +455,12 @@ class octron_widget(QWidget):
 
     def load_sam3model(self, model_name=''):
         """
-        Load the selected SAM3 model (Mode A or Mode B) and enable prediction controls.
+        Load the selected SAM3.1 model (Mode A or Mode B) and enable prediction controls.
         
         Parameters
         ----------
         model_name : str
-            The name of the SAM3 model to load.
+            The name of the SAM3.1 model to load.
         """
         if not model_name:
             index = self.sam_model_list.currentIndex()
@@ -473,9 +473,9 @@ class octron_widget(QWidget):
             if model['name'] == model_name:
                 model_found = True
                 break
-        assert model_found, f"Model '{model_name}' not found in SAM3 models dictionary."
+        assert model_found, f"Model '{model_name}' not found in SAM3.1 models dictionary."
         
-        logger.info(f"Loading SAM3 model {model_id}")
+        logger.info(f"Loading SAM3.1 model {model_id}")
         self._cleanup_predictor()
         model = self.sam3models_dict[model_id]
         checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
@@ -485,27 +485,27 @@ class octron_widget(QWidget):
             semantic=semantic,
         )
         self.predictor.is_initialized = False
-        show_info(f"SAM3 model {model_name} loaded on {self.device}")
-        # SAM3 semantic (Mode B) is much more expensive per frame due to
+        show_info(f"SAM3.1 model {model_name} loaded on {self.device}")
+        # SAM3.1 semantic (Mode B) is much more expensive per frame due to
         # the large number of tracked objects, so use a smaller batch.
         self.chunk_size = 6 if semantic else 15
         self._on_model_loaded(model_name)
         
-        # Disable "Points" option for SAM3 semantic+detector models
+        # Disable "Points" option for SAM3.1 semantic+detector models
         if semantic:
             points_index = 2  # "Points" is at index 2
             self.layer_type_combobox.model().item(points_index).setEnabled(False)
-            # Enable detection threshold input for SAM3 semantic mode
+            # Enable detection threshold input for SAM3.1 semantic mode
             self.sam3detect_thresh.setEnabled(True)
             self.threshold_label.setEnabled(True)
-            # Enable the feed-input button for SAM3 semantic mode
+            # Enable the feed-input button for SAM3.1 semantic mode
             self.feed_input_to_predictor_btn.setEnabled(True)
             self.feed_input_to_predictor_btn.setText('▷ Run')
-            # Inform the user about the SAM3 semantic workflow
+            # Inform the user about the SAM3.1 semantic workflow
             QMessageBox.information(
                 self,
-                'SAM3 Multi — Workflow',
-                'SAM3 Multi is a heavy model that accepts multiple box prompts '
+                'SAM3.1 Multi — Workflow',
+                'SAM3.1 Multi is a heavy model that accepts multiple box prompts '
                 'at once.\n\n'
                 'Workflow:\n'
                 '1. Draw one or more rectangles on the canvas.\n'
@@ -515,7 +515,7 @@ class octron_widget(QWidget):
 
     def _on_model_loaded(self, model_name):
         """
-        Common post-load setup shared by SAM2 and SAM3.
+        Common post-load setup shared by SAM2 and SAM3.1.
         Disables the dropdown, enables prediction controls, starts zarr prefetcher.
         """
         self.loaded_model_name = model_name
@@ -595,7 +595,7 @@ class octron_widget(QWidget):
         """
         self.predictor.reset_state()
         
-        # Reset detector text embeddings if using SAM3 semantic mode
+        # Reset detector text embeddings if using SAM3.1 semantic mode
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
             if hasattr(self.predictor, 'detector'):
@@ -617,7 +617,7 @@ class octron_widget(QWidget):
                 entry.prediction_layer.data[current_frame] = 0
                 entry.prediction_layer.refresh()
             
-            # Clear accumulated semantic box prompts and masks if using SAM3 Mode B
+            # Clear accumulated semantic box prompts and masks if using SAM3.1 Mode B
             if hasattr(entry, '_semantic_box_prompts'):
                 entry._semantic_box_prompts.pop(current_frame, None)
             if hasattr(entry, '_semantic_accumulated_masks'):
@@ -767,7 +767,7 @@ class octron_widget(QWidget):
         Thread worker for predicting the next batch of images
         """
         
-        # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
+        # Finalize any accumulated semantic masks from SAM3.1 Mode B before propagation
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
         if isinstance(self.predictor, SAM3_semantic_octron):
             # Only rebuild the mapping when there are NEW accumulated masks to
@@ -1349,7 +1349,7 @@ class octron_widget(QWidget):
                 self.threshold_label.setEnabled(False)
                 self.feed_input_to_predictor_btn.setEnabled(False)
                 self.feed_input_to_predictor_btn.setText('')
-                # Re-enable Points option (may have been disabled by SAM3 semantic model)
+                # Re-enable Points option (may have been disabled by SAM3.1 semantic model)
                 self.layer_type_combobox.model().item(2).setEnabled(True)
                 # Object organizer
                 self.object_organizer = ObjectOrganizer()

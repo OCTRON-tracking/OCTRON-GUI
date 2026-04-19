@@ -1,17 +1,17 @@
-# Code for checking the availability of the SAM3 model checkpoint and config
+# Code for checking the availability of the SAM3.1 model checkpoint and config
 import os
 from pathlib import Path
 import yaml
 from loguru import logger
 
 
-SAM3_HF_REPO = "facebook/sam3"
-SAM3_FILES = ["sam3.pt", "config.json"]
+SAM3_HF_REPO = "facebook/sam3.1"
+SAM3_FILES = ["sam3.1_multiplex.pt", "config.json"]
 
 
 def download_sam3_file(filename, local_dir, overwrite=False):
     """
-    Download a single file from the SAM3 HuggingFace repository.
+    Download a single file from the SAM3.1 HuggingFace repository.
     
     Uses huggingface_hub to handle authentication (for gated models)
     and caching. The user must have run `huggingface-cli login` or set
@@ -20,7 +20,7 @@ def download_sam3_file(filename, local_dir, overwrite=False):
     Parameters
     ----------
     filename : str
-        Name of the file to download (e.g. "sam3.pt", "config.json").
+        Name of the file to download (e.g. "sam3.1_multiplex.pt", "config.json").
     local_dir : str or Path
         Local directory to download into.
     overwrite : bool
@@ -53,7 +53,7 @@ def download_sam3_file(filename, local_dir, overwrite=False):
 
 def check_sam3_models(models_yaml_path, force_download=False):
     """
-    Load SAM3 model definitions from a YAML file and ensure the
+    Load SAM3.1 model definitions from a YAML file and ensure the
     checkpoint files are available locally (downloading from
     HuggingFace if missing).
     
@@ -97,16 +97,16 @@ def check_sam3_models(models_yaml_path, force_download=False):
                 overwrite=force_download,
             )
     except Exception as e:
-        logger.warning(f"⚠️  Could not download SAM3 files: {e}")
+        logger.warning(f"⚠️  Could not download SAM3.1 files: {e}")
         logger.warning("   Make sure you have accepted the licence at "
-              "https://huggingface.co/facebook/sam3 and run "
+              "https://huggingface.co/facebook/sam3.1 and run "
               "`huggingface-cli login`.")
         return {}
 
     # Verify the checkpoint actually landed
-    ckpt_path = checkpoints_dir / "sam3.pt"
+    ckpt_path = checkpoints_dir / "sam3.1_multiplex.pt"
     if not ckpt_path.exists():
-        logger.warning("⚠️  sam3.pt not found after download attempt.")
+        logger.warning("⚠️  sam3.1_multiplex.pt not found after download attempt.")
         return {}
 
     # Verify checkpoint paths from YAML actually exist
