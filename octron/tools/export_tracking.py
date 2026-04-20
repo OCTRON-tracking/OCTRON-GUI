@@ -171,7 +171,7 @@ _INTENSITY_PROPS = frozenset({
     "intensity_max", "intensity_mean", "intensity_min", "intensity_std",
 })
 
-_PROPS_BATCH = 100  # zarr frames per contiguous read when computing props
+_PROPS_BATCH = 500  # zarr frames per contiguous read when computing props
 
 
 # ---------------------------------------------------------------------------
@@ -534,6 +534,10 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
     if not computable:
         return {}
 
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    n_workers = min(8, os.cpu_count() or 4)
     result = {}
 
     for tid in tqdm(track_ids, desc="Computing region props from masks", unit="track"):
@@ -549,36 +553,52 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
 
         fi_to_pos = {int(fi): i for i, fi in enumerate(frame_idxs)}
         valid_fi = sorted(fi for fi in fi_to_pos if fi < n_zarr_frames)
+        batches = [valid_fi[s : s + _PROPS_BATCH] for s in range(0, len(valid_fi), _PROPS_BATCH)]
 
         # per-frame result as list-of-dicts — handles dynamically-expanded
         # column names (e.g. moments_hu → moments_hu-0 … moments_hu-6)
         rows = [{} for _ in range(n)]
 
-        for b_start in tqdm(range(0, len(valid_fi), _PROPS_BATCH),
-                            desc=f"  track {tid}", unit="batch", leave=False):
-            batch = valid_fi[b_start : b_start + _PROPS_BATCH]
+        def _process_batch(batch):
             fi_lo, fi_hi = batch[0], batch[-1]
-            # One contiguous zarr read per batch — minimises network round-trips
-            raw_batch = np.asarray(zarr_arr[fi_lo : fi_hi + 1])  # (span, H, W)
-
+            t_io = perf_counter()
+            raw_batch = np.asarray(zarr_arr[fi_lo : fi_hi + 1])
+            t_io_done = perf_counter()
+            batch_results = {}
             for fi in batch:
                 raw = raw_batch[fi - fi_lo]
                 binary = (raw == 1).astype(np.uint8)
                 if binary.sum() == 0:
                     continue
-
                 labeled = measure.label(binary, background=0, connectivity=2)
                 props = measure.regionprops_table(labeled, properties=computable)
-
-                pos = fi_to_pos[fi]
+                frame_result = {}
                 for col_key, vals in props.items():
                     base = col_key.split("-")[0]
                     if base not in computable and col_key not in computable:
                         continue
-                    if len(vals) == 1:
-                        rows[pos][col_key] = float(vals[0])
-                    else:
-                        rows[pos][col_key] = str(tuple(float(v) for v in vals))
+                    frame_result[col_key] = (
+                        float(vals[0]) if len(vals) == 1
+                        else str(tuple(float(v) for v in vals))
+                    )
+                if frame_result:
+                    batch_results[fi_to_pos[fi]] = frame_result
+            t_cpu_done = perf_counter()
+            _log.debug(
+                f"batch {fi_lo}-{fi_hi}: "
+                f"zarr_read={t_io_done - t_io:.3f}s  "
+                f"regionprops={t_cpu_done - t_io_done:.3f}s"
+            )
+            return batch_results
+
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            for batch_results in tqdm(
+                executor.map(_process_batch, batches),
+                total=len(batches),
+                desc=f"  track {tid}", unit="batch", leave=False,
+            ):
+                for pos, frame_result in batch_results.items():
+                    rows[pos].update(frame_result)
 
         # Collect all column names that actually appeared (handles expansion)
         all_keys = set()
