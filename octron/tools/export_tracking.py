@@ -596,14 +596,43 @@ def _export_tracking_from_data(
             tmp.unlink(missing_ok=True)
             raise
 
-    desc = "Writing files" if fmt == "parquet" else "Writing CSVs"
     if combined:
-        all_df = pd.concat([df for _, df in dfs.values()]).sort_index()
         out_path = output_dir / f"all_tracks{ext}"
-        tqdm.write(f"Writing combined {fmt} → {out_path.name}")
-        _write(out_path, all_df)
+        tmp = out_path.with_suffix(".tmp")
+        if fmt == "parquet":
+            # Write each track as its own row group — keeps track data contiguous
+            # for better compression and selective reads without full-file scans.
+            import json
+            import pyarrow as _pa
+            import pyarrow.parquet as _pq
+            writer = None
+            try:
+                for tid, (label, df) in tqdm(
+                    dfs.items(), desc="Writing parquet", unit="track", total=len(dfs)
+                ):
+                    table = _pa.Table.from_pandas(df)
+                    if writer is None:
+                        octron_meta = {
+                            **table.schema.metadata,
+                            b"octron_metadata": json.dumps(video_metadata).encode(),
+                        }
+                        writer = _pq.ParquetWriter(tmp, table.schema.with_metadata(octron_meta))
+                    writer.write_table(table)
+                if writer:
+                    writer.close()
+                os.replace(tmp, out_path)
+            except BaseException:
+                if writer:
+                    writer.close()
+                tmp.unlink(missing_ok=True)
+                raise
+        else:
+            all_df = pd.concat([df for _, df in dfs.values()]).sort_index()
+            tqdm.write(f"Writing combined CSV → {out_path.name}")
+            _write(out_path, all_df)
         logger.debug(f"Saved combined tracking data ({len(dfs)} tracks) to {out_path.name}")
     else:
+        desc = "Writing parquet" if fmt == "parquet" else "Writing CSVs"
         for tid, (label, df) in tqdm(dfs.items(), desc=desc, unit="track", total=len(dfs)):
             out_path = output_dir / f"{label}_track_{tid}{ext}"
             _write(out_path, df)
