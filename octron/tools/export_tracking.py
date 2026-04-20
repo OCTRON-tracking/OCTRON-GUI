@@ -35,6 +35,7 @@ compute_mask_centroids : Compute per-frame centre-of-mass from zarr masks.
 """
 
 import ast
+import os
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
@@ -444,16 +445,28 @@ def _export_tracking_from_data(
     if combined:
         all_df = pd.concat([df for _, df in dfs.values()]).sort_index()
         csv_path = output_dir / "all_tracks.csv"
-        with open(csv_path, "w") as f:
-            f.write(header)
-            all_df.to_csv(f, na_rep="NaN", lineterminator="\n")
+        tmp_path = csv_path.with_suffix(".tmp")
+        try:
+            with open(tmp_path, "w") as f:
+                f.write(header)
+                all_df.to_csv(f, na_rep="NaN", lineterminator="\n")
+            os.replace(tmp_path, csv_path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
         logger.debug(f"Saved combined tracking data ({len(dfs)} tracks) to all_tracks.csv")
     else:
         for tid, (label, df) in tqdm(dfs.items(), desc="Writing CSVs", unit="track", total=len(dfs)):
             csv_path = output_dir / f"{label}_track_{tid}.csv"
-            with open(csv_path, "w") as f:
-                f.write(header)
-                df.to_csv(f, na_rep="NaN", lineterminator="\n")
+            tmp_path = csv_path.with_suffix(".tmp")
+            try:
+                with open(tmp_path, "w") as f:
+                    f.write(header)
+                    df.to_csv(f, na_rep="NaN", lineterminator="\n")
+                os.replace(tmp_path, csv_path)
+            except BaseException:
+                tmp_path.unlink(missing_ok=True)
+                raise
             logger.debug(f"Saved tracking data for '{label}' (track ID: {tid}) to {csv_path.name}")
 
 
