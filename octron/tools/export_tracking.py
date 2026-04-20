@@ -404,6 +404,61 @@ def _read_csv_metadata(csv_path, n_header_lines=7):
 
 
 # ---------------------------------------------------------------------------
+# Column ordering
+# ---------------------------------------------------------------------------
+
+_COL_BASE = [
+    "label", "confidence", "pos_x", "pos_y",
+    "bbox_x_min", "bbox_x_max", "bbox_y_min", "bbox_y_max",
+    "bbox_area", "bbox_aspect_ratio", "area",
+]
+_CHANNEL_SUFFIXES = ("_r", "_g", "_b", "_lum")
+
+
+def _ordered_columns(df_columns):
+    """Return df_columns in canonical order.
+
+    Order: base cols → shape props → intensity props (ALL_REGION_PROPERTIES
+    order).  Multi-value expansions (moments_hu-0 … -6) and channel
+    expansions (intensity_mean_r/g/b/lum) are grouped immediately after
+    their base name.  Unknown columns follow at the end.
+    """
+    from octron.yolo_octron.constants import ALL_REGION_PROPERTIES
+
+    known_props = [
+        p for group in ALL_REGION_PROPERTIES.values() for p in group
+        if p != "area"  # area is already in _COL_BASE
+    ]
+
+    cols = set(df_columns)
+    result = []
+    seen = set()
+
+    def _add(c):
+        if c in cols and c not in seen:
+            result.append(c)
+            seen.add(c)
+
+    def _add_with_expansions(prop):
+        _add(prop)
+        for c in sorted(c for c in cols if c.startswith(prop + "-")):
+            _add(c)
+        for suf in _CHANNEL_SUFFIXES:
+            _add(prop + suf)
+
+    for col in _COL_BASE:
+        _add(col)
+
+    for prop in known_props:
+        _add_with_expansions(prop)
+
+    for c in df_columns:  # anything not yet placed
+        _add(c)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Private core function
 # ---------------------------------------------------------------------------
 
@@ -563,7 +618,9 @@ def _export_tracking_from_data(
             ],
             names=["frame_counter", "frame_idx", "track_id"],
         )
-        dfs[tid] = (label, pd.DataFrame(data, index=idx))
+        df = pd.DataFrame(data, index=idx)
+        df = df[_ordered_columns(df.columns)]
+        dfs[tid] = (label, df)
 
     if not dfs:
         logger.warning("No tracking data to export.")
