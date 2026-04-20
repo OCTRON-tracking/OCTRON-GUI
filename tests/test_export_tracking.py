@@ -290,21 +290,21 @@ def test_header_round_trip(tmp_path):
 # ===========================================================================
 
 def test_export_output_has_pos_x_pos_y_area(tmp_path):
-    _export_tracking_from_data(tmp_path, *_minimal_data(), centroid_method="largest",
+    _export_tracking_from_data(tmp_path, *_minimal_data(), method="largest",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     for col in ("pos_x", "pos_y", "area"):
         assert col in df.columns, f"Missing: {col}"
 
 def test_export_no_centroid_or_segments_columns(tmp_path):
-    _export_tracking_from_data(tmp_path, *_minimal_data(), centroid_method="largest",
+    _export_tracking_from_data(tmp_path, *_minimal_data(), method="largest",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     for col in ("centroid_x", "centroid_y", "segments_x", "segments_y", "segments_area"):
         assert col not in df.columns, f"Unexpected column present: {col}"
 
 def test_export_pos_columns_are_numeric(tmp_path):
-    _export_tracking_from_data(tmp_path, *_minimal_data(), centroid_method="largest",
+    _export_tracking_from_data(tmp_path, *_minimal_data(), method="largest",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     assert pd.api.types.is_float_dtype(df["pos_x"])
@@ -312,20 +312,20 @@ def test_export_pos_columns_are_numeric(tmp_path):
     assert pd.api.types.is_float_dtype(df["area"])
 
 def test_export_area_is_numeric(tmp_path):
-    _export_tracking_from_data(tmp_path, *_minimal_data(), centroid_method="weighted",
+    _export_tracking_from_data(tmp_path, *_minimal_data(), method="weighted",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     assert pd.api.types.is_float_dtype(df["area"])
 
 
 # ===========================================================================
-# _export_tracking_from_data — centroid_method="largest"
+# _export_tracking_from_data — method="largest"
 # ===========================================================================
 
 def test_largest_single_segment_pos_equals_input(tmp_path):
     tids, labels, fc, fi, conf, sx, sy, sa, bbox, rp, meta = _minimal_data(n=4)
     _export_tracking_from_data(tmp_path, tids, labels, fc, fi, conf, sx, sy, sa,
-                                bbox, rp, meta, centroid_method="largest",
+                                bbox, rp, meta, method="largest",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     np.testing.assert_allclose(df["pos_x"].values, sx[0].astype(float))
@@ -337,7 +337,7 @@ def test_largest_multi_segment_pos_x_picks_biggest(tmp_path):
     sy[0] = np.array([_tup(( 5.0, 50.0))], dtype=object)
     sa[0] = np.array([_tup((50.0, 300.0))], dtype=object)
     _export_tracking_from_data(tmp_path, tids, labels, fc, fi, conf, sx, sy, sa,
-                                bbox, rp, meta, centroid_method="largest",
+                                bbox, rp, meta, method="largest",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     assert df["pos_x"].iloc[0] == pytest.approx(90.0)
@@ -348,14 +348,14 @@ def test_largest_area_is_area_of_biggest_segment(tmp_path):
     sx[0] = np.array([_tup((0.0, 0.0))], dtype=object)
     sy[0] = np.array([_tup((0.0, 0.0))], dtype=object)
     _export_tracking_from_data(tmp_path, tids, labels, fc, fi, conf, sx, sy, sa,
-                                bbox, rp, meta, centroid_method="largest",
+                                bbox, rp, meta, method="largest",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     assert df["area"].iloc[0] == pytest.approx(300.0)
 
 
 # ===========================================================================
-# _export_tracking_from_data — centroid_method="weighted"
+# _export_tracking_from_data — method="weighted"
 # ===========================================================================
 
 def test_weighted_pos_x_between_segments(tmp_path):
@@ -364,7 +364,7 @@ def test_weighted_pos_x_between_segments(tmp_path):
     sy[0] = np.array([_tup((0.0,   0.0))], dtype=object)
     sa[0] = np.array([_tup((75.0, 25.0))], dtype=object)
     _export_tracking_from_data(tmp_path, tids, labels, fc, fi, conf, sx, sy, sa,
-                                bbox, rp, meta, centroid_method="weighted",
+                                bbox, rp, meta, method="weighted",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     assert 0.0 < df["pos_x"].iloc[0] < 100.0
@@ -375,7 +375,7 @@ def test_weighted_area_is_sum_of_segments(tmp_path):
     sx[0] = np.array([_tup((0.0, 0.0))], dtype=object)
     sy[0] = np.array([_tup((0.0, 0.0))], dtype=object)
     _export_tracking_from_data(tmp_path, tids, labels, fc, fi, conf, sx, sy, sa,
-                                bbox, rp, meta, centroid_method="weighted",
+                                bbox, rp, meta, method="weighted",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     assert df["area"].iloc[0] == pytest.approx(250.0)
@@ -390,7 +390,7 @@ def test_regionprop_tuples_resolved_to_scalar(tmp_path):
     sa[0] = np.array([_tup((200.0, 50.0)), 100.0], dtype=object)
     rp[0] = {"solidity": np.array([_tup((0.9, 0.4)), 0.8], dtype=object)}
     _export_tracking_from_data(tmp_path, tids, labels, fc, fi, conf, sx, sy, sa,
-                                bbox, rp, meta, centroid_method="largest",
+                                bbox, rp, meta, method="largest",
                                 zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     assert "solidity" in df.columns
@@ -410,7 +410,7 @@ def test_orientation_always_uses_largest_regardless_of_method(tmp_path):
         # orientation values differ per segment
         rp[0] = {"orientation": np.array([_tup((1.0, 2.0))], dtype=object)}
         _export_tracking_from_data(out, tids, labels, fc, fi, conf, sx, sy, sa,
-                                    bbox, rp, meta, centroid_method=method,
+                                    bbox, rp, meta, method=method,
                                     zarr_root=None, combined=False)
         df = pd.read_csv(out / "animal_track_0.csv", skiprows=7)
         # second segment is largest (area 300 → index 1 → orientation 2.0)
@@ -424,32 +424,32 @@ def test_orientation_always_uses_largest_regardless_of_method(tmp_path):
 
 def test_export_per_track_files(tmp_path):
     _export_tracking_from_data(tmp_path, *_minimal_data(n_tracks=2),
-                                centroid_method="largest", zarr_root=None, combined=False)
+                                method="largest", zarr_root=None, combined=False)
     assert (tmp_path / "animal_track_0.csv").exists()
     assert (tmp_path / "animal_track_1.csv").exists()
 
 def test_export_combined_file(tmp_path):
     _export_tracking_from_data(tmp_path, *_minimal_data(n_tracks=2),
-                                centroid_method="largest", zarr_root=None, combined=True)
+                                method="largest", zarr_root=None, combined=True)
     assert (tmp_path / "all_tracks.csv").exists()
     assert not (tmp_path / "animal_track_0.csv").exists()
 
 def test_export_combined_contains_all_tracks(tmp_path):
     _export_tracking_from_data(tmp_path, *_minimal_data(n_tracks=3),
-                                centroid_method="largest", zarr_root=None, combined=True)
+                                method="largest", zarr_root=None, combined=True)
     df = pd.read_csv(tmp_path / "all_tracks.csv", skiprows=7)
     assert set(df["track_id"].unique()) == {0, 1, 2}
 
 def test_export_mask_com_fallback_no_error(tmp_path):
     _export_tracking_from_data(tmp_path, *_minimal_data(),
-                                centroid_method="mask_com", zarr_root=None, combined=False)
+                                method="mask_com", zarr_root=None, combined=False)
     df = _read_output(tmp_path)
     assert "pos_x" in df.columns
     assert not df["pos_x"].isna().all()
 
 def test_export_header_preserved(tmp_path):
     _export_tracking_from_data(tmp_path, *_minimal_data(),
-                                centroid_method="largest", zarr_root=None, combined=False)
+                                method="largest", zarr_root=None, combined=False)
     meta = _read_csv_metadata(tmp_path / "animal_track_0.csv")
     assert meta["video_name"] == "test.mp4"
     assert meta["video_height"] == "480"
@@ -543,7 +543,9 @@ def test_public_export_region_properties_none_strips_extras(tmp_path):
     out = pd.read_csv(csv_path, skiprows=7)
     assert "eccentricity" not in out.columns
 
-def test_public_export_region_properties_all_keeps_extras(tmp_path):
+def test_public_export_region_properties_all_computes_all(tmp_path):
+    # "all" expands to every known property; without zarr, only columns already
+    # in the CSV (that are in ALL_REGION_PROPERTIES) survive the filter.
     csv_path = tmp_path / "animal_track_1.csv"
     _write_prediction_csv(csv_path, track_id=1)
     df = pd.read_csv(csv_path, skiprows=7)
@@ -584,6 +586,34 @@ def test_public_export_region_properties_intensity_alias(tmp_path):
     out = pd.read_csv(csv_path, skiprows=7)
     assert "intensity_mean" in out.columns
     assert "eccentricity" not in out.columns
+
+def test_zarr_regionprops_computed_when_missing_from_csv(tmp_path):
+    """Properties not in the CSV are computed from zarr masks at export time."""
+    import zarr, numpy as np
+
+    # Write a CSV with no extra regionprop columns
+    csv_path = tmp_path / "animal_track_1.csv"
+    _write_prediction_csv(csv_path, track_id=1)
+    df = pd.read_csv(csv_path, skiprows=7)
+    n = len(df)
+
+    # Build a minimal zarr archive with a small binary mask per frame
+    store_path = tmp_path / "predictions.zarr"
+    store = zarr.storage.LocalStore(str(store_path))
+    root = zarr.open_group(store=store, mode="w")
+    H, W = 64, 64
+    masks = np.zeros((n, H, W), dtype=np.int8)
+    for i in range(n):
+        masks[i, 10:30, 10:30] = 1  # 20×20 square object
+    arr = root.require_array("1_masks", shape=(n, H, W), dtype=np.int8)
+    arr[:] = masks
+    arr.attrs["video_height"] = H
+    arr.attrs["video_width"] = W
+
+    export_tracking(tmp_path, output_dir=tmp_path, region_properties=["eccentricity"], overwrite=True)
+    out = pd.read_csv(csv_path, skiprows=7)
+    assert "eccentricity" in out.columns
+    assert out["eccentricity"].notna().all()
 
 def test_public_export_raises_on_missing_csvs(tmp_path):
     with pytest.raises(FileNotFoundError):

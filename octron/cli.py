@@ -228,7 +228,7 @@ def predict(
     )
 
 
-class CentroidMethod(str, Enum):
+class Method(str, Enum):
     largest  = "largest"
     weighted = "weighted"
     mask_com = "mask_com"
@@ -251,20 +251,21 @@ def export(
         None, "--output-dir", "-o",
         help="Where to write the output CSV(s). Defaults to the predictions directory.",
     ),
-    centroid_method: CentroidMethod = typer.Option(
-        CentroidMethod.largest, "--centroid-method",
+    method: Method = typer.Option(
+        Method.largest, "--method",
         help=(
-            "How to compute centroid_x/centroid_y. "
-            "'largest': centroid of the single largest segment (default, fast). "
+            "How to resolve multi-segment frames. "
+            "'largest': use values from the single largest segment (default). "
             "'weighted': area-weighted mean across all segments. "
-            "'mask_com': full centre-of-mass from zarr masks (most robust, slower)."
+            "'mask_com': centre-of-mass from zarr masks for pos_x/y (most robust)."
         ),
     ),
     region_properties: Optional[str] = typer.Option(
         None, "--region-properties",
         help=(
             "Which regionprop columns to write. "
-            "'all' or omit: keep every column in the existing CSV. "
+            "Omit: keep columns already in the CSV, no zarr computation. "
+            "'all': compute every available property. "
             "'none': strip all regionprop columns. "
             "'shape': all size-and-shape properties. "
             "'intensity': all intensity properties. "
@@ -300,9 +301,9 @@ def export(
     from octron.tools.export_tracking import export_tracking
 
     _rp = region_properties.strip().lower() if region_properties is not None else None
-    if _rp is None or _rp == "all":
+    if _rp is None:
         parsed_props = None
-    elif _rp in ("none", "shape", "intensity"):
+    elif _rp in ("none", "all", "shape", "intensity"):
         parsed_props = _rp
     else:
         parsed_props = [p.strip() for p in region_properties.split(",") if p.strip()]
@@ -310,7 +311,7 @@ def export(
     export_tracking(
         predictions_path=predictions_path,
         output_dir=output_dir,
-        centroid_method=centroid_method.value,
+        method=method.value,
         region_properties=parsed_props,
         combined=combined,
         overwrite=overwrite,

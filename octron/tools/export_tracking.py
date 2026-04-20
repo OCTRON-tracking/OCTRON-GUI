@@ -6,7 +6,7 @@ into clean, analysis-ready CSV files with resolved scalar columns.
 
 All columns that contain tuple-strings (produced when multiple disconnected
 segments are detected in a single frame) are resolved to scalars using the
-chosen ``centroid_method``.  The same strategy applies to every column —
+chosen ``method``.  The same strategy applies to every column —
 positions, areas, shape descriptors, and intensity properties — so the output
 is always fully numeric.
 
@@ -162,6 +162,19 @@ def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsam
 
 
 # ---------------------------------------------------------------------------
+# Region-property constants
+# ---------------------------------------------------------------------------
+
+# Properties that require the original video frame (intensity image) — cannot
+# be computed from masks alone at export time.
+_INTENSITY_PROPS = frozenset({
+    "intensity_max", "intensity_mean", "intensity_min", "intensity_std",
+})
+
+_PROPS_BATCH = 100  # zarr frames per contiguous read when computing props
+
+
+# ---------------------------------------------------------------------------
 # Tuple-resolution helpers
 # ---------------------------------------------------------------------------
 
@@ -299,7 +312,7 @@ def _export_tracking_from_data(
     bbox,
     region_props,
     video_metadata,
-    centroid_method="largest",
+    method="largest",
     zarr_root=None,
     combined=False,
 ):
@@ -310,7 +323,7 @@ def _export_tracking_from_data(
     both ``predict_batch`` (in-memory path) and ``export_tracking`` (disk path).
 
     All tuple-valued columns (produced when multiple disconnected segments are
-    detected in a frame) are resolved to scalars using ``centroid_method``.
+    detected in a frame) are resolved to scalars using ``method``.
     The same strategy applies to positions, areas, and all regionprops columns,
     with two exceptions:
 
@@ -340,9 +353,9 @@ def _export_tracking_from_data(
     video_metadata : dict
         Keys: video_name, frame_count, frame_count_analyzed,
               video_height, video_width, created_at.
-    centroid_method : {"largest", "weighted", "mask_com"}
+    method : {"largest", "weighted", "mask_com"}
     zarr_root : zarr.Group or None
-        Required only when centroid_method == "mask_com".
+        Required only when method == "mask_com".
     combined : bool
         True → single all_tracks.csv; False → one file per track.
     """
@@ -354,7 +367,7 @@ def _export_tracking_from_data(
 
     # Pre-compute mask centroids once across all tracks when needed
     mask_centroids_lookup = {}
-    if centroid_method == "mask_com" and zarr_root is not None:
+    if method == "mask_com" and zarr_root is not None:
         all_frames = [int(f) for tid in track_ids for f in frame_indices.get(tid, [])]
         if all_frames:
             print("Computing mask centroids from zarr...")
@@ -364,9 +377,9 @@ def _export_tracking_from_data(
                 frame_end=max(all_frames) + 1,
             )
 
-    # Determine per-prop resolver based on centroid_method.
+    # Determine per-prop resolver based on method.
     # mask_com falls back to weighted for all non-centroid metrics.
-    _use_weighted = centroid_method in ("weighted", "mask_com")
+    _use_weighted = method in ("weighted", "mask_com")
 
     from tqdm import tqdm
 
@@ -385,9 +398,9 @@ def _export_tracking_from_data(
         sa = np.asarray(segments_area.get(tid, np.ones(n)), dtype=object)
 
         # --- pos_x / pos_y ---
-        if centroid_method == "weighted":
+        if method == "weighted":
             px, py = _resolve_xy_weighted(sx, sy, sa)
-        elif centroid_method == "mask_com" and mask_centroids_lookup.get(tid):
+        elif method == "mask_com" and mask_centroids_lookup.get(tid):
             fi_arr = np.asarray(frame_indices[tid])
             lookup = mask_centroids_lookup[tid]
             px = np.array([lookup.get(int(f), (np.nan, np.nan))[0] for f in fi_arr])
@@ -481,6 +494,111 @@ _BASE_COLS = frozenset({"frame_counter", "frame_idx", "track_id", "label",
                         "confidence", "pos_x", "pos_y", "area"}) | _BBOX_COLS
 
 
+def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, properties):
+    """
+    Compute per-frame regionprops directly from zarr segmentation masks.
+
+    Used by :func:`export_tracking` to add shape metrics that were not
+    computed during prediction (i.e. predict was run without ``--detailed``).
+    Intensity properties (intensity_mean etc.) are silently skipped because
+    they require the original video frames; re-run ``octron predict`` with
+    ``--detailed`` if you need them.
+
+    Parameters
+    ----------
+    zarr_root : zarr.Group
+    track_ids : list[int]
+    frame_indices_dict : dict[int, array-like]
+        ``{track_id: array of video frame indices}`` matching the CSV rows.
+    properties : list[str]
+        skimage regionprop base names to compute.
+
+    Returns
+    -------
+    dict[int, dict[str, np.ndarray]]
+        ``{track_id: {col_name: per-frame array}}``.
+        Multi-segment frames are encoded as tuple-strings ``"(v1, v2, ...)"``.
+        Empty-mask frames are ``NaN``.
+    """
+    from skimage import measure
+    from tqdm import tqdm
+    from loguru import logger as _log
+
+    computable = [p for p in properties if p not in _BASE_COLS and p not in _INTENSITY_PROPS]
+    skipped_intensity = [p for p in properties if p in _INTENSITY_PROPS]
+    if skipped_intensity:
+        _log.warning(
+            f"Intensity properties {skipped_intensity} cannot be computed from masks "
+            f"alone — re-run 'octron predict' with --detailed to include them."
+        )
+    if not computable:
+        return {}
+
+    result = {}
+
+    for tid in tqdm(track_ids, desc="Computing region props from masks", unit="track"):
+        arr_key = f"{tid}_masks"
+        if arr_key not in zarr_root:
+            _log.warning(f"No mask array found in zarr for track {tid} — skipping.")
+            continue
+
+        zarr_arr = zarr_root[arr_key]
+        n_zarr_frames = zarr_arr.shape[0]
+        frame_idxs = np.asarray(frame_indices_dict[tid], dtype=int)
+        n = len(frame_idxs)
+
+        fi_to_pos = {int(fi): i for i, fi in enumerate(frame_idxs)}
+        valid_fi = sorted(fi for fi in fi_to_pos if fi < n_zarr_frames)
+
+        # per-frame result as list-of-dicts — handles dynamically-expanded
+        # column names (e.g. moments_hu → moments_hu-0 … moments_hu-6)
+        rows = [{} for _ in range(n)]
+
+        for b_start in tqdm(range(0, len(valid_fi), _PROPS_BATCH),
+                            desc=f"  track {tid}", unit="batch", leave=False):
+            batch = valid_fi[b_start : b_start + _PROPS_BATCH]
+            fi_lo, fi_hi = batch[0], batch[-1]
+            # One contiguous zarr read per batch — minimises network round-trips
+            raw_batch = np.asarray(zarr_arr[fi_lo : fi_hi + 1])  # (span, H, W)
+
+            for fi in batch:
+                raw = raw_batch[fi - fi_lo]
+                binary = (raw == 1).astype(np.uint8)
+                if binary.sum() == 0:
+                    continue
+
+                labeled = measure.label(binary, background=0, connectivity=2)
+                props = measure.regionprops_table(labeled, properties=computable)
+
+                pos = fi_to_pos[fi]
+                for col_key, vals in props.items():
+                    base = col_key.split("-")[0]
+                    if base not in computable and col_key not in computable:
+                        continue
+                    if len(vals) == 1:
+                        rows[pos][col_key] = float(vals[0])
+                    else:
+                        rows[pos][col_key] = str(tuple(float(v) for v in vals))
+
+        # Collect all column names that actually appeared (handles expansion)
+        all_keys = set()
+        for row in rows:
+            all_keys.update(row.keys())
+
+        tid_result = {}
+        for col_key in all_keys:
+            arr = np.empty(n, dtype=object)
+            arr[:] = np.nan
+            for i, row in enumerate(rows):
+                if col_key in row:
+                    arr[i] = row[col_key]
+            tid_result[col_key] = arr
+
+        result[tid] = tid_result
+
+    return result
+
+
 def list_region_properties(*, print_output: bool = True) -> dict:
     """Return (and optionally print) all available regionprop names grouped by category.
 
@@ -503,7 +621,7 @@ def list_region_properties(*, print_output: bool = True) -> dict:
 def export_tracking(
     predictions_path,
     output_dir=None,
-    centroid_method: Literal["largest", "weighted", "mask_com"] = "largest",
+    method: Literal["largest", "weighted", "mask_com"] = "largest",
     region_properties=None,
     combined=False,
     overwrite=False,
@@ -521,14 +639,18 @@ def export_tracking(
         Path to an ``octron_predictions/<video>/`` output directory.
     output_dir : str or Path or None
         Where to write the output CSVs.  Defaults to *predictions_path*.
-    centroid_method : {"largest", "weighted", "mask_com"}
+    method : {"largest", "weighted", "mask_com"}
         How to resolve multi-segment rows.  Applied consistently to all
         columns (positions, areas, regionprops).  See module docstring.
     region_properties : None, "all", "none", "shape", "intensity", or list[str]
         Which regionprop columns to include in the output.
 
-        ``None`` / ``"all"``
-            Keep every regionprop column found in the existing CSV (default).
+        ``None``
+            Keep every regionprop column already present in the CSV (default).
+            No zarr computation is performed.
+        ``"all"``
+            Compute every property from all groups in ``ALL_REGION_PROPERTIES``
+            (equivalent to ``"shape"`` + ``"intensity"``).
         ``"none"``
             Strip all regionprop columns; output contains only the base
             columns (frame counters, track id, label, confidence, pos_x/y,
@@ -581,16 +703,19 @@ def export_tracking(
         store = zarr.storage.LocalStore(zarr_candidate, read_only=True)
         zarr_root = zarr.open_group(store=store, mode="r")
         logger.info("Found zarr archive")
-    elif centroid_method == "mask_com":
+    elif method == "mask_com":
         logger.warning(
-            "centroid_method='mask_com' requested but no zarr archive found — "
+            "method='mask_com' requested but no zarr archive found — "
             "falling back to 'largest'."
         )
-        centroid_method = "largest"
+        method = "largest"
 
     # --- Resolve region_properties group aliases ---
     _GROUP_ALIASES = {"shape": "Size and Shape", "intensity": "Intensity"}
-    if isinstance(region_properties, str) and region_properties in _GROUP_ALIASES:
+    if region_properties == "all":
+        from octron.yolo_octron.constants import ALL_REGION_PROPERTIES
+        region_properties = [p for props in ALL_REGION_PROPERTIES.values() for p in props]
+    elif isinstance(region_properties, str) and region_properties in _GROUP_ALIASES:
         from octron.yolo_octron.constants import ALL_REGION_PROPERTIES
         region_properties = list(ALL_REGION_PROPERTIES[_GROUP_ALIASES[region_properties]])
 
@@ -641,10 +766,30 @@ def export_tracking(
             extra_cols = []
         elif isinstance(region_properties, list):
             extra_cols = [c for c in extra_cols if c in region_properties]
-        # region_properties=None or "all" → keep all extra columns
+        # region_properties=None → keep all extra columns already in the CSV
         region_props_d[tid] = {c: df[c].to_numpy() for c in extra_cols}
 
     logger.debug(f"CSV reading ({len(track_ids)} track(s)): {perf_counter()-t5:.3f}s")
+
+    # --- Compute region props from zarr (always, when zarr is available) ---
+    # Zarr masks are the ground truth — always recompute requested props from
+    # them rather than relying on CSV values, which may have been produced with
+    # a different method or an older version of the pipeline.
+    if isinstance(region_properties, list) and zarr_root is not None:
+        props_to_compute = [
+            p for p in region_properties
+            if p not in _BASE_COLS and p not in _INTENSITY_PROPS
+        ]
+        if props_to_compute:
+            logger.info(f"Computing {props_to_compute} from zarr masks...")
+            t_zarr = perf_counter()
+            zarr_props = compute_region_props_from_zarr(
+                zarr_root, track_ids, frame_indices, props_to_compute
+            )
+            logger.debug(f"zarr regionprops: {perf_counter()-t_zarr:.3f}s")
+            for tid in track_ids:
+                region_props_d.setdefault(tid, {}).update(zarr_props.get(tid, {}))
+
     output_dir = Path(output_dir) if output_dir is not None else predictions_path
 
     # --- Overwrite guard ---
@@ -682,7 +827,7 @@ def export_tracking(
         bbox=bbox_d,
         region_props=region_props_d,
         video_metadata=video_metadata,
-        centroid_method=centroid_method,
+        method=method,
         zarr_root=zarr_root,
         combined=combined,
     )
