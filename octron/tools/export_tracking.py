@@ -167,6 +167,9 @@ def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsam
 
 # Properties that require the original video frame (intensity image) — cannot
 # be computed from masks alone at export time.
+# When a video is provided, these are computed on a 4-channel image
+# (R, G, B, luminance), so each property expands to four columns:
+#   intensity_mean-0 = R,  -1 = G,  -2 = B,  -3 = luminance
 _INTENSITY_PROPS = frozenset({
     "intensity_max", "intensity_mean", "intensity_min", "intensity_std",
 })
@@ -230,11 +233,14 @@ def _zarr_batch_worker(args):
             ok, frame = cap.read()
             current_video_pos = fi + 1 if ok else -1
             if ok:
-                gray = _cv2.cvtColor(frame, _cv2.COLOR_BGR2GRAY)
-                fh, fw = gray.shape
+                # Resize to mask resolution if needed
+                fh, fw = frame.shape[:2]
                 if fh != mask_h or fw != mask_w:
-                    gray = _cv2.resize(gray, (mask_w, mask_h), interpolation=_cv2.INTER_LINEAR)
-                intensity_crop = gray[r0:r1, c0:c1]
+                    frame = _cv2.resize(frame, (mask_w, mask_h), interpolation=_cv2.INTER_LINEAR)
+                # Channels: 0=R, 1=G, 2=B, 3=luminance
+                rgb = _cv2.cvtColor(frame, _cv2.COLOR_BGR2RGB)
+                lum = _cv2.cvtColor(frame, _cv2.COLOR_BGR2GRAY)
+                intensity_crop = _np.dstack([rgb, lum])[r0:r1, c0:c1]
 
         labeled = _measure.label(binary[r0:r1, c0:c1], background=0, connectivity=2)
         td = _pc()
