@@ -580,13 +580,18 @@ def _export_tracking_from_data(
             raise
         logger.debug(f"Saved combined tracking data ({len(dfs)} tracks) to all_tracks.csv")
     else:
+        _WRITE_CHUNK = 5000
         for tid, (label, df) in tqdm(dfs.items(), desc="Writing CSVs", unit="track", total=len(dfs)):
             csv_path = output_dir / f"{label}_track_{tid}.csv"
             tmp_path = csv_path.with_suffix(".tmp")
             try:
                 with open(tmp_path, "w") as f:
                     f.write(header)
-                    df.to_csv(f, na_rep="NaN", lineterminator="\n")
+                    chunks = range(0, len(df), _WRITE_CHUNK)
+                    for i in tqdm(chunks, desc=f"  {label}_track_{tid}", unit="chunk", leave=False):
+                        df.iloc[i : i + _WRITE_CHUNK].to_csv(
+                            f, header=(i == 0), na_rep="NaN", lineterminator="\n"
+                        )
                 os.replace(tmp_path, csv_path)
             except BaseException:
                 tmp_path.unlink(missing_ok=True)
