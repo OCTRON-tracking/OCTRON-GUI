@@ -10,6 +10,7 @@ Subcommands
   split       Prepare and export train/val/test data from an OCTRON project
   train       Prepare training data and run YOLO model training
   predict     Run YOLO prediction and tracking on one or more videos
+  export      Export tracking CSVs from an existing predictions directory
   render      Render annotated video(s) from prediction output
               (use --bbox-sizes to report bbox sizes instead of rendering)
   transcode   Transcode video files to MP4 (H.264/libx264) using ffmpeg
@@ -224,6 +225,61 @@ def predict(
         region_properties=DEFAULT_REGION_PROPERTIES if detailed else None,
         output_dir=output_dir,
         local_cache_dir=local_cache_dir,
+    )
+
+
+class CentroidMethod(str, Enum):
+    largest  = "largest"
+    weighted = "weighted"
+    mask_com = "mask_com"
+
+
+@app.command()
+def export(
+    predictions_path: Path = typer.Argument(
+        ...,
+        help="Path to an octron_predictions/<video>/ output directory.",
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output-dir", "-o",
+        help="Where to write the output CSV(s). Defaults to the predictions directory.",
+    ),
+    centroid_method: CentroidMethod = typer.Option(
+        CentroidMethod.largest, "--centroid-method",
+        help=(
+            "How to compute centroid_x/centroid_y. "
+            "'largest': centroid of the single largest segment (default, fast). "
+            "'weighted': area-weighted mean across all segments. "
+            "'mask_com': full centre-of-mass from zarr masks (most robust, slower)."
+        ),
+    ),
+    region_properties: Optional[str] = typer.Option(
+        None, "--region-properties",
+        help=(
+            "Comma-separated list of regionprop column names to include "
+            "(e.g. 'area,eccentricity,solidity'). "
+            "Omit to keep every column found in the existing CSV."
+        ),
+    ),
+    combined: bool = typer.Option(
+        False, "--combined",
+        help="Write a single all_tracks.csv instead of one file per track.",
+    ),
+):
+    """Export tracking CSVs from an existing OCTRON predictions directory."""
+    from octron.tools.export_tracking import export_tracking
+
+    parsed_props = (
+        [p.strip() for p in region_properties.split(",") if p.strip()]
+        if region_properties is not None else None
+    )
+
+    export_tracking(
+        predictions_path=predictions_path,
+        output_dir=output_dir,
+        centroid_method=centroid_method.value,
+        region_properties=parsed_props,
+        combined=combined,
     )
 
 

@@ -112,128 +112,14 @@ def _start_mask_prefetch(zarr_root, track_ids, frame_start, frame_end, batch_siz
     return q
 
 
-def _letterbox_bounds(mask_h, mask_w, vid_h, vid_w):
-    """
-    Compute the video-content region within a mask stored at inference resolution.
-
-    YOLO (retina_masks=False) letterboxes frames to fit within imgsz and then
-    pads to the nearest multiple of stride (32).  The padding is centred, so the
-    actual video content starts at (pad_y, pad_x) within the stored mask.
-
-    Returns
-    -------
-    content_h, content_w : int
-        Height and width of the video content area within the mask.
-    pad_y, pad_x : int
-        Top and left padding in mask pixels.
-    """
-    content_h = round(vid_h * mask_w / vid_w)
-    if content_h <= mask_h:
-        # Width is the constraining dimension; y-axis may have padding
-        content_w = mask_w
-        pad_y = (mask_h - content_h) // 2
-        pad_x = 0
-    else:
-        # Height is the constraining dimension; x-axis may have padding
-        content_h = mask_h
-        content_w = round(vid_w * mask_h / vid_h)
-        pad_y = 0
-        pad_x = (mask_w - content_w) // 2
-    return content_h, content_w, pad_y, pad_x
+# _letterbox_bounds and compute_mask_centroids live in export_tracking so they
+# can be used by both the render pipeline and the CSV export pipeline.
+from octron.tools.export_tracking import _letterbox_bounds, compute_mask_centroids  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsample=4):
-    """
-    Compute per-frame centre-of-mass centroids directly from zarr segmentation
-    masks, as a more stable alternative to the bounding-box-derived positions
-    stored in the tracking CSVs.
-
-    Masks are downsampled before computing CoM for speed, then coordinates are
-    scaled back to full resolution.  Processing is vectorised over the batch
-    dimension — no Python loop over frames.
-
-    Parameters
-    ----------
-    zarr_root : zarr.Group
-        Root zarr group from a YOLO_results object.
-    track_ids : iterable
-        Track IDs to process (must match the ``{tid}_masks`` array naming).
-    frame_start : int
-        First frame index to process (inclusive).
-    frame_end : int
-        Last frame index to process (exclusive).
-    downsample : int
-        Spatial downscale factor applied before computing CoM.  ``4`` (default)
-        gives 16× fewer pixels with negligible centroid error at full resolution.
-
-    Returns
-    -------
-    centroids : dict
-        ``{track_id: {frame_idx: (cx, cy)}}`` — float pixel coordinates in the
-        original full-resolution frame.  Only frames where at least one mask
-        pixel is present are included.
-    """
-    import numpy as np
-
-    _BATCH = 500
-    track_ids = list(track_ids)
-    centroids = {tid: {} for tid in track_ids}
-    n_frames = frame_end - frame_start
-    n_batches_per_track = max(1, (n_frames + _BATCH - 1) // _BATCH)
-    total_batches = len(track_ids) * n_batches_per_track
-    _bar_width = 30
-    batch_idx = 0
-
-    for tid in track_ids:
-        arr_key = f"{tid}_masks"
-        if arr_key not in zarr_root:
-            batch_idx += n_batches_per_track
-            continue
-        zarr_arr = zarr_root[arr_key]
-        n_mask_frames = zarr_arr.shape[0]
-        # Masks may be stored at inference resolution; read stored video dims so
-        # centroids are returned in video-pixel coordinates, not mask-pixel coords.
-        _mask_h, _mask_w = zarr_arr.shape[1], zarr_arr.shape[2]
-        _vid_h = zarr_arr.attrs.get('video_height', _mask_h) or _mask_h
-        _vid_w = zarr_arr.attrs.get('video_width',  _mask_w) or _mask_w
-        # Account for letterbox padding: the mask includes stride-alignment padding
-        # that does not correspond to video content; subtract it before scaling.
-        _c_h, _c_w, _p_y, _p_x = _letterbox_bounds(_mask_h, _mask_w, _vid_h, _vid_w)
-
-        for batch_start in range(frame_start, min(frame_end, n_mask_frames), _BATCH):
-            batch_end = min(batch_start + _BATCH, frame_end, n_mask_frames)
-            raw = np.asarray(zarr_arr[batch_start:batch_end])  # (n, H, W)
-
-            mask = (raw[:, ::downsample, ::downsample] == 1)  # (n, dH, dW) bool
-            dH, dW = mask.shape[1], mask.shape[2]
-
-            count = mask.sum(axis=(1, 2))
-            ys = np.arange(dH, dtype=np.float32)[None, :, None]
-            xs = np.arange(dW, dtype=np.float32)[None, None, :]
-            cy_ds = (mask * ys).sum(axis=(1, 2)) / np.maximum(count, 1)
-            cx_ds = (mask * xs).sum(axis=(1, 2)) / np.maximum(count, 1)
-
-            # Convert from downsampled-mask coords → full-mask coords → content coords → video coords
-            cx_full = (cx_ds * downsample - _p_x) * _vid_w / _c_w
-            cy_full = (cy_ds * downsample - _p_y) * _vid_h / _c_h
-
-            for i, frame_idx in enumerate(range(batch_start, batch_end)):
-                if count[i] > 0:
-                    centroids[tid][frame_idx] = (float(cx_full[i]), float(cy_full[i]))
-
-            batch_idx += 1
-            pct = batch_idx / total_batches
-            filled = int(_bar_width * pct)
-            bar = "█" * filled + "░" * (_bar_width - filled)
-            print(f"  [{bar}] track {tid} | {batch_start}-{batch_end} | {pct:.0%}",
-                  end="\r")
-
-    print()
-    return centroids
 
 
 def butterworth_smooth_tracklet_positions(pos_lookup, fps, cutoff_hz=2.0, order=4):

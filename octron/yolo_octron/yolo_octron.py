@@ -2382,33 +2382,69 @@ class YOLO_octron:
                 for track_id in all_ids:
                     _flush_mask_buffer(track_id)
                 
-            # Save each tracking DataFrame with a label column added
+            # Export tracking CSVs via the shared export pipeline
+            _export_labels        = {}
+            _export_frame_ctr     = {}
+            _export_frame_idx     = {}
+            _export_confidence    = {}
+            _export_segments_x    = {}
+            _export_segments_y    = {}
+            _export_segments_area = {}
+            _export_bbox          = {}
+            _export_region_props  = {}
+            _export_video_meta    = {}
+            _BBOX_COLS = {'bbox_x_min', 'bbox_x_max', 'bbox_y_min', 'bbox_y_max',
+                          'bbox_area', 'bbox_aspect_ratio'}
+            _BASE_COLS = {'confidence', 'pos_x', 'pos_y', 'area'} | _BBOX_COLS
+
             for track_id, tr_df in tracking_df_dict.items():
-                label = tr_df.attrs["label"]
-                df_to_save = tr_df.copy()
-                # Add the label column (will be filled with the same value for all rows)
-                df_to_save.insert(0, 'label', label)
-                
-                # Save to CSV with metadata header
-                filename = f'{label}_track_{track_id}.csv'
-                csv_path = save_dir / filename
-                
-                # Create header with metadata
-                header = [
-                    f"video_name: {tr_df.attrs.get('video_name', 'unknown')}",
-                    f"frame_count: {tr_df.attrs.get('frame_count', '')}",
-                    f"frame_count_analyzed: {tr_df.attrs.get('frame_count_analyzed', '')}",
-                    f"video_height: {tr_df.attrs.get('video_height', '')}",
-                    f"video_width: {tr_df.attrs.get('video_width', '')}",
-                    f"created_at: {tr_df.attrs.get('created_at', str(datetime.now()))}",
-                    "", #Empty line for separation
-                ]
-                
-                # Write the header and then the data
-                with open(csv_path, 'w') as f:
-                    f.write('\n'.join(header) + '\n') 
-                    df_to_save.to_csv(f, na_rep='NaN', lineterminator='\n')
-                logger.debug(f"Saved tracking data for '{label}' (track ID: {track_id}) to {filename}")
+                if tr_df.empty:
+                    continue
+                _export_labels[track_id] = tr_df.attrs["label"]
+                _idx = tr_df.index
+                _export_frame_ctr[track_id]     = _idx.get_level_values('frame_counter').to_numpy()
+                _export_frame_idx[track_id]     = _idx.get_level_values('frame_idx').to_numpy()
+                _export_confidence[track_id]    = tr_df['confidence'].to_numpy()
+                _export_segments_x[track_id]    = tr_df['pos_x'].to_numpy()
+                _export_segments_y[track_id]    = tr_df['pos_y'].to_numpy()
+                _export_segments_area[track_id] = (
+                    tr_df['area'].to_numpy() if 'area' in tr_df.columns
+                    else np.ones(len(tr_df))
+                )
+                _export_bbox[track_id] = {
+                    c: tr_df[c].to_numpy() for c in _BBOX_COLS if c in tr_df.columns
+                }
+                _export_region_props[track_id] = {
+                    c: tr_df[c].to_numpy() for c in tr_df.columns if c not in _BASE_COLS
+                }
+                if not _export_video_meta:
+                    _export_video_meta = {
+                        'video_name':           tr_df.attrs.get('video_name', 'unknown'),
+                        'frame_count':          tr_df.attrs.get('frame_count', ''),
+                        'frame_count_analyzed': tr_df.attrs.get('frame_count_analyzed', ''),
+                        'video_height':         tr_df.attrs.get('video_height', ''),
+                        'video_width':          tr_df.attrs.get('video_width', ''),
+                        'created_at':           tr_df.attrs.get('created_at', str(datetime.now())),
+                    }
+
+            from octron.tools.export_tracking import _export_tracking_from_data
+            _export_tracking_from_data(
+                output_dir=save_dir,
+                track_ids=list(tracking_df_dict.keys()),
+                labels=_export_labels,
+                frame_counters=_export_frame_ctr,
+                frame_indices=_export_frame_idx,
+                confidence=_export_confidence,
+                segments_x=_export_segments_x,
+                segments_y=_export_segments_y,
+                segments_area=_export_segments_area,
+                bbox=_export_bbox,
+                region_props=_export_region_props,
+                video_metadata=_export_video_meta,
+                centroid_method="largest",
+                zarr_root=None,
+                combined=False,
+            )
             
             # Save a json file with all metadata / parameters used for prediction 
             json_meta_path = save_dir / 'prediction_metadata.json'
