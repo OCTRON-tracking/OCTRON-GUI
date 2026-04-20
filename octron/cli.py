@@ -234,6 +234,11 @@ class Method(str, Enum):
     mask_com = "mask_com"
 
 
+class Format(str, Enum):
+    csv     = "csv"
+    parquet = "parquet"
+
+
 def _list_properties_callback(value: bool):
     if value:
         from octron.tools.export_tracking import list_region_properties
@@ -282,13 +287,17 @@ def export(
             "Auto-detected from the predictions directory name if not provided."
         ),
     ),
+    fmt: Format = typer.Option(
+        Format.csv, "--format",
+        help="Output format. 'csv' (default) or 'parquet' (requires pyarrow).",
+    ),
     combined: bool = typer.Option(
         False, "--combined",
-        help="Write a single all_tracks.csv instead of one file per track.",
+        help="Write a single all_tracks.<ext> instead of one file per track.",
     ),
     overwrite: bool = typer.Option(
         False, "--overwrite",
-        help="Overwrite existing output CSV files. Default: raise an error if files already exist.",
+        help="Overwrite existing output files. Default: raise an error if files already exist.",
     ),
     list_properties: bool = typer.Option(
         False, "--list-properties",
@@ -322,6 +331,7 @@ def export(
         method=method.value,
         region_properties=parsed_props,
         video_path=video_path,
+        fmt=fmt.value,
         combined=combined,
         overwrite=overwrite,
     )

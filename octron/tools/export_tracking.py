@@ -423,6 +423,7 @@ def _export_tracking_from_data(
     method="largest",
     zarr_root=None,
     combined=False,
+    fmt="csv",
 ):
     """
     Build and write tracking CSVs from raw per-track arrays.
@@ -466,6 +467,8 @@ def _export_tracking_from_data(
         Required only when method == "mask_com".
     combined : bool
         True → single all_tracks.csv; False → one file per track.
+    fmt : {"csv", "parquet"}
+        Output format.  Parquet stores video metadata in the file schema.
     """
     import pandas as pd
     from loguru import logger
@@ -566,37 +569,45 @@ def _export_tracking_from_data(
         logger.warning("No tracking data to export.")
         return
 
-    if combined:
-        all_df = pd.concat([df for _, df in dfs.values()]).sort_index()
-        csv_path = output_dir / "all_tracks.csv"
-        tmp_path = csv_path.with_suffix(".tmp")
+    ext = ".parquet" if fmt == "parquet" else ".csv"
+
+    def _write(path, df):
+        tmp = path.with_suffix(".tmp")
         try:
-            with open(tmp_path, "w") as f:
-                f.write(header)
-                all_df.to_csv(f, na_rep="NaN", lineterminator="\n")
-            os.replace(tmp_path, csv_path)
-        except BaseException:
-            tmp_path.unlink(missing_ok=True)
-            raise
-        logger.debug(f"Saved combined tracking data ({len(dfs)} tracks) to all_tracks.csv")
-    else:
-        _WRITE_CHUNK = 5000
-        for tid, (label, df) in tqdm(dfs.items(), desc="Writing CSVs", unit="track", total=len(dfs)):
-            csv_path = output_dir / f"{label}_track_{tid}.csv"
-            tmp_path = csv_path.with_suffix(".tmp")
-            try:
-                with open(tmp_path, "w") as f:
+            if fmt == "parquet":
+                import json
+                import pyarrow as _pa
+                import pyarrow.parquet as _pq
+                table = _pa.Table.from_pandas(df)
+                meta = {**table.schema.metadata,
+                        b"octron_metadata": json.dumps(video_metadata).encode()}
+                _pq.write_table(table.replace_schema_metadata(meta), tmp)
+            else:
+                _WRITE_CHUNK = 5000
+                with open(tmp, "w") as f:
                     f.write(header)
                     chunks = range(0, len(df), _WRITE_CHUNK)
-                    for i in tqdm(chunks, desc=f"  {label}_track_{tid}", unit="chunk", leave=False):
+                    for i in tqdm(chunks, desc=f"  {path.stem}", unit="chunk", leave=False):
                         df.iloc[i : i + _WRITE_CHUNK].to_csv(
                             f, header=(i == 0), na_rep="NaN", lineterminator="\n"
                         )
-                os.replace(tmp_path, csv_path)
-            except BaseException:
-                tmp_path.unlink(missing_ok=True)
-                raise
-            logger.debug(f"Saved tracking data for '{label}' (track ID: {tid}) to {csv_path.name}")
+            os.replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+
+    desc = "Writing files" if fmt == "parquet" else "Writing CSVs"
+    if combined:
+        all_df = pd.concat([df for _, df in dfs.values()]).sort_index()
+        out_path = output_dir / f"all_tracks{ext}"
+        tqdm.write(f"Writing combined {fmt} → {out_path.name}")
+        _write(out_path, all_df)
+        logger.debug(f"Saved combined tracking data ({len(dfs)} tracks) to {out_path.name}")
+    else:
+        for tid, (label, df) in tqdm(dfs.items(), desc=desc, unit="track", total=len(dfs)):
+            out_path = output_dir / f"{label}_track_{tid}{ext}"
+            _write(out_path, df)
+            logger.debug(f"Saved tracking data for '{label}' (track ID: {tid}) to {out_path.name}")
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +794,7 @@ def export_tracking(
     method: Literal["largest", "weighted", "mask_com"] = "largest",
     region_properties=None,
     video_path=None,
+    fmt: Literal["csv", "parquet"] = "csv",
     combined=False,
     overwrite=False,
 ):
@@ -830,8 +842,12 @@ def export_tracking(
         properties (intensity_mean, intensity_max, intensity_min,
         intensity_std).  Auto-detected from the predictions directory name
         if not provided.
+    fmt : {"csv", "parquet"}
+        Output format.  ``"parquet"`` writes a Parquet file per track (or
+        ``all_tracks.parquet`` when *combined* is True); video metadata is
+        stored in the Parquet schema.  Requires ``pyarrow``.
     combined : bool
-        If True write a single ``all_tracks.csv``; otherwise one file per track.
+        If True write a single ``all_tracks.<ext>``; otherwise one file per track.
     overwrite : bool
         If False (default) raise FileExistsError when any output file already
         exists.  Set True to silently overwrite.
@@ -967,18 +983,19 @@ def export_tracking(
     output_dir = Path(output_dir) if output_dir is not None else predictions_path
 
     # --- Overwrite guard ---
+    ext = ".parquet" if fmt == "parquet" else ".csv"
     if not overwrite:
         if combined:
-            candidate = output_dir / "all_tracks.csv"
+            candidate = output_dir / f"all_tracks{ext}"
             if candidate.exists():
                 raise FileExistsError(
                     f"{candidate} already exists. Pass overwrite=True to replace it."
                 )
         else:
             existing = [
-                output_dir / f"{labels[tid]}_track_{tid}.csv"
+                output_dir / f"{labels[tid]}_track_{tid}{ext}"
                 for tid in track_ids
-                if (output_dir / f"{labels[tid]}_track_{tid}.csv").exists()
+                if (output_dir / f"{labels[tid]}_track_{tid}{ext}").exists()
             ]
             if existing:
                 names = ", ".join(p.name for p in existing)
@@ -1004,6 +1021,7 @@ def export_tracking(
         method=method,
         zarr_root=zarr_root,
         combined=combined,
+        fmt=fmt,
     )
     logger.debug(f"export write: {perf_counter()-t6:.3f}s")
     logger.debug(f"total: {perf_counter()-t0:.3f}s")
