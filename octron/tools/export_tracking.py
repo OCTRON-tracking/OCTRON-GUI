@@ -203,26 +203,28 @@ def _zarr_batch_worker(args):
         raw = raw_batch[fi - fi_lo]
 
         ta = _pc()
-        binary = (raw == 1).astype(_np.uint8)
+        binary = raw == 1  # bool view, no copy
         tb = _pc()
-        rows_nz, cols_nz = _np.where(binary)
-        tc = _pc()
-        if not len(rows_nz):
+        rows_any = binary.any(axis=1)
+        if not rows_any.any():
             t_binary += tb - ta
-            t_bbox += tc - tb
+            t_bbox += _pc() - tb
             continue
-        r0, r1 = int(rows_nz.min()), int(rows_nz.max()) + 1
-        c0, c1 = int(cols_nz.min()), int(cols_nz.max()) + 1
-        td = _pc()
+        cols_any = binary.any(axis=0)
+        r0 = int(rows_any.argmax())
+        r1 = int(len(rows_any) - rows_any[::-1].argmax())
+        c0 = int(cols_any.argmax())
+        c1 = int(len(cols_any) - cols_any[::-1].argmax())
+        tc = _pc()
         labeled = _measure.label(binary[r0:r1, c0:c1], background=0, connectivity=2)
-        te = _pc()
+        td = _pc()
         props = _measure.regionprops_table(labeled, properties=computable)
-        tf = _pc()
+        te = _pc()
 
         t_binary += tb - ta
-        t_bbox += td - tb
-        t_label += te - td
-        t_props += tf - te
+        t_bbox += tc - tb
+        t_label += td - tc
+        t_props += te - td
 
         frame_result = {}
         for col_key, vals in props.items():
