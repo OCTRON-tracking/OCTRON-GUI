@@ -508,7 +508,7 @@ def export_tracking(
     centroid_method : {"largest", "weighted", "mask_com"}
         How to resolve multi-segment rows.  Applied consistently to all
         columns (positions, areas, regionprops).  See module docstring.
-    region_properties : None, "all", "none", or list[str]
+    region_properties : None, "all", "none", "shape", "intensity", or list[str]
         Which regionprop columns to include in the output.
 
         ``None`` / ``"all"``
@@ -517,6 +517,12 @@ def export_tracking(
             Strip all regionprop columns; output contains only the base
             columns (frame counters, track id, label, confidence, pos_x/y,
             area, bbox).
+        ``"shape"``
+            Include only the size-and-shape group (area, eccentricity,
+            solidity, etc.).
+        ``"intensity"``
+            Include only the intensity group (intensity_mean, intensity_max,
+            intensity_min, intensity_std).
         list of strings
             Include only the named columns that are present in the CSV
             (e.g. ``["eccentricity", "solidity"]``).  Use
@@ -553,6 +559,12 @@ def export_tracking(
             "falling back to 'largest'."
         )
         centroid_method = "largest"
+
+    # --- Resolve region_properties group aliases ---
+    _GROUP_ALIASES = {"shape": "Size and Shape", "intensity": "Intensity"}
+    if isinstance(region_properties, str) and region_properties in _GROUP_ALIASES:
+        from octron.yolo_octron.constants import ALL_REGION_PROPERTIES
+        region_properties = list(ALL_REGION_PROPERTIES[_GROUP_ALIASES[region_properties]])
 
     # --- Read each CSV ---
     track_ids      = []

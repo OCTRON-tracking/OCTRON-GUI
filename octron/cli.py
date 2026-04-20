@@ -266,6 +266,8 @@ def export(
             "Which regionprop columns to write. "
             "'all' or omit: keep every column in the existing CSV. "
             "'none': strip all regionprop columns. "
+            "'shape': all size-and-shape properties. "
+            "'intensity': all intensity properties. "
             "Otherwise a comma-separated list of names "
             "(e.g. 'eccentricity,solidity'). "
             "Use --list-properties to see available names."
@@ -289,10 +291,11 @@ def export(
     """Export tracking CSVs from an existing OCTRON predictions directory."""
     from octron.tools.export_tracking import export_tracking
 
-    if region_properties is None or region_properties.strip().lower() == "all":
+    _rp = region_properties.strip().lower() if region_properties is not None else None
+    if _rp is None or _rp == "all":
         parsed_props = None
-    elif region_properties.strip().lower() == "none":
-        parsed_props = "none"
+    elif _rp in ("none", "shape", "intensity"):
+        parsed_props = _rp
     else:
         parsed_props = [p.strip() for p in region_properties.split(",") if p.strip()]
 

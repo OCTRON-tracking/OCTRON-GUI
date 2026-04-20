@@ -558,6 +558,33 @@ def test_public_export_region_properties_all_keeps_extras(tmp_path):
     out = pd.read_csv(csv_path, skiprows=7)
     assert "eccentricity" in out.columns
 
+def _write_csv_with_extras(tmp_path, extras: dict):
+    csv_path = tmp_path / "animal_track_1.csv"
+    _write_prediction_csv(csv_path, track_id=1)
+    df = pd.read_csv(csv_path, skiprows=7)
+    for col, val in extras.items():
+        df[col] = val
+    meta = _read_csv_metadata(csv_path)
+    from octron.tools.export_tracking import _build_header
+    with open(csv_path, "w") as f:
+        f.write(_build_header(meta))
+        df.to_csv(f, index=False, lineterminator="\n")
+    return csv_path
+
+def test_public_export_region_properties_shape_alias(tmp_path):
+    csv_path = _write_csv_with_extras(tmp_path, {"eccentricity": 0.5, "intensity_mean": 100.0})
+    export_tracking(tmp_path, output_dir=tmp_path, region_properties="shape", overwrite=True)
+    out = pd.read_csv(csv_path, skiprows=7)
+    assert "eccentricity" in out.columns
+    assert "intensity_mean" not in out.columns
+
+def test_public_export_region_properties_intensity_alias(tmp_path):
+    csv_path = _write_csv_with_extras(tmp_path, {"eccentricity": 0.5, "intensity_mean": 100.0})
+    export_tracking(tmp_path, output_dir=tmp_path, region_properties="intensity", overwrite=True)
+    out = pd.read_csv(csv_path, skiprows=7)
+    assert "intensity_mean" in out.columns
+    assert "eccentricity" not in out.columns
+
 def test_public_export_raises_on_missing_csvs(tmp_path):
     with pytest.raises(FileNotFoundError):
         export_tracking(tmp_path / "nonexistent")
