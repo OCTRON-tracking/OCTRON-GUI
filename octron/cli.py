@@ -234,6 +234,13 @@ class CentroidMethod(str, Enum):
     mask_com = "mask_com"
 
 
+def _list_properties_callback(value: bool):
+    if value:
+        from octron.tools.export_tracking import list_region_properties
+        list_region_properties()
+        raise typer.Exit()
+
+
 @app.command()
 def export(
     predictions_path: Path = typer.Argument(
@@ -268,6 +275,12 @@ def export(
     overwrite: bool = typer.Option(
         False, "--overwrite",
         help="Overwrite existing output CSV files. Default: raise an error if files already exist.",
+    ),
+    list_properties: bool = typer.Option(
+        False, "--list-properties",
+        help="Print all available regionprop names and exit.",
+        callback=_list_properties_callback,
+        is_eager=True,
     ),
 ):
     """Export tracking CSVs from an existing OCTRON predictions directory."""

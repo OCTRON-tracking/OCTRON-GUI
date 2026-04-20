@@ -465,6 +465,25 @@ _BASE_COLS = frozenset({"frame_counter", "frame_idx", "track_id", "label",
                         "confidence", "pos_x", "pos_y", "area"}) | _BBOX_COLS
 
 
+def list_region_properties(*, print_output: bool = True) -> dict:
+    """Return (and optionally print) all available regionprop names grouped by category.
+
+    Examples
+    --------
+    >>> from octron.tools.export_tracking import list_region_properties
+    >>> props = list_region_properties()
+    """
+    from octron.yolo_octron.constants import ALL_REGION_PROPERTIES
+
+    if print_output:
+        for category, names in ALL_REGION_PROPERTIES.items():
+            print(f"\n{category}:")
+            for name in names:
+                print(f"  {name}")
+        print()
+    return ALL_REGION_PROPERTIES
+
+
 def export_tracking(
     predictions_path,
     output_dir=None,
