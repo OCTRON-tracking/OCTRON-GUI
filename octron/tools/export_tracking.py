@@ -162,7 +162,7 @@ def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsam
 
 
 # ---------------------------------------------------------------------------
-# Region-property constants
+# Region-property constants and per-batch worker (module-level for pickling)
 # ---------------------------------------------------------------------------
 
 # Properties that require the original video frame (intensity image) — cannot
@@ -172,6 +172,71 @@ _INTENSITY_PROPS = frozenset({
 })
 
 _PROPS_BATCH = 500  # zarr frames per contiguous read when computing props
+
+
+def _zarr_batch_worker(args):
+    """Process-pool worker: opens zarr independently and computes regionprops.
+
+    Must be a module-level function so it can be pickled by ProcessPoolExecutor
+    on Windows (spawn start method).  All imports are local so the worker
+    process only loads what it needs.
+    """
+    zarr_store_path, arr_key, batch_fi, fi_positions, computable = args
+    import zarr as _zarr
+    import numpy as _np
+    from skimage import measure as _measure
+    from time import perf_counter as _pc
+    from pathlib import Path as _Path
+
+    store = _zarr.storage.LocalStore(_Path(zarr_store_path), read_only=True)
+    root = _zarr.open_group(store=store, mode="r")
+    zarr_arr = root[arr_key]
+
+    fi_lo, fi_hi = batch_fi[0], batch_fi[-1]
+    t0 = _pc()
+    raw_batch = _np.asarray(zarr_arr[fi_lo : fi_hi + 1])
+    t1 = _pc()
+
+    results = {}
+    t_binary = t_bbox = t_label = t_props = 0.0
+    for fi, pos in zip(batch_fi, fi_positions):
+        raw = raw_batch[fi - fi_lo]
+
+        ta = _pc()
+        binary = (raw == 1).astype(_np.uint8)
+        tb = _pc()
+        rows_nz, cols_nz = _np.where(binary)
+        tc = _pc()
+        if not len(rows_nz):
+            t_binary += tb - ta
+            t_bbox += tc - tb
+            continue
+        r0, r1 = int(rows_nz.min()), int(rows_nz.max()) + 1
+        c0, c1 = int(cols_nz.min()), int(cols_nz.max()) + 1
+        td = _pc()
+        labeled = _measure.label(binary[r0:r1, c0:c1], background=0, connectivity=2)
+        te = _pc()
+        props = _measure.regionprops_table(labeled, properties=computable)
+        tf = _pc()
+
+        t_binary += tb - ta
+        t_bbox += td - tb
+        t_label += te - td
+        t_props += tf - te
+
+        frame_result = {}
+        for col_key, vals in props.items():
+            base = col_key.split("-")[0]
+            if base not in computable and col_key not in computable:
+                continue
+            frame_result[col_key] = (
+                float(vals[0]) if len(vals) == 1
+                else str(tuple(float(v) for v in vals))
+            )
+        if frame_result:
+            results[pos] = frame_result
+
+    return results, fi_lo, fi_hi, t1 - t0, _pc() - t1, t_binary, t_bbox, t_label, t_props
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +559,8 @@ _BASE_COLS = frozenset({"frame_counter", "frame_idx", "track_id", "label",
                         "confidence", "pos_x", "pos_y", "area"}) | _BBOX_COLS
 
 
-def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, properties):
+def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, properties,
+                                   zarr_path=None):
     """
     Compute per-frame regionprops directly from zarr segmentation masks.
 
@@ -535,9 +601,18 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
         return {}
 
     import os
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
     n_workers = min(8, os.cpu_count() or 4)
+    # ProcessPoolExecutor bypasses the GIL for true CPU parallelism.
+    # Falls back to threads only if the zarr path is unavailable.
+    use_processes = zarr_path is not None
+    ExecutorClass = ProcessPoolExecutor if use_processes else ThreadPoolExecutor
+    _log.debug(
+        f"Using {'ProcessPoolExecutor' if use_processes else 'ThreadPoolExecutor'} "
+        f"with {n_workers} workers"
+    )
+
     result = {}
 
     for tid in tqdm(track_ids, desc="Computing region props from masks", unit="track"):
@@ -553,57 +628,36 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
 
         fi_to_pos = {int(fi): i for i, fi in enumerate(frame_idxs)}
         valid_fi = sorted(fi for fi in fi_to_pos if fi < n_zarr_frames)
-        batches = [valid_fi[s : s + _PROPS_BATCH] for s in range(0, len(valid_fi), _PROPS_BATCH)]
 
         # per-frame result as list-of-dicts — handles dynamically-expanded
         # column names (e.g. moments_hu → moments_hu-0 … moments_hu-6)
         rows = [{} for _ in range(n)]
 
-        def _process_batch(batch):
-            fi_lo, fi_hi = batch[0], batch[-1]
-            t_io = perf_counter()
-            raw_batch = np.asarray(zarr_arr[fi_lo : fi_hi + 1])
-            t_io_done = perf_counter()
-            batch_results = {}
-            for fi in batch:
-                raw = raw_batch[fi - fi_lo]
-                binary = (raw == 1).astype(np.uint8)
-                rows_nz, cols_nz = np.where(binary)
-                if len(rows_nz) == 0:
-                    continue
-                # Crop to bounding box — all requested props are translation-
-                # invariant so results are identical to full-image computation
-                # but on ~100x fewer pixels (e.g. 50×50 vs 640×640).
-                r0, r1 = rows_nz.min(), rows_nz.max() + 1
-                c0, c1 = cols_nz.min(), cols_nz.max() + 1
-                crop = binary[r0:r1, c0:c1]
-                labeled = measure.label(crop, background=0, connectivity=2)
-                props = measure.regionprops_table(labeled, properties=computable)
-                frame_result = {}
-                for col_key, vals in props.items():
-                    base = col_key.split("-")[0]
-                    if base not in computable and col_key not in computable:
-                        continue
-                    frame_result[col_key] = (
-                        float(vals[0]) if len(vals) == 1
-                        else str(tuple(float(v) for v in vals))
-                    )
-                if frame_result:
-                    batch_results[fi_to_pos[fi]] = frame_result
-            t_cpu_done = perf_counter()
-            _log.debug(
-                f"batch {fi_lo}-{fi_hi}: "
-                f"zarr_read={t_io_done - t_io:.3f}s  "
-                f"regionprops={t_cpu_done - t_io_done:.3f}s"
+        # Build picklable args for the module-level worker function.
+        # Each entry contains everything the worker needs independently.
+        batch_args = [
+            (
+                str(zarr_path),
+                arr_key,
+                valid_fi[s : s + _PROPS_BATCH],
+                [fi_to_pos[fi] for fi in valid_fi[s : s + _PROPS_BATCH]],
+                computable,
             )
-            return batch_results
+            for s in range(0, len(valid_fi), _PROPS_BATCH)
+        ]
 
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
-            for batch_results in tqdm(
-                executor.map(_process_batch, batches),
-                total=len(batches),
+        with ExecutorClass(max_workers=n_workers) as executor:
+            for batch_results, fi_lo, fi_hi, t_io, t_cpu, t_bin, t_bbox, t_lbl, t_rpt in tqdm(
+                executor.map(_zarr_batch_worker, batch_args),
+                total=len(batch_args),
                 desc=f"  track {tid}", unit="batch", leave=False,
             ):
+                _log.debug(
+                    f"batch {fi_lo}-{fi_hi}: zarr_read={t_io:.3f}s  "
+                    f"regionprops={t_cpu:.3f}s "
+                    f"(binary={t_bin:.3f}s  bbox={t_bbox:.3f}s  "
+                    f"label={t_lbl:.3f}s  props_table={t_rpt:.3f}s)"
+                )
                 for pos, frame_result in batch_results.items():
                     rows[pos].update(frame_result)
 
@@ -811,7 +865,8 @@ def export_tracking(
             logger.info(f"Computing {props_to_compute} from zarr masks...")
             t_zarr = perf_counter()
             zarr_props = compute_region_props_from_zarr(
-                zarr_root, track_ids, frame_indices, props_to_compute
+                zarr_root, track_ids, frame_indices, props_to_compute,
+                zarr_path=zarr_candidate,
             )
             logger.debug(f"zarr regionprops: {perf_counter()-t_zarr:.3f}s")
             for tid in track_ids:
