@@ -287,8 +287,16 @@ def export(
         callback=_list_properties_callback,
         is_eager=True,
     ),
+    debug: bool = typer.Option(
+        False, "--debug",
+        help="Enable debug logging with millisecond timestamps and per-step timing.",
+    ),
 ):
     """Export tracking CSVs from an existing OCTRON predictions directory."""
+    if debug:
+        from octron._logging import setup_logging
+        setup_logging(debug=True)
+
     from octron.tools.export_tracking import export_tracking
 
     _rp = region_properties.strip().lower() if region_properties is not None else None

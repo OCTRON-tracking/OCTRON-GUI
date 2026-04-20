@@ -37,6 +37,7 @@ compute_mask_centroids : Compute per-frame centre-of-mass from zarr masks.
 import ast
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Literal
 
 import numpy as np
@@ -533,22 +534,34 @@ def export_tracking(
         If False (default) raise FileExistsError when any output file already
         exists.  Set True to silently overwrite.
     """
+    t0 = perf_counter()
+    from loguru import logger
+    logger.debug(f"loguru import: {perf_counter()-t0:.3f}s")
+
+    t1 = perf_counter()
     import zarr
+    logger.debug(f"zarr import: {perf_counter()-t1:.3f}s")
+
+    t2 = perf_counter()
     from natsort import natsorted
     import pandas as pd
-    from loguru import logger
+    logger.debug(f"natsort+pandas import: {perf_counter()-t2:.3f}s")
 
     predictions_path = Path(predictions_path)
 
     # --- Discover CSV files ---
+    t3 = perf_counter()
     csvs = natsorted(predictions_path.rglob("*track_*.csv"))
+    logger.debug(f"CSV discovery (rglob): {perf_counter()-t3:.3f}s")
     if not csvs:
         raise FileNotFoundError(f"No tracking CSV files found in {predictions_path}")
     logger.info(f"Found {len(csvs)} tracking CSV(s) in {predictions_path.name}")
 
     # --- Discover zarr (optional; required only for mask_com) ---
+    t4 = perf_counter()
     zarr_root = None
     zarr_paths = list(predictions_path.rglob("predictions.zarr"))
+    logger.debug(f"zarr discovery (rglob): {perf_counter()-t4:.3f}s")
     if zarr_paths:
         store = zarr.storage.LocalStore(zarr_paths[0], read_only=True)
         zarr_root = zarr.open_group(store=store, mode="r")
@@ -567,6 +580,7 @@ def export_tracking(
         region_properties = list(ALL_REGION_PROPERTIES[_GROUP_ALIASES[region_properties]])
 
     # --- Read each CSV ---
+    t5 = perf_counter()
     track_ids      = []
     labels         = {}
     frame_counters = {}
@@ -615,6 +629,7 @@ def export_tracking(
         # region_properties=None or "all" → keep all extra columns
         region_props_d[tid] = {c: df[c].to_numpy() for c in extra_cols}
 
+    logger.debug(f"CSV reading ({len(track_ids)} track(s)): {perf_counter()-t5:.3f}s")
     output_dir = Path(output_dir) if output_dir is not None else predictions_path
 
     # --- Overwrite guard ---
@@ -638,6 +653,7 @@ def export_tracking(
                     "Pass overwrite=True to replace them."
                 )
 
+    t6 = perf_counter()
     _export_tracking_from_data(
         output_dir=output_dir,
         track_ids=track_ids,
@@ -655,3 +671,5 @@ def export_tracking(
         zarr_root=zarr_root,
         combined=combined,
     )
+    logger.debug(f"export write: {perf_counter()-t6:.3f}s")
+    logger.debug(f"total: {perf_counter()-t0:.3f}s")
