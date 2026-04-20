@@ -274,6 +274,14 @@ def export(
             "Use --list-properties to see available names."
         ),
     ),
+    video_path: Optional[Path] = typer.Option(
+        None, "--video",
+        help=(
+            "Path to the original video file. Required for intensity properties "
+            "(intensity_mean, intensity_max, intensity_min, intensity_std). "
+            "Auto-detected from the predictions directory name if not provided."
+        ),
+    ),
     combined: bool = typer.Option(
         False, "--combined",
         help="Write a single all_tracks.csv instead of one file per track.",
@@ -313,6 +321,7 @@ def export(
         output_dir=output_dir,
         method=method.value,
         region_properties=parsed_props,
+        video_path=video_path,
         combined=combined,
         overwrite=overwrite,
     )

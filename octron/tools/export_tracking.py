@@ -181,7 +181,7 @@ def _zarr_batch_worker(args):
     on Windows (spawn start method).  All imports are local so the worker
     process only loads what it needs.
     """
-    zarr_store_path, arr_key, batch_fi, fi_positions, computable = args
+    zarr_store_path, arr_key, batch_fi, fi_positions, computable, video_path, mask_h, mask_w = args
     import zarr as _zarr
     import numpy as _np
     from skimage import measure as _measure
@@ -196,6 +196,12 @@ def _zarr_batch_worker(args):
     t0 = _pc()
     raw_batch = _np.asarray(zarr_arr[fi_lo : fi_hi + 1])
     t1 = _pc()
+
+    cap = None
+    current_video_pos = -1
+    if video_path is not None:
+        import cv2 as _cv2
+        cap = _cv2.VideoCapture(video_path)
 
     results = {}
     t_binary = t_bbox = t_label = t_props = 0.0
@@ -216,9 +222,25 @@ def _zarr_batch_worker(args):
         c0 = int(cols_any.argmax())
         c1 = int(len(cols_any) - cols_any[::-1].argmax())
         tc = _pc()
+
+        intensity_crop = None
+        if cap is not None:
+            if fi != current_video_pos:
+                cap.set(_cv2.CAP_PROP_POS_FRAMES, fi)
+            ok, frame = cap.read()
+            current_video_pos = fi + 1 if ok else -1
+            if ok:
+                gray = _cv2.cvtColor(frame, _cv2.COLOR_BGR2GRAY)
+                fh, fw = gray.shape
+                if fh != mask_h or fw != mask_w:
+                    gray = _cv2.resize(gray, (mask_w, mask_h), interpolation=_cv2.INTER_LINEAR)
+                intensity_crop = gray[r0:r1, c0:c1]
+
         labeled = _measure.label(binary[r0:r1, c0:c1], background=0, connectivity=2)
         td = _pc()
-        props = _measure.regionprops_table(labeled, properties=computable)
+        props = _measure.regionprops_table(
+            labeled, intensity_image=intensity_crop, properties=computable
+        )
         te = _pc()
 
         t_binary += tb - ta
@@ -237,6 +259,9 @@ def _zarr_batch_worker(args):
             )
         if frame_result:
             results[pos] = frame_result
+
+    if cap is not None:
+        cap.release()
 
     return results, fi_lo, fi_hi, t1 - t0, _pc() - t1, t_binary, t_bbox, t_label, t_props
 
@@ -562,15 +587,12 @@ _BASE_COLS = frozenset({"frame_counter", "frame_idx", "track_id", "label",
 
 
 def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, properties,
-                                   zarr_path=None):
+                                   zarr_path=None, video_path=None):
     """
     Compute per-frame regionprops directly from zarr segmentation masks.
 
-    Used by :func:`export_tracking` to add shape metrics that were not
-    computed during prediction (i.e. predict was run without ``--detailed``).
-    Intensity properties (intensity_mean etc.) are silently skipped because
-    they require the original video frames; re-run ``octron predict`` with
-    ``--detailed`` if you need them.
+    Used by :func:`export_tracking` to add shape metrics (and optionally
+    intensity metrics) at export time.
 
     Parameters
     ----------
@@ -580,6 +602,12 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
         ``{track_id: array of video frame indices}`` matching the CSV rows.
     properties : list[str]
         skimage regionprop base names to compute.
+    zarr_path : Path or None
+        Filesystem path to the zarr store — enables ProcessPoolExecutor.
+    video_path : Path or str or None
+        Path to the original video file.  Required to compute intensity
+        properties (intensity_mean, intensity_max, intensity_min,
+        intensity_std).  Frames are resized to mask resolution if needed.
 
     Returns
     -------
@@ -592,12 +620,16 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
     from tqdm import tqdm
     from loguru import logger as _log
 
-    computable = [p for p in properties if p not in _BASE_COLS and p not in _INTENSITY_PROPS]
-    skipped_intensity = [p for p in properties if p in _INTENSITY_PROPS]
+    has_video = video_path is not None
+    computable = [
+        p for p in properties
+        if p not in _BASE_COLS and (has_video or p not in _INTENSITY_PROPS)
+    ]
+    skipped_intensity = [p for p in properties if p in _INTENSITY_PROPS] if not has_video else []
     if skipped_intensity:
         _log.warning(
-            f"Intensity properties {skipped_intensity} cannot be computed from masks "
-            f"alone — re-run 'octron predict' with --detailed to include them."
+            f"Intensity properties {skipped_intensity} require the original video. "
+            f"Pass --video (or video_path=) to compute them."
         )
     if not computable:
         return {}
@@ -625,6 +657,7 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
 
         zarr_arr = zarr_root[arr_key]
         n_zarr_frames = zarr_arr.shape[0]
+        mask_h, mask_w = int(zarr_arr.shape[1]), int(zarr_arr.shape[2])
         frame_idxs = np.asarray(frame_indices_dict[tid], dtype=int)
         n = len(frame_idxs)
 
@@ -635,6 +668,8 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
         # column names (e.g. moments_hu → moments_hu-0 … moments_hu-6)
         rows = [{} for _ in range(n)]
 
+        _video_path_str = str(video_path) if video_path is not None else None
+
         # Build picklable args for the module-level worker function.
         # Each entry contains everything the worker needs independently.
         batch_args = [
@@ -644,6 +679,9 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
                 valid_fi[s : s + _PROPS_BATCH],
                 [fi_to_pos[fi] for fi in valid_fi[s : s + _PROPS_BATCH]],
                 computable,
+                _video_path_str,
+                mask_h,
+                mask_w,
             )
             for s in range(0, len(valid_fi), _PROPS_BATCH)
         ]
@@ -682,6 +720,20 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
     return result
 
 
+_VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv", ".mpg", ".mpeg", ".mts", ".m4v")
+
+
+def _autodetect_video(predictions_path: Path):
+    """Replicate YOLO_results auto-detection: strip tracker suffix, look two levels up."""
+    stem = "_".join(predictions_path.name.split("_")[:-1])
+    search_dir = predictions_path.parent.parent
+    for ext in _VIDEO_EXTENSIONS:
+        candidate = search_dir / f"{stem}{ext}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def list_region_properties(*, print_output: bool = True) -> dict:
     """Return (and optionally print) all available regionprop names grouped by category.
 
@@ -706,6 +758,7 @@ def export_tracking(
     output_dir=None,
     method: Literal["largest", "weighted", "mask_com"] = "largest",
     region_properties=None,
+    video_path=None,
     combined=False,
     overwrite=False,
 ):
@@ -748,6 +801,11 @@ def export_tracking(
             Include only the named columns that are present in the CSV
             (e.g. ``["eccentricity", "solidity"]``).  Use
             :func:`list_region_properties` to see what is available.
+    video_path : str or Path or None
+        Path to the original video file.  Required to compute intensity
+        properties (intensity_mean, intensity_max, intensity_min,
+        intensity_std).  Auto-detected from the predictions directory name
+        if not provided.
     combined : bool
         If True write a single ``all_tracks.csv``; otherwise one file per track.
     overwrite : bool
@@ -854,21 +912,29 @@ def export_tracking(
 
     logger.debug(f"CSV reading ({len(track_ids)} track(s)): {perf_counter()-t5:.3f}s")
 
+    # --- Auto-detect video if not provided ---
+    if video_path is None:
+        video_path = _autodetect_video(predictions_path)
+        if video_path is not None:
+            logger.info(f"Auto-detected video: {video_path.name}")
+        else:
+            logger.debug("No video file found alongside predictions directory.")
+    else:
+        video_path = Path(video_path)
+
     # --- Compute region props from zarr (always, when zarr is available) ---
     # Zarr masks are the ground truth — always recompute requested props from
     # them rather than relying on CSV values, which may have been produced with
     # a different method or an older version of the pipeline.
     if isinstance(region_properties, list) and zarr_root is not None:
-        props_to_compute = [
-            p for p in region_properties
-            if p not in _BASE_COLS and p not in _INTENSITY_PROPS
-        ]
+        props_to_compute = [p for p in region_properties if p not in _BASE_COLS]
         if props_to_compute:
             logger.info(f"Computing {props_to_compute} from zarr masks...")
             t_zarr = perf_counter()
             zarr_props = compute_region_props_from_zarr(
                 zarr_root, track_ids, frame_indices, props_to_compute,
                 zarr_path=zarr_candidate,
+                video_path=video_path,
             )
             logger.debug(f"zarr regionprops: {perf_counter()-t_zarr:.3f}s")
             for tid in track_ids:
