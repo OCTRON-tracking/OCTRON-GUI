@@ -169,10 +169,14 @@ def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsam
 # be computed from masks alone at export time.
 # When a video is provided, these are computed on a 4-channel image
 # (R, G, B, luminance), so each property expands to four columns:
-#   intensity_mean-0 = R,  -1 = G,  -2 = B,  -3 = luminance
+#   intensity_mean_r, intensity_mean_g, intensity_mean_b, intensity_mean_lum
 _INTENSITY_PROPS = frozenset({
     "intensity_max", "intensity_mean", "intensity_min", "intensity_std",
 })
+
+# Rename skimage's numeric channel suffixes to readable labels.
+# Channels are stacked as (R, G, B, luminance) in the worker.
+_CHANNEL_SUFFIX = {"-0": "_r", "-1": "_g", "-2": "_b", "-3": "_lum"}
 
 _PROPS_BATCH = 500  # zarr frames per contiguous read when computing props
 
@@ -255,11 +259,17 @@ def _zarr_batch_worker(args):
         t_props += te - td
 
         frame_result = {}
+        _ch = {"-0": "_r", "-1": "_g", "-2": "_b", "-3": "_lum"}
         for col_key, vals in props.items():
             base = col_key.split("-")[0]
             if base not in computable and col_key not in computable:
                 continue
-            frame_result[col_key] = (
+            out_key = col_key
+            for old_suf, new_suf in _ch.items():
+                if col_key.endswith(old_suf):
+                    out_key = col_key[: -len(old_suf)] + new_suf
+                    break
+            frame_result[out_key] = (
                 float(vals[0]) if len(vals) == 1
                 else str(tuple(float(v) for v in vals))
             )
