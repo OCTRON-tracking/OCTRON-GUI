@@ -527,7 +527,10 @@ def _export_tracking_from_data(
 
         # --- all other regionprops ---
         resolved_props = {}
-        for prop_name, prop_values in (region_props.get(tid) or {}).items():
+        prop_items = list((region_props.get(tid) or {}).items())
+        for prop_name, prop_values in tqdm(
+            prop_items, desc=f"  resolving props", unit="prop", leave=False,
+        ):
             pv = np.asarray(prop_values, dtype=object)
             # orientation is a circular quantity — always use largest segment.
             if prop_name == "orientation" or not _use_weighted:
