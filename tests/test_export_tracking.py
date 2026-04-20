@@ -487,19 +487,19 @@ def _write_prediction_csv(path, track_id, label="animal", n=4):
 
 def test_public_export_creates_output(tmp_path):
     _write_prediction_csv(tmp_path / "animal_track_1.csv", track_id=1)
-    export_tracking(tmp_path, output_dir=tmp_path)
+    export_tracking(tmp_path, output_dir=tmp_path, overwrite=True)
     assert (tmp_path / "animal_track_1.csv").exists()
 
 def test_public_export_output_has_pos_and_area(tmp_path):
     _write_prediction_csv(tmp_path / "animal_track_1.csv", track_id=1)
-    export_tracking(tmp_path, output_dir=tmp_path)
+    export_tracking(tmp_path, output_dir=tmp_path, overwrite=True)
     df = pd.read_csv(tmp_path / "animal_track_1.csv", skiprows=7)
     assert "pos_x" in df.columns
     assert "area" in df.columns
 
 def test_public_export_no_spurious_columns(tmp_path):
     _write_prediction_csv(tmp_path / "animal_track_1.csv", track_id=1)
-    export_tracking(tmp_path, output_dir=tmp_path)
+    export_tracking(tmp_path, output_dir=tmp_path, overwrite=True)
     df = pd.read_csv(tmp_path / "animal_track_1.csv", skiprows=7)
     for col in ("centroid_x", "centroid_y", "segments_x", "segments_y", "segments_area"):
         assert col not in df.columns
@@ -523,7 +523,7 @@ def test_public_export_region_properties_filter(tmp_path):
         f.write(_build_header(meta))
         df.to_csv(f, index=False, lineterminator="\n")
 
-    export_tracking(tmp_path, output_dir=tmp_path, region_properties=["eccentricity"])
+    export_tracking(tmp_path, output_dir=tmp_path, region_properties=["eccentricity"], overwrite=True)
     out = pd.read_csv(csv_path, skiprows=7)
     assert "eccentricity" in out.columns
     assert "solidity" not in out.columns
@@ -531,3 +531,42 @@ def test_public_export_region_properties_filter(tmp_path):
 def test_public_export_raises_on_missing_csvs(tmp_path):
     with pytest.raises(FileNotFoundError):
         export_tracking(tmp_path / "nonexistent")
+
+
+# ===========================================================================
+# export_tracking — overwrite guard
+# ===========================================================================
+
+def test_overwrite_false_raises_when_file_exists(tmp_path):
+    """Default overwrite=False should raise FileExistsError if output exists."""
+    _write_prediction_csv(tmp_path / "animal_track_1.csv", track_id=1)
+    # First export creates the file
+    export_tracking(tmp_path, output_dir=tmp_path, overwrite=True)
+    # Second export without overwrite should fail
+    with pytest.raises(FileExistsError):
+        export_tracking(tmp_path, output_dir=tmp_path, overwrite=False)
+
+
+def test_overwrite_true_replaces_existing_file(tmp_path):
+    """overwrite=True should silently replace an existing output file."""
+    _write_prediction_csv(tmp_path / "animal_track_1.csv", track_id=1)
+    export_tracking(tmp_path, output_dir=tmp_path, overwrite=True)
+    export_tracking(tmp_path, output_dir=tmp_path, overwrite=True)  # no error
+    assert (tmp_path / "animal_track_1.csv").exists()
+
+
+def test_overwrite_false_raises_for_combined(tmp_path):
+    """overwrite=False should raise when all_tracks.csv already exists."""
+    _write_prediction_csv(tmp_path / "animal_track_1.csv", track_id=1)
+    export_tracking(tmp_path, output_dir=tmp_path, combined=True, overwrite=True)
+    with pytest.raises(FileExistsError):
+        export_tracking(tmp_path, output_dir=tmp_path, combined=True, overwrite=False)
+
+
+def test_overwrite_false_no_error_when_output_dir_is_different(tmp_path):
+    """No error when writing to a fresh directory even with overwrite=False."""
+    _write_prediction_csv(tmp_path / "animal_track_1.csv", track_id=1)
+    out = tmp_path / "fresh"
+    out.mkdir()
+    export_tracking(tmp_path, output_dir=out, overwrite=False)  # should not raise
+    assert (out / "animal_track_1.csv").exists()

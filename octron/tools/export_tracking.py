@@ -471,6 +471,7 @@ def export_tracking(
     centroid_method: Literal["largest", "weighted", "mask_com"] = "largest",
     region_properties=None,
     combined=False,
+    overwrite=False,
 ):
     """
     Export tracking CSVs from an existing OCTRON predictions directory.
@@ -494,6 +495,9 @@ def export_tracking(
         A list of names → include only those columns (if present in the CSV).
     combined : bool
         If True write a single ``all_tracks.csv``; otherwise one file per track.
+    overwrite : bool
+        If False (default) raise FileExistsError when any output file already
+        exists.  Set True to silently overwrite.
     """
     import zarr
     from natsort import natsorted
@@ -570,6 +574,27 @@ def export_tracking(
         region_props_d[tid] = {c: df[c].to_numpy() for c in extra_cols}
 
     output_dir = Path(output_dir) if output_dir is not None else predictions_path
+
+    # --- Overwrite guard ---
+    if not overwrite:
+        if combined:
+            candidate = output_dir / "all_tracks.csv"
+            if candidate.exists():
+                raise FileExistsError(
+                    f"{candidate} already exists. Pass overwrite=True to replace it."
+                )
+        else:
+            existing = [
+                output_dir / f"{labels[tid]}_track_{tid}.csv"
+                for tid in track_ids
+                if (output_dir / f"{labels[tid]}_track_{tid}.csv").exists()
+            ]
+            if existing:
+                names = ", ".join(p.name for p in existing)
+                raise FileExistsError(
+                    f"Output file(s) already exist: {names}. "
+                    "Pass overwrite=True to replace them."
+                )
 
     _export_tracking_from_data(
         output_dir=output_dir,

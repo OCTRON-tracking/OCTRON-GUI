@@ -265,6 +265,10 @@ def export(
         False, "--combined",
         help="Write a single all_tracks.csv instead of one file per track.",
     ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite",
+        help="Overwrite existing output CSV files. Default: raise an error if files already exist.",
+    ),
 ):
     """Export tracking CSVs from an existing OCTRON predictions directory."""
     from octron.tools.export_tracking import export_tracking
@@ -280,6 +284,7 @@ def export(
         centroid_method=centroid_method.value,
         region_properties=parsed_props,
         combined=combined,
+        overwrite=overwrite,
     )
 
 
