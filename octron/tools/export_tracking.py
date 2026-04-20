@@ -551,8 +551,8 @@ def export_tracking(
 
     # --- Discover CSV files ---
     t3 = perf_counter()
-    csvs = natsorted(predictions_path.rglob("*track_*.csv"))
-    logger.debug(f"CSV discovery (rglob): {perf_counter()-t3:.3f}s")
+    csvs = natsorted(predictions_path.glob("*track_*.csv"))
+    logger.debug(f"CSV discovery: {perf_counter()-t3:.3f}s")
     if not csvs:
         raise FileNotFoundError(f"No tracking CSV files found in {predictions_path}")
     logger.info(f"Found {len(csvs)} tracking CSV(s) in {predictions_path.name}")
@@ -560,10 +560,10 @@ def export_tracking(
     # --- Discover zarr (optional; required only for mask_com) ---
     t4 = perf_counter()
     zarr_root = None
-    zarr_paths = list(predictions_path.rglob("predictions.zarr"))
-    logger.debug(f"zarr discovery (rglob): {perf_counter()-t4:.3f}s")
-    if zarr_paths:
-        store = zarr.storage.LocalStore(zarr_paths[0], read_only=True)
+    zarr_candidate = predictions_path / "predictions.zarr"
+    logger.debug(f"zarr discovery: {perf_counter()-t4:.3f}s")
+    if zarr_candidate.exists():
+        store = zarr.storage.LocalStore(zarr_candidate, read_only=True)
         zarr_root = zarr.open_group(store=store, mode="r")
         logger.info("Found zarr archive")
     elif centroid_method == "mask_com":
