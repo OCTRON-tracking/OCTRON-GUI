@@ -568,9 +568,16 @@ def compute_region_props_from_zarr(zarr_root, track_ids, frame_indices_dict, pro
             for fi in batch:
                 raw = raw_batch[fi - fi_lo]
                 binary = (raw == 1).astype(np.uint8)
-                if binary.sum() == 0:
+                rows_nz, cols_nz = np.where(binary)
+                if len(rows_nz) == 0:
                     continue
-                labeled = measure.label(binary, background=0, connectivity=2)
+                # Crop to bounding box — all requested props are translation-
+                # invariant so results are identical to full-image computation
+                # but on ~100x fewer pixels (e.g. 50×50 vs 640×640).
+                r0, r1 = rows_nz.min(), rows_nz.max() + 1
+                c0, c1 = cols_nz.min(), cols_nz.max() + 1
+                crop = binary[r0:r1, c0:c1]
+                labeled = measure.label(crop, background=0, connectivity=2)
                 props = measure.regionprops_table(labeled, properties=computable)
                 frame_result = {}
                 for col_key, vals in props.items():
