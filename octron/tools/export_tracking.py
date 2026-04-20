@@ -508,10 +508,19 @@ def export_tracking(
     centroid_method : {"largest", "weighted", "mask_com"}
         How to resolve multi-segment rows.  Applied consistently to all
         columns (positions, areas, regionprops).  See module docstring.
-    region_properties : None, "all", or list[str]
+    region_properties : None, "all", "none", or list[str]
         Which regionprop columns to include in the output.
-        ``None`` / ``"all"`` → keep every column found in the existing CSV.
-        A list of names → include only those columns (if present in the CSV).
+
+        ``None`` / ``"all"``
+            Keep every regionprop column found in the existing CSV (default).
+        ``"none"``
+            Strip all regionprop columns; output contains only the base
+            columns (frame counters, track id, label, confidence, pos_x/y,
+            area, bbox).
+        list of strings
+            Include only the named columns that are present in the CSV
+            (e.g. ``["eccentricity", "solidity"]``).  Use
+            :func:`list_region_properties` to see what is available.
     combined : bool
         If True write a single ``all_tracks.csv``; otherwise one file per track.
     overwrite : bool
@@ -587,7 +596,9 @@ def export_tracking(
 
         # Extra regionprop columns
         extra_cols = [c for c in df.columns if c not in _BASE_COLS]
-        if isinstance(region_properties, list):
+        if region_properties == "none":
+            extra_cols = []
+        elif isinstance(region_properties, list):
             extra_cols = [c for c in extra_cols if c in region_properties]
         # region_properties=None or "all" → keep all extra columns
         region_props_d[tid] = {c: df[c].to_numpy() for c in extra_cols}

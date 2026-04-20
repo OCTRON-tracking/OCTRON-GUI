@@ -528,6 +528,36 @@ def test_public_export_region_properties_filter(tmp_path):
     assert "eccentricity" in out.columns
     assert "solidity" not in out.columns
 
+def test_public_export_region_properties_none_strips_extras(tmp_path):
+    csv_path = tmp_path / "animal_track_1.csv"
+    _write_prediction_csv(csv_path, track_id=1)
+    df = pd.read_csv(csv_path, skiprows=7)
+    df["eccentricity"] = 0.5
+    meta = _read_csv_metadata(csv_path)
+    from octron.tools.export_tracking import _build_header
+    with open(csv_path, "w") as f:
+        f.write(_build_header(meta))
+        df.to_csv(f, index=False, lineterminator="\n")
+
+    export_tracking(tmp_path, output_dir=tmp_path, region_properties="none", overwrite=True)
+    out = pd.read_csv(csv_path, skiprows=7)
+    assert "eccentricity" not in out.columns
+
+def test_public_export_region_properties_all_keeps_extras(tmp_path):
+    csv_path = tmp_path / "animal_track_1.csv"
+    _write_prediction_csv(csv_path, track_id=1)
+    df = pd.read_csv(csv_path, skiprows=7)
+    df["eccentricity"] = 0.5
+    meta = _read_csv_metadata(csv_path)
+    from octron.tools.export_tracking import _build_header
+    with open(csv_path, "w") as f:
+        f.write(_build_header(meta))
+        df.to_csv(f, index=False, lineterminator="\n")
+
+    export_tracking(tmp_path, output_dir=tmp_path, region_properties="all", overwrite=True)
+    out = pd.read_csv(csv_path, skiprows=7)
+    assert "eccentricity" in out.columns
+
 def test_public_export_raises_on_missing_csvs(tmp_path):
     with pytest.raises(FileNotFoundError):
         export_tracking(tmp_path / "nonexistent")

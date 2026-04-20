@@ -263,9 +263,12 @@ def export(
     region_properties: Optional[str] = typer.Option(
         None, "--region-properties",
         help=(
-            "Comma-separated list of regionprop column names to include "
-            "(e.g. 'area,eccentricity,solidity'). "
-            "Omit to keep every column found in the existing CSV."
+            "Which regionprop columns to write. "
+            "'all' or omit: keep every column in the existing CSV. "
+            "'none': strip all regionprop columns. "
+            "Otherwise a comma-separated list of names "
+            "(e.g. 'eccentricity,solidity'). "
+            "Use --list-properties to see available names."
         ),
     ),
     combined: bool = typer.Option(
@@ -286,10 +289,12 @@ def export(
     """Export tracking CSVs from an existing OCTRON predictions directory."""
     from octron.tools.export_tracking import export_tracking
 
-    parsed_props = (
-        [p.strip() for p in region_properties.split(",") if p.strip()]
-        if region_properties is not None else None
-    )
+    if region_properties is None or region_properties.strip().lower() == "all":
+        parsed_props = None
+    elif region_properties.strip().lower() == "none":
+        parsed_props = "none"
+    else:
+        parsed_props = [p.strip() for p in region_properties.split(",") if p.strip()]
 
     export_tracking(
         predictions_path=predictions_path,
