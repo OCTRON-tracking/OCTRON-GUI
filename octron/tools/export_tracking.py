@@ -367,10 +367,12 @@ def _export_tracking_from_data(
     # mask_com falls back to weighted for all non-centroid metrics.
     _use_weighted = centroid_method in ("weighted", "mask_com")
 
+    from tqdm import tqdm
+
     header = _build_header(video_metadata)
     dfs = {}
 
-    for tid in track_ids:
+    for tid in tqdm(track_ids, desc="Processing tracks", unit="track", total=len(track_ids)):
         if tid not in frame_indices or len(frame_indices[tid]) == 0:
             continue
 
@@ -447,7 +449,7 @@ def _export_tracking_from_data(
             all_df.to_csv(f, na_rep="NaN", lineterminator="\n")
         logger.debug(f"Saved combined tracking data ({len(dfs)} tracks) to all_tracks.csv")
     else:
-        for tid, (label, df) in dfs.items():
+        for tid, (label, df) in tqdm(dfs.items(), desc="Writing CSVs", unit="track", total=len(dfs)):
             csv_path = output_dir / f"{label}_track_{tid}.csv"
             with open(csv_path, "w") as f:
                 f.write(header)
