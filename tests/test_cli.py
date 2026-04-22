@@ -22,7 +22,7 @@ render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --tracklet-size, --tracklet-mask-centroids,
                     --tracklet-smooth-cutoff, --tracklet-smooth-order,
                     --tracklet-interpolate, --track-ids, --min-observations,
-                    --bbox-sizes
+                    --min-confidence, --bbox-sizes
 transcode   --help: --output, --crf, --overwrite
 
 auto_device returns 'cuda', 'mps', or 'cpu' (skipped if torch unavailable)
@@ -158,6 +158,7 @@ def test_render_help():
     assert '--tracklet-interpolate' in result.output
     assert '--track-ids' in result.output
     assert '--min-observations' in result.output
+    assert '--min-confidence' in result.output
     assert '--bbox-sizes' in result.output
     assert '--debug' in result.output
 

@@ -446,6 +446,7 @@ def run_tracklets(
     track_ids=None,
     min_observations=0,
     trim=False,
+    min_confidence=0.5,
     debug=False,
 ):
     """
@@ -745,6 +746,9 @@ def run_tracklets(
                 _drew_any = False
                 for tid in render_tids:
                     if tid in _batch_masks:
+                        _conf_row = bbox_lookup.get(tid, {}).get(frame_idx)
+                        if _conf_row is None or _conf_row["confidence"] < min_confidence:
+                            continue
                         batch = _batch_masks[tid]
                         if j < batch.shape[0]:
                             obj = batch[j] == 1
@@ -769,7 +773,7 @@ def run_tracklets(
                 color_bgr = track_colors[tid]
                 if draw_boxes:
                     row = bbox_lookup.get(tid, {}).get(frame_idx)
-                    if row is not None:
+                    if row is not None and row["confidence"] >= min_confidence:
                         x1 = int(row["bbox_x_min"] * scale)
                         y1 = int(row["bbox_y_min"] * scale)
                         x2 = int(row["bbox_x_max"] * scale)
@@ -786,7 +790,10 @@ def run_tracklets(
         for tid in render_tids:
             if trim and not (trim_starts[tid] <= frame_idx < trim_ends[tid]):
                 continue
+            _conf_row = bbox_lookup.get(tid, {}).get(frame_idx)
             row = pos_lookup.get(tid, {}).get(frame_idx)
+            if row is not None and (_conf_row is None or _conf_row["confidence"] < min_confidence):
+                row = None  # below confidence threshold — render as black frame
             if row is not None:
                 if also_overlay and out_frame is not None:
                     cx = float(row["pos_x"]) * scale
@@ -885,6 +892,7 @@ def run_render(
     track_ids=None,
     min_observations=0,
     trim=False,
+    min_confidence=0.5,
     alpha=0.4,
     draw_masks=True,
     draw_boxes=True,
@@ -959,6 +967,7 @@ def run_render(
             track_ids=track_ids,
             min_observations=min_observations,
             trim=trim,
+            min_confidence=min_confidence,
             debug=debug,
         )
         return
@@ -1157,6 +1166,9 @@ def run_render(
             _drew_any = False
             for tid in render_tids:
                 if tid in _batch_masks:
+                    _conf_row = bbox_lookup.get(tid, {}).get(frame_idx)
+                    if _conf_row is None or _conf_row["confidence"] < min_confidence:
+                        continue
                     batch = _batch_masks[tid]
                     if j < batch.shape[0]:
                         obj = batch[j] == 1
@@ -1184,7 +1196,7 @@ def run_render(
 
             if draw_boxes:
                 row = bbox_lookup.get(tid, {}).get(frame_idx)
-                if row is not None:
+                if row is not None and row["confidence"] >= min_confidence:
                     x1 = int(row["bbox_x_min"] * scale)
                     y1 = int(row["bbox_y_min"] * scale)
                     x2 = int(row["bbox_x_max"] * scale)

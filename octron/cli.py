@@ -293,6 +293,10 @@ def render(
     min_observations: int = typer.Option(
         0, "--min-observations", help="Skip tracks with fewer than this many observations. 0 = keep all tracks.",
     ),
+    min_confidence: float = typer.Option(
+        0.5, "--min-confidence", min=0.0, max=1.0,
+        help="Skip individual detections whose confidence is below this threshold (0–1). Default 0.5.",
+    ),
     trim: bool = typer.Option(
         False, "--trim", help="Trim each tracklet video to the track's first and last observation (within --start/--end if given).",
     ),
@@ -357,6 +361,7 @@ def render(
         track_ids=parsed_track_ids,
         min_observations=min_observations,
         trim=trim,
+        min_confidence=min_confidence,
         debug=debug,
     )
 
