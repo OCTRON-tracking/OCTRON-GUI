@@ -46,6 +46,20 @@ def run_split(
     dry_run : bool
         If ``True``, print split sizes without writing anything to disk.
     """
+    if not 0.0 < train_fraction < 1.0:
+        raise ValueError(
+            f"train_fraction must be in (0, 1); got {train_fraction!r}"
+        )
+    if not 0.0 <= val_fraction < 1.0:
+        raise ValueError(
+            f"val_fraction must be in [0, 1); got {val_fraction!r}"
+        )
+    if train_fraction + val_fraction >= 1.0:
+        raise ValueError(
+            f"train_fraction + val_fraction must be < 1 (test split = remainder); "
+            f"got {train_fraction} + {val_fraction} = {train_fraction + val_fraction}"
+        )
+
     from octron.yolo_octron.yolo_octron import YOLO_octron
 
     train_mode = train_mode.value if hasattr(train_mode, 'value') else str(train_mode)

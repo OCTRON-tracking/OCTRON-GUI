@@ -22,6 +22,43 @@ PRESETS = {
 }
 
 
+def _validate_render_args(preset, min_confidence, alpha):
+    """Shared input checks for run_render and run_tracklets."""
+    if preset not in PRESETS:
+        raise ValueError(
+            f"preset must be one of {sorted(PRESETS)}; got {preset!r}"
+        )
+    if not 0.0 <= float(min_confidence) <= 1.0:
+        raise ValueError(
+            f"min_confidence must be in [0, 1]; got {min_confidence!r}"
+        )
+    if not 0.0 <= float(alpha) <= 1.0:
+        raise ValueError(
+            f"alpha must be in [0, 1]; got {alpha!r}"
+        )
+
+
+def _coerce_track_ids(track_ids):
+    """Accept None, int, str ('1,3,5'), or iterable of ints; return list[int] or None."""
+    if track_ids is None:
+        return None
+    if isinstance(track_ids, str):
+        try:
+            return [int(x.strip()) for x in track_ids.split(",") if x.strip()]
+        except ValueError as e:
+            raise ValueError(
+                f"track_ids string must be comma-separated ints (e.g. '1,3,5'); got {track_ids!r}"
+            ) from e
+    if isinstance(track_ids, int):
+        return [track_ids]
+    try:
+        return [int(x) for x in track_ids]
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"track_ids must be a list/tuple/str of ints or a single int; got {track_ids!r}"
+        ) from e
+
+
 # ---------------------------------------------------------------------------
 # Encoder helpers
 # ---------------------------------------------------------------------------
@@ -501,6 +538,8 @@ def run_tracklets(
     end : int, optional
         Last frame index (exclusive).  Default: end of video.
     """
+    _validate_render_args(preset, min_confidence, alpha)
+    track_ids = _coerce_track_ids(track_ids)
     try:
         ox, oy = offset
         offset = (int(ox), int(oy))
@@ -954,6 +993,9 @@ def run_render(
     end : int, optional
         Last frame index (exclusive).
     """
+    _validate_render_args(preset, min_confidence, alpha)
+    track_ids = _coerce_track_ids(track_ids)
+
     if tracklets:
         run_tracklets(
             predictions_path=predictions_path,

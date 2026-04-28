@@ -179,37 +179,7 @@ def predict(
 ):
     """Run YOLO prediction and tracking on one or more videos."""
     from octron.tools.predict import run_predict
-    from octron.test_gpu import auto_device
 
-    expanded = []
-    for p in videos:
-        if p.is_dir():
-            found = sorted(f for f in p.iterdir() if f.suffix.lower() == ".mp4")
-            if not found:
-                raise typer.BadParameter(f"No .mp4 files found in directory: {p}", param_hint="videos")
-            print(f"Found {len(found)} video(s) in {p}")
-            expanded.extend(found)
-        else:
-            expanded.append(p)
-    videos = expanded
-
-    if model_path.is_dir():
-        candidates = [
-            model_path / "weights" / "best.pt",
-            model_path / "training" / "weights" / "best.pt",
-            model_path / "model" / "training" / "weights" / "best.pt",
-        ]
-        found = next((c for c in candidates if c.exists()), None)
-        if found:
-            model_path = found
-        else:
-            raise typer.BadParameter(
-                f"Directory given but no best.pt found inside: {model_path}",
-                param_hint="'--model'",
-            )
-
-    if device == "auto":
-        device = auto_device()
     if tracker_config is not None:
         tracker_name = None
         tracker_cfg_path = tracker_config

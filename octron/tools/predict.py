@@ -111,6 +111,35 @@ def run_predict(
         The cache directory is always deleted on exit, whether prediction
         finishes normally, is interrupted, or crashes.
     """
+    if isinstance(videos, (str, Path)):
+        videos = [videos]
+    expanded = []
+    for v in videos:
+        v = Path(v)
+        if v.is_dir():
+            found = sorted(f for f in v.iterdir() if f.suffix.lower() == ".mp4")
+            if not found:
+                raise ValueError(f"No .mp4 files found in directory: {v}")
+            print(f"Found {len(found)} video(s) in {v}")
+            expanded.extend(found)
+        else:
+            expanded.append(v)
+    videos = expanded
+
+    model_path = Path(model_path)
+    if model_path.is_dir():
+        candidates = [
+            model_path / "weights" / "best.pt",
+            model_path / "training" / "weights" / "best.pt",
+            model_path / "model" / "training" / "weights" / "best.pt",
+        ]
+        found = next((c for c in candidates if c.exists()), None)
+        if found is None:
+            raise FileNotFoundError(
+                f"model_path is a directory but no best.pt found inside: {model_path}"
+            )
+        model_path = found
+
     from loguru import logger
     from octron.yolo_octron.yolo_octron import YOLO_octron
     from octron.test_gpu import auto_device
