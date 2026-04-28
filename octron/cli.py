@@ -20,28 +20,37 @@ from typing import List, Optional
 from pathlib import Path
 from enum import Enum
 import typer
+import yaml
 from loguru import logger
 
 
-class YOLOModel(str, Enum):
-    yolo11m = "yolo11m"
-    yolo11l = "yolo11l"
-    yolo26m = "yolo26m"
-    yolo26l = "yolo26l"
+_PKG_DIR = Path(__file__).parent
+
+
+def _enum_from_yaml(name: str, yaml_path: Path, *, available_only: bool = False) -> type:
+    """Build a (str, Enum) from a YAML mapping. Keys are lower-cased for CLI values."""
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    members = {}
+    for key, info in data.items():
+        if available_only and isinstance(info, dict) and not info.get("available", False):
+            continue
+        value = key.lower()
+        members[value.replace("-", "_")] = value
+    return Enum(name, members, type=str)
+
+
+YOLOModel = _enum_from_yaml(
+    "YOLOModel", _PKG_DIR / "yolo_octron" / "yolo_models.yaml",
+)
+TrackerName = _enum_from_yaml(
+    "TrackerName", _PKG_DIR / "tracking" / "boxmot_trackers.yaml", available_only=True,
+)
 
 
 class TrainMode(str, Enum):
     segment = "segment"
     detect = "detect"
-
-
-class TrackerName(str, Enum):
-    bytetrack = "bytetrack"
-    ocsort = "ocsort"
-    botsort = "botsort"
-    docsort = "d-ocsort"
-    hybridsort = "hybridsort"
-    boosttrack = "boosttrack"
 
 
 class Device(str, Enum):
