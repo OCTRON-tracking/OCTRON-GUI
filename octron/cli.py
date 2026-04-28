@@ -294,6 +294,10 @@ def render(
         0, "--tracklet-segment-keep",
         help="When --tracklet-segment-only is set, keep only the N largest connected components of the mask. 0 = keep all components (default).",
     ),
+    tracklet_offset: Optional[str] = typer.Option(
+        None, "--tracklet-offset",
+        help="Pixel offset of the tracklet crop centre as 'DX,DY' (e.g. '20,-30'). Positive = right/down. Default: 0,0.",
+    ),
     # --- Filtering ---
     track_ids: Optional[str] = typer.Option(
         None, "--track-ids",
@@ -347,6 +351,23 @@ def render(
 
     parsed_tracklet_size = None if tracklet_size is None or tracklet_size.lower() == "auto" else int(tracklet_size)
 
+    if tracklet_offset is None or not tracklet_offset.strip():
+        parsed_tracklet_offset = (0, 0)
+    else:
+        try:
+            parts = [int(x.strip()) for x in tracklet_offset.split(",")]
+        except ValueError:
+            raise typer.BadParameter(
+                f"--tracklet-offset must be 'DX,DY' integers (e.g. '20,-30'); got {tracklet_offset!r}.",
+                param_hint="'--tracklet-offset'",
+            )
+        if len(parts) != 2:
+            raise typer.BadParameter(
+                f"--tracklet-offset must be exactly two integers separated by a comma; got {tracklet_offset!r}.",
+                param_hint="'--tracklet-offset'",
+            )
+        parsed_tracklet_offset = (parts[0], parts[1])
+
     run_render(
         predictions_path=predictions_path,
         video_path=video_path,
@@ -367,6 +388,7 @@ def render(
         tracklet_interpolate_max_gap=tracklet_interpolate,
         tracklet_segment_only=tracklet_segment_only,
         tracklet_segment_keep_n=tracklet_segment_keep,
+        tracklet_offset=parsed_tracklet_offset,
         track_ids=parsed_track_ids,
         min_observations=min_observations,
         trim=trim,

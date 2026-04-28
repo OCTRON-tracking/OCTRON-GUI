@@ -439,6 +439,7 @@ def run_tracklets(
     draw_boxes=False,
     segment_only=False,
     segment_keep_n=0,
+    offset=(0, 0),
     start=None,
     end=None,
     min_track_frames=0,
@@ -500,6 +501,14 @@ def run_tracklets(
     end : int, optional
         Last frame index (exclusive).  Default: end of video.
     """
+    try:
+        ox, oy = offset
+        offset = (int(ox), int(oy))
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"offset must be a (dx, dy) pair of ints; got {offset!r}"
+        ) from e
+
     import cv2
     import numpy as np
     import time
@@ -796,12 +805,12 @@ def run_tracklets(
                 row = None  # below confidence threshold — render as black frame
             if row is not None:
                 if also_overlay and out_frame is not None:
-                    cx = float(row["pos_x"]) * scale
-                    cy = float(row["pos_y"]) * scale
+                    cx = float(row["pos_x"]) * scale + offset[0]
+                    cy = float(row["pos_y"]) * scale + offset[1]
                     crop = cv2.getRectSubPix(out_frame, (size, size), (cx, cy))
                 else:
-                    cx = float(row["pos_x"])
-                    cy = float(row["pos_y"])
+                    cx = float(row["pos_x"]) + offset[0]
+                    cy = float(row["pos_y"]) + offset[1]
                     crop = cv2.getRectSubPix(orig_frame, (size, size), (cx, cy))
 
                 if segment_only:
@@ -889,6 +898,7 @@ def run_render(
     tracklet_interpolate_max_gap=0,
     tracklet_segment_only=False,
     tracklet_segment_keep_n=0,
+    tracklet_offset=(0, 0),
     track_ids=None,
     min_observations=0,
     trim=False,
@@ -960,6 +970,7 @@ def run_render(
             draw_boxes=draw_boxes,
             segment_only=tracklet_segment_only,
             segment_keep_n=tracklet_segment_keep_n,
+            offset=tracklet_offset,
             start=start,
             end=end,
             min_track_frames=tracklet_min_frames,
