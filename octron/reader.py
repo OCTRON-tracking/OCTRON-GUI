@@ -162,9 +162,11 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
         fps_check = QCheckBox("Set output framerate (fps):")
         fps_check.setChecked(False)
         fps_check.setToolTip(
-            "Override output framerate.\n"
-            "Videos: uses source fps when unchecked.\n"
-            "TIFFs: defaults to 20 fps when unchecked."
+            "Set output framerate.\n"
+            "Videos: reinterprets source frames at this fps, changing playback speed\n"
+            "  (e.g. 10 fps source → 100 fps = plays 10x faster).\n"
+            "  Leave unchecked to keep original playback speed.\n"
+            "TIFFs: sets the playback fps of the output (default 20 fps)."
         )
         fps_layout.addWidget(fps_check)
         fps_spin = QDoubleSpinBox()
@@ -372,16 +374,19 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
                         str(output_path),
                     ]
                 else:
-                    cmd = [
-                        "ffmpeg", "-i", str(video_path),
+                    # -r before -i reinterprets the source timestamps at the given fps,
+                    # changing playback speed without duplicating frames.
+                    cmd = ["ffmpeg"]
+                    if fps_value is not None:
+                        cmd += ["-r", str(fps_value)]
+                    cmd += [
+                        "-i", str(video_path),
                         "-c:v", "libx264", "-preset", "superfast",
                         "-crf", str(crf_value),
                         "-an",  # Disable audio for all outputs
                         "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                        str(output_path),
                     ]
-                    if fps_value is not None:
-                        cmd += ["-r", str(fps_value)]
-                    cmd.append(str(output_path))
                 if overwrite_existing:
                     cmd.append("-y") # Overwrite output if it exists
                 
