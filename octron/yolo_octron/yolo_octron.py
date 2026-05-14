@@ -1282,6 +1282,63 @@ class YOLO_octron:
                 )
                 for f in stale_npy:
                     f.unlink()
+        
+        def _find_train_image_size(data_path, max_samples=500): 
+            """
+            Helper to find whether rectangular or square training images are used.
+            This determines rect parameter in YOLO training.
+            
+            Samples up to *max_samples* images across all subdirectories so that
+            the decision is robust even when multiple datasets contribute images
+            with different aspect ratios.
+            
+            Returns 
+            -------
+            height : float
+                Average height of the sampled images.
+            width : float
+                Average width of the sampled images.
+            rect : bool
+                True only if ALL sampled images are landscape (width > height).
+                False otherwise — including mixed or portrait datasets — because
+                of an ultralytics dataloader bug that does not permit rectangular
+                (non-square) batches when height > width.
+                TODO: Re-evaluate this with updates of ultralytics. Current version: 8.3.158
+            """
+            data_path = Path(data_path)
+            assert data_path.exists(), f"Data path {data_path} does not exist."
+            png_files = list(data_path.glob('**/*.png'))
+            if len(png_files) == 0:
+                raise FileNotFoundError(f"No .png files found in {data_path.as_posix()}")
+            print(f'Found {len(png_files)} png files')
+            samples = random.sample(png_files, min(max_samples, len(png_files)))
+
+            widths, heights = [], []
+            for fpath in samples:
+                # Read width/height directly from PNG IHDR chunk (bytes 16-23)
+                # I had it on PIL.Image.open() per file first, but this is very slow ... 
+                with open(fpath, 'rb') as f:
+                    f.seek(16)
+                    w, h = struct.unpack('>II', f.read(8))
+                widths.append(w)
+                heights.append(h)
+            
+            avg_h = sum(heights) / len(heights)
+            avg_w = sum(widths) / len(widths)
+            
+            # rect=True only when EVERY sampled image is landscape.
+            # Any portrait or square image forces rect=False (ultralytics bug).
+            all_landscape = all(w > h for w, h in zip(widths, heights))
+            rect = all_landscape
+
+            # Check whether all sampled images share a single aspect ratio.
+            # copy_paste / mixup are only unsafe when rect=True creates *multiple*
+            # batch shape groups (one per distinct ratio). Round to 2 d.p. so that
+            # e.g. 1920x1080 and 1280x720 (both 1.78) are treated as identical.
+            unique_ratios = {round(w / h, 2) for w, h in zip(widths, heights)}
+            uniform_aspect_ratio = len(unique_ratios) == 1
+
+            return avg_h, avg_w, rect, uniform_aspect_ratio
 
         self.model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
         self.model.add_callback("on_train_end", _on_train_end)
@@ -1305,12 +1362,12 @@ class YOLO_octron:
             # overlap_mask - https://github.com/ultralytics/ultralytics/issues/3213#issuecomment-2799841153
             nonlocal training_error
             try:
-                img_height, img_width, rect, uniform_aspect_ratio = self._find_train_image_size(self.data_path)
+                img_height, img_width, rect, uniform_aspect_ratio = _find_train_image_size(self.data_path)
                 # Start training
-                logger.info(f"Starting training for {epochs} epochs...")
-                logger.info(f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)")
-                logger.info(f"Using device: {device}")
-                logger.info("################################################################")
+                print(f"Starting training for {epochs} epochs...")
+                print(f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)")
+                print(f"Using device: {device}")
+                print("################################################################")
                 # copy_paste and mixup crash when rect=True AND the dataset contains
                 # landscape images with different aspect ratios: ultralytics creates one
                 # batch shape group per distinct ratio, and mixing images across groups
@@ -1327,7 +1384,7 @@ class YOLO_octron:
                 copy_paste_prob = 0.0 if mixed_rect else 0.25
                 # Build training kwargs — shared between segment and detect
                 train_kwargs = dict(
-                    data=self.config_path.as_posix() if self.config_path is not None else '', 
+                    data=self.config_path.as_posix() if self.config_path is not None else '',
                     name='training',
                     project=self.training_path.as_posix() if self.training_path is not None else '',
                     mode=train_mode,
@@ -1345,9 +1402,9 @@ class YOLO_octron:
                     batch=-1, # auto
                     cache='disk', # for fast access
                     save=True,
-                    save_period=save_period, 
+                    save_period=save_period,
                     exist_ok=True,
-                    nms=False, 
+                    nms=False,
                     max_det=2000, # Increasing this for dense scenes - I think it might affect val too
                     # Augmentation
                     hsv_v=.25,
