@@ -658,7 +658,12 @@ class YoloHandler(QObject):
                 if 'imgsz' not in train_args:
                     show_warning("Checkpoint does not contain image size info. Cannot continue from checkpoint.")
                     return
-                self.image_size_yolo = int(train_args['imgsz'])
+                # ultralytics stores imgsz as an int or occasionally as a list
+                # (e.g. [640]) depending on version — handle both.
+                _raw_imgsz = train_args['imgsz']
+                if isinstance(_raw_imgsz, (list, tuple)):
+                    _raw_imgsz = _raw_imgsz[0]
+                self.image_size_yolo = int(_raw_imgsz)
                 if self.image_size_yolo <= 0:
                     # imgsz was corrupted (e.g. by a previous bad resume) —
                     # recompute it from the actual training images so the scale

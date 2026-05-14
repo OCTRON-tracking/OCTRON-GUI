@@ -1132,7 +1132,8 @@ class YOLO_octron:
             False otherwise — including mixed or portrait datasets — because
             of an ultralytics dataloader bug that does not permit rectangular
             (non-square) batches when height > width.
-            TODO: Re-evaluate this with updates of ultralytics. Current version: 8.3.158
+            TODO: Re-evaluate this with updates of ultralytics. Current version: 8.4.48
+            (As of 8.4.48, the rect=portrait/square crash bug is still present.)
         """
         data_path = Path(data_path)
         assert data_path.exists(), f"Data path {data_path} does not exist."
