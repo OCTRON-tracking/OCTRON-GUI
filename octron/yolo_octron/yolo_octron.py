@@ -1161,7 +1161,14 @@ class YOLO_octron:
         all_landscape = all(w > h for w, h in zip(widths, heights))
         rect = all_landscape
 
-        return avg_h, avg_w, rect
+        # Check whether all sampled images share a single aspect ratio.
+        # copy_paste / mixup are only unsafe when rect=True creates *multiple*
+        # batch shape groups (one per distinct ratio). Round to 2 d.p. so that
+        # e.g. 1920x1080 and 1280x720 (both 1.78) are treated as identical.
+        unique_ratios = {round(w / h, 2) for w, h in zip(widths, heights)}
+        uniform_aspect_ratio = len(unique_ratios) == 1
+
+        return avg_h, avg_w, rect, uniform_aspect_ratio
 
     def train(self, 
               device='cpu',
@@ -1298,12 +1305,26 @@ class YOLO_octron:
             # overlap_mask - https://github.com/ultralytics/ultralytics/issues/3213#issuecomment-2799841153
             nonlocal training_error
             try:
-                img_height, img_width, rect = self._find_train_image_size(self.data_path)
+                img_height, img_width, rect, uniform_aspect_ratio = self._find_train_image_size(self.data_path)
                 # Start training
                 logger.info(f"Starting training for {epochs} epochs...")
                 logger.info(f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)")
                 logger.info(f"Using device: {device}")
                 logger.info("################################################################")
+                # copy_paste and mixup crash when rect=True AND the dataset contains
+                # landscape images with different aspect ratios: ultralytics creates one
+                # batch shape group per distinct ratio, and mixing images across groups
+                # with different padded heights causes an IndexError.
+                # When all images share a single aspect ratio (uniform_aspect_ratio=True)
+                # there is only one batch shape group, so mixing is safe.
+                # TODO: Re-evaluate this with updates of ultralytics. Current version: 8.4.48
+                # (As of 8.4.48, this crash is still present — no upstream fix found.)
+                mixed_rect = rect and not uniform_aspect_ratio
+                if mixed_rect:
+                    logger.warning("Mixed landscape aspect ratios detected — disabling copy_paste and "
+                                   "mixup to prevent batch shape mismatches (rect=True).")
+                mixup_prob = 0.0 if mixed_rect else 0.25
+                copy_paste_prob = 0.0 if mixed_rect else 0.25
                 # Build training kwargs — shared between segment and detect
                 train_kwargs = dict(
                     data=self.config_path.as_posix() if self.config_path is not None else '', 
@@ -1340,8 +1361,8 @@ class YOLO_octron:
                     flipud=.5,
                     fliplr=.5,
                     mosaic=0.25,
-                    mixup=0.25,
-                    copy_paste=0.25,
+                    mixup=mixup_prob,
+                    copy_paste=copy_paste_prob,
                     copy_paste_mode='mixup', 
                     erasing=0.,
                 )
