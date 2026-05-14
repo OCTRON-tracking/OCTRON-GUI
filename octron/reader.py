@@ -231,7 +231,8 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
             else:
                 output_folder = path
                 
-            logger.info(f"Transcoding {len(selected_videos)} inputs to MP4 (CRF: {crf_value})...")
+            fps_info = f"{fps_value} fps" if fps_value is not None else "source fps (videos) / 20 fps (TIFFs)"
+            logger.info(f"Transcoding {len(selected_videos)} inputs to MP4 | CRF: {crf_value} | Framerate: {fps_info}")
             
             # Process one input at a time
             successful = 0
@@ -358,7 +359,11 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
                         stack = _to_uint8(stack[..., :3])
 
                     frame_count, height, width, _ = stack.shape
-                    logger.info(f"Transcoding {frame_count} frames ({width}×{height}) from '{video_path.name}'")
+                    out_fps = fps_value if fps_value is not None else 20.0
+                    logger.info(
+                        f"Transcoding TIFF: {frame_count} frames ({width}\u00d7{height}) "
+                        f"@ {out_fps} fps | '{video_path.name}'"
+                    )
 
                     cmd = [
                         "ffmpeg",
@@ -374,6 +379,13 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
                         str(output_path),
                     ]
                 else:
+                    if fps_value is not None:
+                        logger.info(
+                            f"Transcoding video: source fps reinterpreted as {fps_value} fps "
+                            f"(faster playback) | '{video_path.name}'"
+                        )
+                    else:
+                        logger.info(f"Transcoding video: keeping source fps | '{video_path.name}'")
                     # -r before -i reinterprets the source timestamps at the given fps,
                     # changing playback speed without duplicating frames.
                     cmd = ["ffmpeg"]
