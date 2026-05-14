@@ -96,8 +96,8 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
         logger.info(f"Found {len(video_files)} transcodable files in {path}")
         
         # Create a dialog for transcoding options
-        from qtpy.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                                   QCheckBox, QSpinBox, QPushButton, QListWidget,
+        from qtpy.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                   QCheckBox, QSpinBox, QDoubleSpinBox, QPushButton, QListWidget,
                                    QDialogButtonBox, QAbstractItemView, QListWidgetItem,
                                    )
         from qtpy.QtCore import QSize, Qt
@@ -156,7 +156,29 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
         options_layout.addLayout(crf_layout)
         
         layout.addLayout(options_layout)
-        
+
+        # Framerate option
+        fps_layout = QHBoxLayout()
+        fps_check = QCheckBox("Set output framerate (fps):")
+        fps_check.setChecked(False)
+        fps_check.setToolTip(
+            "Override output framerate.\n"
+            "Videos: uses source fps when unchecked.\n"
+            "TIFFs: defaults to 20 fps when unchecked."
+        )
+        fps_layout.addWidget(fps_check)
+        fps_spin = QDoubleSpinBox()
+        fps_spin.setRange(1.0, 240.0)
+        fps_spin.setValue(20.0)
+        fps_spin.setSingleStep(1.0)
+        fps_spin.setDecimals(3)
+        fps_spin.setMinimumSize(QSize(80, 25))
+        fps_spin.setMaximumSize(QSize(80, 25))
+        fps_spin.setEnabled(False)
+        fps_check.toggled.connect(fps_spin.setEnabled)
+        fps_layout.addWidget(fps_spin)
+        layout.addLayout(fps_layout)
+
         # Add buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         layout.addWidget(button_box)
@@ -189,6 +211,8 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
             create_subfolder = subfolder_check.isChecked()
             crf_value = crf_spin.value()
             overwrite_existing = overwrite_check.isChecked()
+            use_custom_fps = fps_check.isChecked()
+            fps_value = fps_spin.value() if use_custom_fps else None
             
             # Get selected videos using selectedItems() for reliability
             selected_items = file_list.selectedItems()
@@ -230,43 +254,116 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
                         logger.error(f"TIFF transcoding requires numpy+tifffile: {e}")
                         continue
 
-                    stack = tifffile.imread(str(video_path))
-                    if stack.ndim == 2:
-                        stack = stack[np.newaxis, ...]
+                    def _to_uint8(arr: "np.ndarray") -> "np.ndarray":
+                        """Normalise array to uint8, preserving relative intensities."""
+                        if arr.dtype == np.uint8:
+                            return arr
+                        smin, smax = float(arr.min()), float(arr.max())
+                        if smax > smin:
+                            return ((arr.astype(np.float32) - smin) / (smax - smin) * 255).astype(np.uint8)
+                        return np.zeros_like(arr, dtype=np.uint8)
 
-                    # Accept grayscale (T,H,W) and RGB(A) (T,H,W,C) only.
-                    if stack.ndim == 3:
-                        if stack.dtype != np.uint8:
-                            smin, smax = stack.min(), stack.max()
-                            if smax > smin:
-                                stack = ((stack - smin) / (smax - smin) * 255).astype(np.uint8)
-                            else:
-                                stack = np.zeros_like(stack, dtype=np.uint8)
-                        stack = np.repeat(stack[..., np.newaxis], 3, axis=-1)
-                    elif stack.ndim == 4 and stack.shape[-1] in (3, 4):
-                        if stack.shape[-1] == 4:
-                            stack = stack[..., :3]
-                        if stack.dtype != np.uint8:
-                            smin, smax = stack.min(), stack.max()
-                            if smax > smin:
-                                stack = ((stack - smin) / (smax - smin) * 255).astype(np.uint8)
-                            else:
-                                stack = np.zeros_like(stack, dtype=np.uint8)
-                    else:
-                        logger.error(f"Unsupported TIFF shape for video conversion: {stack.shape}")
+                    try:
+                        with tifffile.TiffFile(str(video_path)) as tif:
+                            series = tif.series[0]
+                            axes  = series.axes   # e.g. "TCYX", "TYX", "TZYXC"
+                            sizes = series.sizes  # e.g. {'T':100, 'C':2, 'Y':512, 'X':512}
+                            stack = series.asarray()
+                    except Exception as e:
+                        logger.error(f"Failed to read TIFF '{video_path.name}': {e}")
                         continue
 
+                    n_t = sizes.get('T', 0)
+                    n_z = sizes.get('Z', 0)
+                    n_c = sizes.get('C', 0)
+
+                    logger.info(
+                        f"TIFF detected: axes='{axes}' shape={stack.shape} dtype={stack.dtype} "
+                        f"| T={n_t} Z={n_z} C={n_c} "
+                        f"H={sizes.get('Y', '?')} W={sizes.get('X', '?')} "
+                        f"| {video_path.name}"
+                    )
+
+                    # Reject TIFFs with both a time AND a Z axis — ambiguous for video conversion
+                    if n_t > 0 and n_z > 0:
+                        logger.warning(
+                            f"Skipped '{video_path.name}': TIFF contains both a time axis "
+                            f"(T={n_t}) and a Z axis (Z={n_z}) (axes='{axes}'). "
+                            f"Cannot determine intended frame order for video conversion."
+                        )
+                        continue
+
+                    # Reject single-frame / 2D-only images
+                    if n_t >= 2:
+                        frame_key = 'T'
+                        n_frames = n_t
+                    elif n_z >= 2:
+                        frame_key = 'Z'
+                        n_frames = n_z
+                        logger.info(f"No time axis; treating Z-stack ({n_z} slices) as frames.")
+                    else:
+                        logger.warning(
+                            f"Skipped '{video_path.name}': single-frame or 2D TIFF "
+                            f"(axes='{axes}'). Only multi-frame TIFFs are supported."
+                        )
+                        continue
+
+                    # Reorder axes to canonical order:
+                    # (frame_key, [unknown extras,] [C,] Y, X)
+                    axes_list = list(axes)
+                    known = {'T', 'Z', 'C', 'Y', 'X'}
+                    extra = [a for a in axes_list if a not in known]
+
+                    target_order = [frame_key] + extra + (['C'] if n_c > 0 else []) + ['Y', 'X']
+
+                    perm = [axes_list.index(a) for a in target_order]
+                    if perm != list(range(stack.ndim)):
+                        stack = stack.transpose(perm)
+
+                    # Flatten any extra leading dims into the frames axis.
+                    # The last `trailing` dims are always (C,) Y, X.
+                    trailing = 3 if n_c > 0 else 2
+                    n_leading = stack.ndim - trailing
+                    if n_leading > 1:
+                        n_frames = int(np.prod(stack.shape[:n_leading]))
+                        stack = stack.reshape(n_frames, *stack.shape[n_leading:])
+                        logger.info(f"Flattened leading axes → {n_frames} frames.")
+
+                    # Move C from position 1 to last → (frames, Y, X, C)
+                    if n_c > 0:
+                        stack = np.moveaxis(stack, 1, -1)
+
+                    # Map channels to RGB (frames, Y, X, 3)
+                    if n_c == 0:
+                        # Grayscale: (frames, Y, X) → (frames, Y, X, 3)
+                        stack = _to_uint8(stack)
+                        stack = np.repeat(stack[..., np.newaxis], 3, axis=-1)
+                    elif n_c == 1:
+                        stack = _to_uint8(stack[..., 0])
+                        stack = np.repeat(stack[..., np.newaxis], 3, axis=-1)
+                    elif n_c == 2:
+                        # Map to R/G channels, B = 0
+                        stack = _to_uint8(stack)
+                        zeros = np.zeros((*stack.shape[:3], 1), dtype=np.uint8)
+                        stack = np.concatenate([stack, zeros], axis=-1)
+                        logger.info("2-channel TIFF mapped to R/G channels (B=0).")
+                    elif n_c == 3:
+                        stack = _to_uint8(stack)
+                    elif n_c == 4:
+                        stack = _to_uint8(stack[..., :3])  # drop alpha
+                    else:
+                        logger.warning(f"'{video_path.name}': {n_c} channels detected; using first 3 as RGB.")
+                        stack = _to_uint8(stack[..., :3])
+
                     frame_count, height, width, _ = stack.shape
-                    logger.info(f"Detected TIFF stack with {frame_count} frame(s): {video_path.name}")
-                    if frame_count < 2:
-                        logger.warning(f"'{video_path.name}' has only one frame; output will be a single-frame video.")
+                    logger.info(f"Transcoding {frame_count} frames ({width}×{height}) from '{video_path.name}'")
 
                     cmd = [
                         "ffmpeg",
                         "-f", "rawvideo",
                         "-pixel_format", "rgb24",
                         "-video_size", f"{width}x{height}",
-                        "-framerate", "30",
+                        "-framerate", str(fps_value) if fps_value is not None else "20",
                         "-i", "-",
                         "-c:v", "libx264", "-preset", "superfast",
                         "-crf", str(crf_value),
@@ -281,8 +378,10 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
                         "-crf", str(crf_value),
                         "-an",  # Disable audio for all outputs
                         "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                        str(output_path),
                     ]
+                    if fps_value is not None:
+                        cmd += ["-r", str(fps_value)]
+                    cmd.append(str(output_path))
                 if overwrite_existing:
                     cmd.append("-y") # Overwrite output if it exists
                 
