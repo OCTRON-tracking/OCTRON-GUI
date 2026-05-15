@@ -270,8 +270,10 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
                         with tifffile.TiffFile(str(video_path)) as tif:
                             series = tif.series[0]
                             axes  = series.axes   # e.g. "TCYX", "TYX", "TZYXC"
-                            sizes = series.sizes  # e.g. {'T':100, 'C':2, 'Y':512, 'X':512}
                             stack = series.asarray()
+                            # Build sizes from axes + shape directly.
+                            # series.sizes can be unreliable across tifffile versions.
+                            sizes = dict(zip(axes, stack.shape))
                     except Exception as e:
                         logger.error(f"Failed to read TIFF '{video_path.name}': {e}")
                         continue
