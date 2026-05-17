@@ -15,10 +15,7 @@ warnings.simplefilter("ignore")
 from ultralytics.data.loaders import SourceTypes
 
 
-MIN_ZARR_CHUNK_SIZE = 50 # Setting minimum chunk size for zarr arrays
-                         # to avoid excessive chunking for small arrays
-
-
+MIN_ZARR_CHUNK_SIZE = 1 # One frame per chunk for annotation mask zarrs
 
 
 def get_annotated_frames(zarr_array):
