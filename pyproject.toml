@@ -37,7 +37,7 @@ dependencies = [
     "pandas>=2.2.3",
     "scikit-image>=0.25.0",
     "tifffile",
-    "zarr>=3.1.2",
+    "zarr==3.1.6", # Newer versions require python version bump
     "kornia>=0.8.0",
     "cmasher>=1.9.2",
     "imantics",
