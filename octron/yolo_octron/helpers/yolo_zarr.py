@@ -41,7 +41,8 @@ def create_prediction_store(zarr_path,
 def create_prediction_zarr(store, 
                            array_name,
                            shape,
-                           chunk_size=20,
+                           chunk_size=1,
+                           shard_size=None,
                            fill_value=-1,
                            dtype='int8',
                            video_hash=None,
@@ -59,7 +60,13 @@ def create_prediction_zarr(store,
     shape : tuple
         Shape of the zarr array.
     chunk_size : int, optional
-        Size of the chunk to store in the zarr archive. 
+        Inner chunk size (frames). This is the unit of random access — one
+        chunk is what napari reads per frame render. Default is 1 (one frame).
+    shard_size : int or None, optional
+        Outer shard size (frames). Multiple chunks are packed into a single
+        shard file on disk. Must be a multiple of chunk_size and should also
+        be a divisor of the write buffer_size to avoid read-modify-write
+        overhead. None disables sharding (one file per chunk).
     fill_value : int, optional
         Value to fill the zarr array with.
     dtype : str, optional
@@ -80,18 +87,29 @@ def create_prediction_zarr(store,
     assert chunk_size > 0, f'chunk_size must be > 0, not {chunk_size}'
     assert isinstance(store, zarr.storage.LocalStore), 'store must be a zarr.storage.LocalStore object'
     chunk_size = max(chunk_size, MIN_ZARR_CHUNK_SIZE)
-    # Create chunks tuple based on shape dimensions
-    # First dimension uses chunk_size, remaining dimensions use their full size
+    # Inner chunks: chunk_size frames, full spatial extent
     chunks = (chunk_size,) + shape[1:] if len(shape) > 1 else (chunk_size,)
-    
-    image_zarr = zarr.create_array(store=store,
-                                   name=array_name,
-                                   shape=shape,  
-                                   chunks=chunks, 
-                                   fill_value=fill_value,
-                                   dtype=dtype,
-                                   overwrite=True,
-                                   )
+
+    create_kwargs = dict(
+        store=store,
+        name=array_name,
+        shape=shape,
+        chunks=chunks,
+        fill_value=fill_value,
+        dtype=dtype,
+        overwrite=True,
+    )
+    # Sharding: pack multiple chunks into fewer shard files to reduce
+    # filesystem pressure while keeping single-frame random access.
+    # shard_size must be a multiple of chunk_size and ideally a divisor
+    # of the write buffer_size so every flush writes complete shards.
+    if shard_size is not None and shard_size > chunk_size:
+        shards = (shard_size,) + shape[1:] if len(shape) > 1 else (shard_size,)
+        create_kwargs['shards'] = shards
+        if verbose:
+            logger.debug(f"Sharding enabled: {shard_size} frames per shard, {chunk_size} frames per chunk")
+
+    image_zarr = zarr.create_array(**create_kwargs)
     image_zarr.attrs['created_at'] = str(datetime.now())
     image_zarr.attrs['video_hash'] = video_hash
     image_zarr.attrs['annotated_frames'] = []
