@@ -2278,7 +2278,7 @@ class YOLO_octron:
                             mask_store = create_prediction_zarr(prediction_store, 
                                             f'{track_id}_masks',
                                             shape=video_shape,
-                                            chunk_size=500,     
+                                            chunk_size=1,   # 1 frame per chunk
                                             fill_value=-1,
                                             dtype='int8',                           
                                             video_hash=''
