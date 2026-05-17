@@ -2278,8 +2278,7 @@ class YOLO_octron:
                             mask_store = create_prediction_zarr(prediction_store, 
                                             f'{track_id}_masks',
                                             shape=video_shape,
-                                            chunk_size=1,           # 1 frame/chunk: napari reads one frame per seek.
-                                            shard_size=buffer_size, # 1 shard per buffer flush → minimum file count.
+                                            chunk_size=1,  # 1 frame/chunk: napari reads one frame per seek.
                                             fill_value=-1,
                                             dtype='int8',                           
                                             video_hash=''
