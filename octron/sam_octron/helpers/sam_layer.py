@@ -66,7 +66,7 @@ def add_sam_mask_layer(viewer,
                                                 num_frames=num_frames, 
                                                 image_height=height, 
                                                 image_width=width, 
-                                                chunk_size=20,
+                                                chunk_size=1,   # 1 frame per chunk
                                                 video_hash_abrrev=video_hash_abrrev,
                                                 )
             if status:
@@ -78,7 +78,7 @@ def add_sam_mask_layer(viewer,
                                         num_frames=num_frames, 
                                         image_height=height, 
                                         image_width=width, 
-                                        chunk_size=20,
+                                        chunk_size=1,   # 1 frame per chunk
                                         fill_value=-1,
                                         dtype='int16',
                                         video_hash_abbrev=video_hash_abrrev,
