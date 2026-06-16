@@ -243,10 +243,6 @@ def render(
     # --- Tracklet options ---
     tracklets: bool = typer.Option(False, "--tracklets", help="Generate one crop video per tracked animal."),
     tracklet_size: Optional[str] = typer.Option("auto", "--tracklet-size", help="Side length in pixels of each tracklet crop, or 'auto' to use the largest bounding box + 20px padding."),
-    tracklet_mask_centroids: bool = typer.Option(
-        False, "--tracklet-mask-centroids",
-        help="Use mask centre-of-mass instead of bbox centre for tracklet positioning.",
-    ),
     tracklet_smooth_sigma: float = typer.Option(
         2.0, "--tracklet-smooth-sigma",
         help="Gaussian smoothing strength (standard deviation in frames) for centroid smoothing. 0=off.",
@@ -350,7 +346,6 @@ def render(
         tracklets=tracklets,
         also_overlay=resolved_masks or resolved_boxes,
         tracklet_size=parsed_tracklet_size,
-        tracklet_mask_centroids=tracklet_mask_centroids,
         tracklet_smooth_sigma=tracklet_smooth_sigma,
         tracklet_interpolate_max_gap=tracklet_interpolate,
         tracklet_segment_only=tracklet_segment_only,

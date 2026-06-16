@@ -183,96 +183,6 @@ def _letterbox_bounds(mask_h, mask_w, vid_h, vid_w):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsample=4):
-    """
-    Compute per-frame centre-of-mass centroids directly from zarr segmentation
-    masks, as a more stable alternative to the bounding-box-derived positions
-    stored in the tracking CSVs.
-
-    Masks are downsampled before computing CoM for speed, then coordinates are
-    scaled back to full resolution.  Processing is vectorised over the batch
-    dimension — no Python loop over frames.
-
-    Parameters
-    ----------
-    zarr_root : zarr.Group
-        Root zarr group from a YOLO_results object.
-    track_ids : iterable
-        Track IDs to process (must match the ``{tid}_masks`` array naming).
-    frame_start : int
-        First frame index to process (inclusive).
-    frame_end : int
-        Last frame index to process (exclusive).
-    downsample : int
-        Spatial downscale factor applied before computing CoM.  ``4`` (default)
-        gives 16× fewer pixels with negligible centroid error at full resolution.
-
-    Returns
-    -------
-    centroids : dict
-        ``{track_id: {frame_idx: (cx, cy)}}`` — float pixel coordinates in the
-        original full-resolution frame.  Only frames where at least one mask
-        pixel is present are included.
-    """
-    import numpy as np
-
-    _BATCH = 500
-    track_ids = list(track_ids)
-    centroids = {tid: {} for tid in track_ids}
-    n_frames = frame_end - frame_start
-    n_batches_per_track = max(1, (n_frames + _BATCH - 1) // _BATCH)
-    total_batches = len(track_ids) * n_batches_per_track
-    _bar_width = 30
-    batch_idx = 0
-
-    for tid in track_ids:
-        arr_key = f"{tid}_masks"
-        if arr_key not in zarr_root:
-            batch_idx += n_batches_per_track
-            continue
-        zarr_arr = zarr_root[arr_key]
-        n_mask_frames = zarr_arr.shape[0]
-        # Masks may be stored at inference resolution; read stored video dims so
-        # centroids are returned in video-pixel coordinates, not mask-pixel coords.
-        _mask_h, _mask_w = zarr_arr.shape[1], zarr_arr.shape[2]
-        _vid_h = zarr_arr.attrs.get('video_height', _mask_h) or _mask_h
-        _vid_w = zarr_arr.attrs.get('video_width',  _mask_w) or _mask_w
-        # Account for letterbox padding: the mask includes stride-alignment padding
-        # that does not correspond to video content; subtract it before scaling.
-        _c_h, _c_w, _p_y, _p_x = _letterbox_bounds(_mask_h, _mask_w, _vid_h, _vid_w)
-
-        for batch_start in range(frame_start, min(frame_end, n_mask_frames), _BATCH):
-            batch_end = min(batch_start + _BATCH, frame_end, n_mask_frames)
-            raw = np.asarray(zarr_arr[batch_start:batch_end])  # (n, H, W)
-
-            mask = (raw[:, ::downsample, ::downsample] == 1)  # (n, dH, dW) bool
-            dH, dW = mask.shape[1], mask.shape[2]
-
-            count = mask.sum(axis=(1, 2))
-            ys = np.arange(dH, dtype=np.float32)[None, :, None]
-            xs = np.arange(dW, dtype=np.float32)[None, None, :]
-            cy_ds = (mask * ys).sum(axis=(1, 2)) / np.maximum(count, 1)
-            cx_ds = (mask * xs).sum(axis=(1, 2)) / np.maximum(count, 1)
-
-            # Convert from downsampled-mask coords → full-mask coords → content coords → video coords
-            cx_full = (cx_ds * downsample - _p_x) * _vid_w / _c_w
-            cy_full = (cy_ds * downsample - _p_y) * _vid_h / _c_h
-
-            for i, frame_idx in enumerate(range(batch_start, batch_end)):
-                if count[i] > 0:
-                    centroids[tid][frame_idx] = (float(cx_full[i]), float(cy_full[i]))
-
-            batch_idx += 1
-            pct = batch_idx / total_batches
-            filled = int(_bar_width * pct)
-            bar = "█" * filled + "░" * (_bar_width - filled)
-            print(f"  [{bar}] track {tid} | {batch_start}-{batch_end} | {pct:.0%}",
-                  end="\r")
-
-    print()
-    return centroids
-
-
 def gaussian_smooth_tracklet_positions(pos_lookup, sigma=2.0):
     """
     Smooth the centroid trajectories in ``pos_lookup`` with a 1-D Gaussian
@@ -456,7 +366,6 @@ def run_tracklets(
     preset="draft",
     also_overlay=False,
     size=None,
-    mask_centroids=False,
     smooth_sigma=2.0,
     alpha=0.4,
     draw_masks=False,
@@ -498,9 +407,6 @@ def run_tracklets(
         inspecting centroid placement).  Default False.
     size : int
         Side length in pixels of each square tracklet crop.  Default 160.
-    mask_centroids : bool
-        If True, replace bbox-derived centroid positions with the centre-of-mass
-        computed from the segmentation masks.  Default False.
     smooth_sigma : float
         Gaussian smoothing strength (standard deviation in frames) applied to the
         centroid trajectories.  Set to 0 to disable.  Default 2.0.
@@ -634,22 +540,6 @@ def run_tracklets(
                     f"{max_w}×{max_h} px, which exceeds size={size}. "
                     f"Consider --tracklet-size {max(max_w, max_h) + 20}."
                 )
-
-    if mask_centroids and results.has_masks:
-        logger.info("Computing mask centre-of-mass centroids...")
-        mask_cent = compute_mask_centroids(
-            results.zarr_root, render_tids, frame_start, frame_end,
-        )
-        replaced = 0
-        for tid, frame_centroids in mask_cent.items():
-            for frame_idx, (cx, cy) in frame_centroids.items():
-                if frame_idx in pos_lookup.get(tid, {}):
-                    row = pos_lookup[tid][frame_idx].copy()
-                    row["pos_x"] = cx
-                    row["pos_y"] = cy
-                    pos_lookup[tid][frame_idx] = row
-                    replaced += 1
-        logger.info(f"Replaced {replaced} centroid(s) with mask CoM")
 
     if smooth_sigma and smooth_sigma > 0:
         gaussian_smooth_tracklet_positions(pos_lookup, sigma=smooth_sigma)
@@ -913,7 +803,6 @@ def run_render(
     tracklets=False,
     also_overlay=False,
     tracklet_size=None,
-    tracklet_mask_centroids=False,
     tracklet_smooth_sigma=2.0,
     tracklet_min_frames=0,
     tracklet_interpolate_max_gap=0,
@@ -955,8 +844,6 @@ def run_render(
         When ``tracklets=True``, render the overlay onto the tracklet crops.
     tracklet_size : int
         Side length in pixels of each tracklet crop.  Default 160.
-    tracklet_mask_centroids : bool
-        Use mask CoM instead of bbox centre for tracklet positioning.
     tracklet_smooth_sigma : float
         Gaussian smoothing strength (standard deviation in frames) for centroid
         smoothing.  0 = off.  Default 2.0.
@@ -985,7 +872,6 @@ def run_render(
             preset=preset,
             also_overlay=also_overlay,
             size=tracklet_size,
-            mask_centroids=tracklet_mask_centroids,
             smooth_sigma=tracklet_smooth_sigma,
             alpha=alpha,
             draw_masks=draw_masks,
