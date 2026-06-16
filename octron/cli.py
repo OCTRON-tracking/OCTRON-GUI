@@ -247,11 +247,9 @@ def render(
         False, "--tracklet-mask-centroids",
         help="Use mask centre-of-mass instead of bbox centre for tracklet positioning.",
     ),
-    tracklet_smooth_cutoff_hz: float = typer.Option(
-        2.0, "--tracklet-smooth-cutoff", help="Butterworth low-pass cutoff (Hz) for centroid smoothing. 0=off.",
-    ),
-    tracklet_smooth_order: int = typer.Option(
-        4, "--tracklet-smooth-order", help="Butterworth filter order (higher = steeper rolloff).",
+    tracklet_smooth_sigma: float = typer.Option(
+        2.0, "--tracklet-smooth-sigma",
+        help="Gaussian smoothing strength (standard deviation in frames) for centroid smoothing. 0=off.",
     ),
     tracklet_interpolate: int = typer.Option(
         0, "--tracklet-interpolate", help="Fill gaps between track segments with cubic spline interpolation. Value is the maximum gap in frames to bridge. 0 = off.",
@@ -353,8 +351,7 @@ def render(
         also_overlay=resolved_masks or resolved_boxes,
         tracklet_size=parsed_tracklet_size,
         tracklet_mask_centroids=tracklet_mask_centroids,
-        tracklet_smooth_cutoff_hz=tracklet_smooth_cutoff_hz,
-        tracklet_smooth_order=tracklet_smooth_order,
+        tracklet_smooth_sigma=tracklet_smooth_sigma,
         tracklet_interpolate_max_gap=tracklet_interpolate,
         tracklet_segment_only=tracklet_segment_only,
         tracklet_segment_keep_n=tracklet_segment_keep,

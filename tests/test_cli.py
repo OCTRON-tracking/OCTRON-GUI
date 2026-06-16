@@ -20,7 +20,7 @@ render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --masks/--no-masks, --boxes/--no-boxes,
                     --labels/--no-labels, --tracklets, --tracklet-overlay,
                     --tracklet-size, --tracklet-mask-centroids,
-                    --tracklet-smooth-cutoff, --tracklet-smooth-order,
+                    --tracklet-smooth-sigma,
                     --tracklet-interpolate, --track-ids, --min-observations,
                     --min-confidence, --bbox-sizes
 transcode   --help: --output, --crf, --overwrite
@@ -153,8 +153,7 @@ def test_render_help():
     assert '--tracklets' in result.output
     assert '--tracklet-size' in result.output
     assert '--tracklet-mask-centroids' in result.output
-    assert '--tracklet-smooth-cutoff' in result.output
-    assert '--tracklet-smooth-order' in result.output
+    assert '--tracklet-smooth-sigma' in result.output
     assert '--tracklet-interpolate' in result.output
     assert '--track-ids' in result.output
     assert '--min-observations' in result.output

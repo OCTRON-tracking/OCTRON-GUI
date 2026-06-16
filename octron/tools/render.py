@@ -273,28 +273,26 @@ def compute_mask_centroids(zarr_root, track_ids, frame_start, frame_end, downsam
     return centroids
 
 
-def butterworth_smooth_tracklet_positions(pos_lookup, fps, cutoff_hz=2.0, order=4):
+def gaussian_smooth_tracklet_positions(pos_lookup, sigma=2.0):
     """
-    Apply a zero-phase Butterworth low-pass filter to the centroid trajectories
-    in ``pos_lookup`` to remove high-frequency jitter while preserving real
-    animal movement.
+    Smooth the centroid trajectories in ``pos_lookup`` with a 1-D Gaussian
+    kernel (``scipy.ndimage.gaussian_filter1d``) to remove high-frequency jitter
+    while preserving real animal movement.  This is the same smoothing applied
+    to positions in :meth:`YOLO_results.get_tracking_data`.
 
-    Uses ``scipy.signal.filtfilt`` (forward + backward pass) for zero phase
-    distortion and no lag — suitable for offline use where the full trajectory
-    is available before rendering.
+    Smoothing is parameterised by ``sigma`` in *frames* rather than a cutoff in
+    Hz, so it does not depend on the recording frame rate (which may not be
+    reliably stored in the video container).  The symmetric Gaussian kernel is
+    inherently zero-phase, so the smoothed trajectory has no lag.
 
     Parameters
     ----------
     pos_lookup : dict
         ``{track_id: {frame_idx: pandas.Series}}`` as built by ``run_tracklets``.
         Modified in-place.
-    fps : float
-        Frame rate of the video, used to normalise ``cutoff_hz``.
-    cutoff_hz : float
-        Low-pass cutoff frequency in Hz.  Frequencies above this are attenuated.
-        Default 2.0 Hz.
-    order : int
-        Butterworth filter order.  Higher = steeper rolloff.  Default 4.
+    sigma : float
+        Standard deviation of the Gaussian kernel, in frames.  Larger = smoother.
+        0 (or less) disables smoothing.  Default 2.0.
 
     Returns
     -------
@@ -302,29 +300,19 @@ def butterworth_smooth_tracklet_positions(pos_lookup, fps, cutoff_hz=2.0, order=
         The same dict, modified in-place.
     """
     import numpy as np
-    from scipy.signal import butter, filtfilt
+    from scipy.ndimage import gaussian_filter1d
 
-    if not cutoff_hz or cutoff_hz <= 0:
+    if not sigma or sigma <= 0:
         return pos_lookup
-
-    nyquist = fps / 2.0
-    cutoff_norm = cutoff_hz / nyquist
-    if cutoff_norm >= 1.0:
-        print(f"Warning: cutoff_hz={cutoff_hz} exceeds Nyquist ({nyquist:.1f} Hz); skipping smoothing.")
-        return pos_lookup
-
-    b, a = butter(order, cutoff_norm, btype="low")
-    min_len = 3 * max(len(a), len(b)) + 1
 
     for tid in list(pos_lookup.keys()):
         frames = sorted(pos_lookup[tid].keys())
-        n = len(frames)
-        if n < min_len:
+        if len(frames) < 2:
             continue
         xs = np.array([pos_lookup[tid][f]["pos_x"] for f in frames], dtype=float)
         ys = np.array([pos_lookup[tid][f]["pos_y"] for f in frames], dtype=float)
-        xs_smooth = filtfilt(b, a, xs)
-        ys_smooth = filtfilt(b, a, ys)
+        xs_smooth = gaussian_filter1d(xs, sigma=sigma)
+        ys_smooth = gaussian_filter1d(ys, sigma=sigma)
         for i, f in enumerate(frames):
             row = pos_lookup[tid][f].copy()
             row["pos_x"] = xs_smooth[i]
@@ -332,7 +320,7 @@ def butterworth_smooth_tracklet_positions(pos_lookup, fps, cutoff_hz=2.0, order=
             pos_lookup[tid][f] = row
 
     from loguru import logger
-    logger.info(f"Tracklet centroids smoothed (Butterworth order={order}, cutoff={cutoff_hz} Hz)")
+    logger.info(f"Tracklet centroids smoothed (Gaussian sigma={sigma} frames)")
     return pos_lookup
 
 
@@ -345,7 +333,7 @@ def interpolate_tracklet_gaps(pos_lookup, max_gap):
     untouched.  Interpolated rows are synthetic copies of the nearest real row
     with ``pos_x`` / ``pos_y`` replaced by the spline values.
 
-    Applied after Butterworth smoothing so the spline fits the already-smooth
+    Applied after Gaussian smoothing so the spline fits the already-smooth
     trajectory.
 
     Parameters
@@ -469,8 +457,7 @@ def run_tracklets(
     also_overlay=False,
     size=None,
     mask_centroids=False,
-    smooth_cutoff_hz=2.0,
-    smooth_order=4,
+    smooth_sigma=2.0,
     alpha=0.4,
     draw_masks=False,
     draw_boxes=False,
@@ -514,11 +501,9 @@ def run_tracklets(
     mask_centroids : bool
         If True, replace bbox-derived centroid positions with the centre-of-mass
         computed from the segmentation masks.  Default False.
-    smooth_cutoff_hz : float
-        Butterworth low-pass cutoff (Hz) applied to the centroid trajectories.
-        Set to 0 to disable.  Default 2.0 Hz.
-    smooth_order : int
-        Butterworth filter order.  Default 4.
+    smooth_sigma : float
+        Gaussian smoothing strength (standard deviation in frames) applied to the
+        centroid trajectories.  Set to 0 to disable.  Default 2.0.
     alpha : float
         Mask overlay opacity when ``also_overlay=True`` (0–1).  Default 0.4.
     draw_masks : bool
@@ -666,10 +651,8 @@ def run_tracklets(
                     replaced += 1
         logger.info(f"Replaced {replaced} centroid(s) with mask CoM")
 
-    if smooth_cutoff_hz and smooth_cutoff_hz > 0:
-        butterworth_smooth_tracklet_positions(
-            pos_lookup, fps=fps, cutoff_hz=smooth_cutoff_hz, order=smooth_order,
-        )
+    if smooth_sigma and smooth_sigma > 0:
+        gaussian_smooth_tracklet_positions(pos_lookup, sigma=smooth_sigma)
 
     if interpolate_max_gap and interpolate_max_gap > 0:
         interpolate_tracklet_gaps(pos_lookup, max_gap=interpolate_max_gap)
@@ -931,8 +914,7 @@ def run_render(
     also_overlay=False,
     tracklet_size=None,
     tracklet_mask_centroids=False,
-    tracklet_smooth_cutoff_hz=2.0,
-    tracklet_smooth_order=4,
+    tracklet_smooth_sigma=2.0,
     tracklet_min_frames=0,
     tracklet_interpolate_max_gap=0,
     tracklet_segment_only=False,
@@ -975,10 +957,9 @@ def run_render(
         Side length in pixels of each tracklet crop.  Default 160.
     tracklet_mask_centroids : bool
         Use mask CoM instead of bbox centre for tracklet positioning.
-    tracklet_smooth_cutoff_hz : float
-        Butterworth cutoff (Hz) for centroid smoothing.  0 = off.  Default 2.0.
-    tracklet_smooth_order : int
-        Butterworth filter order.  Default 4.
+    tracklet_smooth_sigma : float
+        Gaussian smoothing strength (standard deviation in frames) for centroid
+        smoothing.  0 = off.  Default 2.0.
     alpha : float
         Mask overlay opacity (0–1).  Default 0.4.
     draw_masks : bool
@@ -1005,8 +986,7 @@ def run_render(
             also_overlay=also_overlay,
             size=tracklet_size,
             mask_centroids=tracklet_mask_centroids,
-            smooth_cutoff_hz=tracklet_smooth_cutoff_hz,
-            smooth_order=tracklet_smooth_order,
+            smooth_sigma=tracklet_smooth_sigma,
             alpha=alpha,
             draw_masks=draw_masks,
             draw_boxes=draw_boxes,
