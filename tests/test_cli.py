@@ -22,7 +22,7 @@ render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --tracklet-size, --tracklet-smooth-sigma,
                     --tracklet-interpolate, --track-ids, --min-observations,
                     --min-confidence, --bbox-sizes
-transcode   --help: --output, --crf, --overwrite
+transcode   --help: --output, --crf, --fps, --no-audio, --overwrite
 
 auto_device returns 'cuda', 'mps', or 'cpu' (skipped if torch unavailable)
 """
@@ -169,6 +169,8 @@ def test_transcode_help():
     assert result.exit_code == 0
     assert '--output' in result.output
     assert '--crf' in result.output
+    assert '--fps' in result.output
+    assert '--no-audio' in result.output
     assert '--overwrite' in result.output
 
 

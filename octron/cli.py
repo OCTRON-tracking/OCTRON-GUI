@@ -389,11 +389,26 @@ def transcode(
         "--crf",
         help="Constant Rate Factor (0–51). Lower = better quality. Default 23.",
     ),
+    fps: float = typer.Option(
+        None,
+        "--fps",
+        help="Output framerate. Videos: reinterprets source frames at this fps "
+             "(changes playback speed). TIFF stacks: sets playback fps (default 20). "
+             "Omit to keep source fps for videos.",
+    ),
+    no_audio: bool = typer.Option(
+        False, "--no-audio", help="Drop the audio track instead of re-encoding it to AAC."
+    ),
     overwrite: bool = typer.Option(
         False, "--overwrite", help="Overwrite existing output files."
     ),
 ):
-    """Transcode video files to MP4 (H.264/libx264) using ffmpeg."""
+    """Transcode video files or multi-frame TIFF stacks to MP4 (H.264) using ffmpeg.
+
+    Accepts video files, multi-frame TIFF stacks, or a directory containing them.
+    Odd-dimension inputs are handled automatically (scaled to even dimensions);
+    audio is kept (re-encoded to AAC) by default for inputs that have it.
+    """
     from octron.tools.transcode import run_transcode
 
     run_transcode(
@@ -401,6 +416,8 @@ def transcode(
         output_path=output_path,
         crf=crf,
         overwrite=overwrite,
+        fps=fps,
+        keep_audio=not no_audio,
     )
 
 

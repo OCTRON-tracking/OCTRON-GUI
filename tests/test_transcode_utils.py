@@ -31,7 +31,13 @@ Skip / overwrite behaviour (no ffmpeg)
 
 import pytest
 from pathlib import Path
-from octron.tools.transcode import run_transcode, VIDEO_EXTENSIONS
+import octron.tools.transcode as tc
+from octron.tools.transcode import (
+    run_transcode,
+    transcode_one,
+    _load_tiff_as_rgb,
+    VIDEO_EXTENSIONS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +50,12 @@ def test_video_extensions_contains_common_formats():
     assert ".mov" in VIDEO_EXTENSIONS
     assert ".mkv" in VIDEO_EXTENSIONS
     assert ".mts" in VIDEO_EXTENSIONS
+
+
+def test_video_extensions_includes_tiff():
+    # TIFF stacks are now transcodable (CLI previously omitted them).
+    assert ".tif" in VIDEO_EXTENSIONS
+    assert ".tiff" in VIDEO_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +183,11 @@ def test_existing_output_is_skipped_when_no_overwrite(tmp_path, capsys):
     assert "skipped" in out
 
 
-def test_multiple_files_some_skipped(tmp_path, capsys):
+def test_multiple_files_some_skipped(tmp_path, capsys, monkeypatch):
+    # Stub the encoder + per-file transcode so no real ffmpeg runs for the
+    # one non-skipped (empty) input.
+    monkeypatch.setattr(tc, "detect_h264_encoder", lambda *a, **k: "libx264")
+    monkeypatch.setattr(tc, "transcode_one", lambda *a, **k: True)
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     for name in ("a.avi", "b.avi", "c.avi"):
@@ -186,3 +202,112 @@ def test_multiple_files_some_skipped(tmp_path, capsys):
     )
     out = capsys.readouterr().out
     assert out.count("skipped") == 2
+
+
+# ---------------------------------------------------------------------------
+# Option passthrough to transcode_one (no ffmpeg)
+# ---------------------------------------------------------------------------
+
+def test_run_transcode_uses_libx264_not_hardware(tmp_path, monkeypatch):
+    """run_transcode must request the libx264-preferring detection."""
+    seen = {}
+
+    def fake_detect(prefer_hardware=True):
+        seen["prefer_hardware"] = prefer_hardware
+        return "libx264"
+
+    monkeypatch.setattr(tc, "detect_h264_encoder", fake_detect)
+    monkeypatch.setattr(tc, "transcode_one", lambda *a, **k: True)
+    video = tmp_path / "clip.avi"
+    video.touch()
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    run_transcode([video], output_path=out_dir, overwrite=True)
+    # Transcode standardises on libx264 rather than hardware nvenc.
+    assert seen["prefer_hardware"] is False
+
+
+def test_run_transcode_passes_options_to_transcode_one(tmp_path, monkeypatch):
+    """run_transcode forwards crf/overwrite/fps/keep_audio + the detected encoder."""
+    calls = []
+    monkeypatch.setattr(tc, "detect_h264_encoder", lambda *a, **k: "libx264")
+
+    def fake_one(inp, out, **kwargs):
+        calls.append((inp, out, kwargs))
+        return True
+
+    monkeypatch.setattr(tc, "transcode_one", fake_one)
+
+    video = tmp_path / "clip.avi"
+    video.touch()
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    run_transcode(
+        [video], output_path=out_dir, crf=18, overwrite=True,
+        fps=30.0, keep_audio=False,
+    )
+
+    assert len(calls) == 1
+    _, _, kwargs = calls[0]
+    assert kwargs["crf"] == 18
+    assert kwargs["overwrite"] is True
+    assert kwargs["fps"] == 30.0
+    assert kwargs["keep_audio"] is False
+    assert kwargs["encoder"] == "libx264"
+
+
+def test_run_transcode_reports_missing_ffmpeg(tmp_path, capsys, monkeypatch):
+    def _raise(*a, **k):
+        raise RuntimeError("ffmpeg is required but was not found on PATH.")
+    monkeypatch.setattr(tc, "detect_h264_encoder", _raise)
+    video = tmp_path / "clip.avi"
+    video.touch()
+    run_transcode([video], output_path=tmp_path / "out", overwrite=True)
+    out = capsys.readouterr().out
+    assert "ffmpeg is required" in out
+
+
+# ---------------------------------------------------------------------------
+# transcode_one / _load_tiff_as_rgb (no ffmpeg)
+# ---------------------------------------------------------------------------
+
+def test_transcode_one_skips_unreadable_tiff(tmp_path):
+    # encoder is provided so detection (ffmpeg) is skipped; the TIFF read fails,
+    # so transcode_one returns False before any ffmpeg call.
+    bad = tmp_path / "bad.tif"
+    bad.write_bytes(b"not a real tiff")
+    out = tmp_path / "bad.mp4"
+    assert transcode_one(bad, out, encoder="libx264") is False
+    assert not out.exists()
+
+
+def test_load_tiff_as_rgb_grayscale_frames(tmp_path):
+    np = pytest.importorskip("numpy")
+    tifffile = pytest.importorskip("tifffile")
+    arr = np.arange(5 * 8 * 8, dtype=np.uint8).reshape(5, 8, 8)
+    p = tmp_path / "stack.tif"
+    tifffile.imwrite(str(p), arr, metadata={"axes": "TYX"})
+    loaded = _load_tiff_as_rgb(p)
+    assert loaded is not None
+    stack, n_frames, height, width = loaded
+    assert (n_frames, height, width) == (5, 8, 8)
+    assert stack.shape == (5, 8, 8, 3)
+    assert stack.dtype == np.uint8
+
+
+def test_load_tiff_as_rgb_rejects_single_frame(tmp_path):
+    np = pytest.importorskip("numpy")
+    tifffile = pytest.importorskip("tifffile")
+    arr = np.zeros((8, 8), dtype=np.uint8)
+    p = tmp_path / "flat.tif"
+    tifffile.imwrite(str(p), arr, metadata={"axes": "YX"})
+    assert _load_tiff_as_rgb(p) is None
+
+
+def test_load_tiff_as_rgb_rejects_ambiguous_t_and_z(tmp_path):
+    np = pytest.importorskip("numpy")
+    tifffile = pytest.importorskip("tifffile")
+    arr = np.zeros((2, 3, 8, 8), dtype=np.uint8)
+    p = tmp_path / "tz.tif"
+    tifffile.imwrite(str(p), arr, metadata={"axes": "TZYX"}, photometric="minisblack")
+    assert _load_tiff_as_rgb(p) is None

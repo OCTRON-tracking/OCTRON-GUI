@@ -12,8 +12,9 @@ report_bbox_sizes : Report bounding-box sizes to help choose tracklet crop size.
 """
 
 import subprocess
-import shutil
 from pathlib import Path
+
+from octron.tools._ffmpeg import detect_h264_encoder, h264_codec_args
 
 PRESETS = {
     "preview": {"scale": 0.25},
@@ -63,48 +64,9 @@ def _coerce_track_ids(track_ids):
 # Encoder helpers
 # ---------------------------------------------------------------------------
 
-def _detect_encoder():
-    """Return the best available H.264 encoder: 'h264_nvenc' or 'libx264'.
-
-    ffmpeg is a hard requirement for the render encode path, so this raises
-    rather than returning a sentinel that every caller has to re-check.
-
-    Raises
-    ------
-    RuntimeError
-        If ffmpeg is not on PATH, or is present but exposes no usable H.264
-        encoder (neither h264_nvenc nor libx264).
-    """
-    if shutil.which("ffmpeg") is None:
-        raise RuntimeError(
-            "ffmpeg is required for rendering but was not found on PATH. "
-            "Please install ffmpeg."
-        )
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-encoders", "-v", "quiet"],
-            capture_output=True, text=True, timeout=5,
-        )
-        text = result.stdout + result.stderr
-        if "h264_nvenc" in text:
-            return "h264_nvenc"
-        if "libx264" in text:
-            return "libx264"
-    except Exception:
-        pass
-    raise RuntimeError(
-        "ffmpeg is installed but exposes no usable H.264 encoder "
-        "(neither h264_nvenc nor libx264). Please install an ffmpeg build "
-        "with libx264."
-    )
-
-
 def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
     """Open an ffmpeg subprocess pipe for encoding. Returns a Popen object."""
-    if encoder == "h264_nvenc":
-        codec_args = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "20"]
-    else:
-        codec_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+    codec_args = h264_codec_args(encoder, crf=20, preset="fast")
     cmd = [
         "ffmpeg", "-y",
         "-f", "rawvideo", "-vcodec", "rawvideo",
@@ -491,7 +453,7 @@ def run_tracklets(
         track_colors[tid] = (r, g, b)  # RGB to match FastVideoReader frames
 
     # One ffmpeg pipe per tracklet (replaces cv2.VideoWriter).
-    _encoder = _detect_encoder()
+    _encoder = detect_h264_encoder()
     logger.info(f"Encoder:  {_encoder} (ffmpeg)")
     writers = {}
     for tid in render_tids:
@@ -879,7 +841,7 @@ def run_render(
 
     # Detect best encoder and open the ffmpeg writer
     overlay_out = output_path / f"overlay_{preset}.mp4"
-    _encoder = _detect_encoder()
+    _encoder = detect_h264_encoder()
     logger.info(f"Encoder:  {_encoder} (ffmpeg)")
     _ffmpeg_proc = _open_ffmpeg_writer(overlay_out, fps, out_w, out_h, _encoder)
 
