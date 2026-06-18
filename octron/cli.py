@@ -248,7 +248,7 @@ def render(
         help="Gaussian smoothing strength (standard deviation in frames) for centroid smoothing. 0=off.",
     ),
     tracklet_interpolate: int = typer.Option(
-        0, "--tracklet-interpolate", help="Fill gaps between track segments with cubic spline interpolation. Value is the maximum gap in frames to bridge. 0 = off.",
+        0, "--tracklet-interpolate", help="Fill gaps between track segments by linear interpolation. Value caps how many consecutive missing frames to bridge (longer gaps are partially filled); 0 = off.",
     ),
     tracklet_segment_only: bool = typer.Option(
         False, "--tracklet-segment-only",
@@ -347,7 +347,7 @@ def render(
         also_overlay=resolved_masks or resolved_boxes,
         tracklet_size=parsed_tracklet_size,
         tracklet_smooth_sigma=tracklet_smooth_sigma,
-        tracklet_interpolate_max_gap=tracklet_interpolate,
+        tracklet_interpolate_limit=tracklet_interpolate,
         tracklet_segment_only=tracklet_segment_only,
         tracklet_segment_keep_n=tracklet_segment_keep,
         tracklet_offset=parsed_tracklet_offset,

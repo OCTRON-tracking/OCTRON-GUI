@@ -203,118 +203,6 @@ def _next_mask_batch(q, timeout=120):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def gaussian_smooth_tracklet_positions(pos_lookup, sigma=2.0):
-    """
-    Smooth the centroid trajectories in ``pos_lookup`` with a 1-D Gaussian
-    kernel (``scipy.ndimage.gaussian_filter1d``) to remove high-frequency jitter
-    while preserving real animal movement.  This is the same smoothing applied
-    to positions in :meth:`YOLO_results.get_tracking_data`.
-
-    Smoothing is parameterised by ``sigma`` in *frames* rather than a cutoff in
-    Hz, so it does not depend on the recording frame rate (which may not be
-    reliably stored in the video container).  The symmetric Gaussian kernel is
-    inherently zero-phase, so the smoothed trajectory has no lag.
-
-    Parameters
-    ----------
-    pos_lookup : dict
-        ``{track_id: {frame_idx: pandas.Series}}`` as built by ``run_tracklets``.
-        Modified in-place.
-    sigma : float
-        Standard deviation of the Gaussian kernel, in frames.  Larger = smoother.
-        0 (or less) disables smoothing.  Default 2.0.
-
-    Returns
-    -------
-    pos_lookup : dict
-        The same dict, modified in-place.
-    """
-    import numpy as np
-    from scipy.ndimage import gaussian_filter1d
-
-    if not sigma or sigma <= 0:
-        return pos_lookup
-
-    for tid in list(pos_lookup.keys()):
-        frames = sorted(pos_lookup[tid].keys())
-        if len(frames) < 2:
-            continue
-        xs = np.array([pos_lookup[tid][f]["pos_x"] for f in frames], dtype=float)
-        ys = np.array([pos_lookup[tid][f]["pos_y"] for f in frames], dtype=float)
-        xs_smooth = gaussian_filter1d(xs, sigma=sigma)
-        ys_smooth = gaussian_filter1d(ys, sigma=sigma)
-        for i, f in enumerate(frames):
-            row = pos_lookup[tid][f].copy()
-            row["pos_x"] = xs_smooth[i]
-            row["pos_y"] = ys_smooth[i]
-            pos_lookup[tid][f] = row
-
-    from loguru import logger
-    logger.info(f"Tracklet centroids smoothed (Gaussian sigma={sigma} frames)")
-    return pos_lookup
-
-
-def interpolate_tracklet_gaps(pos_lookup, max_gap):
-    """
-    Fill gaps in tracklet centroid trajectories using cubic spline interpolation.
-
-    Only gaps between two known positions are filled (leading and trailing gaps
-    are left as black frames).  Gaps wider than ``max_gap`` frames are left
-    untouched.  Interpolated rows are synthetic copies of the nearest real row
-    with ``pos_x`` / ``pos_y`` replaced by the spline values.
-
-    Applied after Gaussian smoothing so the spline fits the already-smooth
-    trajectory.
-
-    Parameters
-    ----------
-    pos_lookup : dict
-        ``{track_id: {frame_idx: pandas.Series}}`` — modified in-place.
-    max_gap : int
-        Maximum gap width (in frames) to interpolate across.  0 = disabled.
-
-    Returns
-    -------
-    pos_lookup : dict
-        The same dict, modified in-place.
-    """
-    import numpy as np
-    from scipy.interpolate import CubicSpline
-
-    if not max_gap or max_gap <= 0:
-        return pos_lookup
-
-    total_filled = 0
-    for tid in list(pos_lookup.keys()):
-        frames = sorted(pos_lookup[tid].keys())
-        if len(frames) < 2:
-            continue
-
-        xs = np.array([pos_lookup[tid][f]["pos_x"] for f in frames], dtype=float)
-        ys = np.array([pos_lookup[tid][f]["pos_y"] for f in frames], dtype=float)
-        cs_x = CubicSpline(frames, xs)
-        cs_y = CubicSpline(frames, ys)
-
-        for i in range(len(frames) - 1):
-            gap_start = frames[i]
-            gap_end = frames[i + 1]
-            gap = gap_end - gap_start - 1
-            if gap <= 0 or gap > max_gap:
-                continue
-            ref_row = pos_lookup[tid][gap_start]
-            for f in range(gap_start + 1, gap_end):
-                row = ref_row.copy()
-                row["pos_x"] = float(cs_x(f))
-                row["pos_y"] = float(cs_y(f))
-                pos_lookup[tid][f] = row
-                total_filled += 1
-
-    if total_filled:
-        from loguru import logger
-        logger.info(f"Tracklet gaps interpolated (cubic spline, max_gap={max_gap}): {total_filled} frame(s) filled")
-    return pos_lookup
-
-
 def _load_results(predictions_path, video_path):
     """Load YOLO_results and optionally override the video path."""
     from octron.yolo_octron.helpers.yolo_results import YOLO_results
@@ -396,7 +284,7 @@ def run_tracklets(
     start=None,
     end=None,
     min_track_frames=0,
-    interpolate_max_gap=0,
+    interpolate_limit=0,
     track_ids=None,
     min_observations=0,
     trim=False,
@@ -429,7 +317,13 @@ def run_tracklets(
         Side length in pixels of each square tracklet crop.  Default 160.
     smooth_sigma : float
         Gaussian smoothing strength (standard deviation in frames) applied to the
-        centroid trajectories.  Set to 0 to disable.  Default 2.0.
+        centroid trajectories via core ``get_tracking_data(sigma=...)``.  0 = off.
+        Default 2.0.
+    interpolate_limit : int
+        Fill interior gaps in the centroid trajectory by linear interpolation in
+        core ``get_tracking_data``.  Caps how many consecutive missing frames to
+        bridge (longer interior gaps are partially filled; leading/trailing gaps
+        are never filled).  0 disables interpolation.  Default 0.
     alpha : float
         Mask overlay opacity when ``also_overlay=True`` (0–1).  Default 0.4.
     draw_masks : bool
@@ -501,8 +395,15 @@ def run_tracklets(
         _obs_ids = {tid for tid, n in _obs_counts.items() if n >= min_observations}
         _prefilter_ids = _obs_ids if _prefilter_ids is None else _prefilter_ids & _obs_ids
 
+    # Interpolation and smoothing are done in core get_tracking_data so the CLI
+    # render path and the napari GUI share one implementation.  --tracklet-interpolate
+    # maps to the pandas consecutive-NaN `limit` (0 = off); --tracklet-smooth-sigma
+    # to `sigma`.  Interpolation runs first, then smoothing (core order).
+    _interp_limit = interpolate_limit if (interpolate_limit and interpolate_limit > 0) else None
     tracking_data = results.get_tracking_data(
-        interpolate=False,
+        interpolate=_interp_limit is not None,
+        interpolate_limit=_interp_limit,
+        sigma=smooth_sigma if (smooth_sigma and smooth_sigma > 0) else 0,
         track_ids=list(_prefilter_ids) if _prefilter_ids is not None else None,
     )
 
@@ -563,12 +464,6 @@ def run_tracklets(
                     f"{max_w}×{max_h} px, which exceeds size={size}. "
                     f"Consider --tracklet-size {max(max_w, max_h) + 20}."
                 )
-
-    if smooth_sigma and smooth_sigma > 0:
-        gaussian_smooth_tracklet_positions(pos_lookup, sigma=smooth_sigma)
-
-    if interpolate_max_gap and interpolate_max_gap > 0:
-        interpolate_tracklet_gaps(pos_lookup, max_gap=interpolate_max_gap)
 
     # Trim: per-track active span (first→last observation within current range)
     trim_starts = {}
@@ -821,7 +716,7 @@ def run_render(
     tracklet_size=None,
     tracklet_smooth_sigma=2.0,
     tracklet_min_frames=0,
-    tracklet_interpolate_max_gap=0,
+    tracklet_interpolate_limit=0,
     tracklet_segment_only=False,
     tracklet_segment_keep_n=0,
     tracklet_offset=(0, 0),
@@ -898,7 +793,7 @@ def run_render(
             start=start,
             end=end,
             min_track_frames=tracklet_min_frames,
-            interpolate_max_gap=tracklet_interpolate_max_gap,
+            interpolate_limit=tracklet_interpolate_limit,
             track_ids=track_ids,
             min_observations=min_observations,
             trim=trim,
