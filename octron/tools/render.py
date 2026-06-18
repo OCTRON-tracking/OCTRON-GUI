@@ -116,6 +116,18 @@ def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
     return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
 
+class _MaskPrefetchError:
+    """Sentinel placed on the prefetch queue when the worker thread fails.
+
+    Lets a zarr/network read error surface in the consumer immediately instead
+    of blocking on an empty queue until the ``get()`` timeout fires.
+    """
+    __slots__ = ("exc",)
+
+    def __init__(self, exc):
+        self.exc = exc
+
+
 def _start_mask_prefetch(zarr_root, track_ids, frame_start, frame_end, batch_size):
     """
     Start a background thread that pre-loads zarr mask batches into a queue.
@@ -127,6 +139,9 @@ def _start_mask_prefetch(zarr_root, track_ids, frame_start, frame_end, batch_siz
 
     Returns a ``queue.Queue`` that yields ``(batch_start, batch_end, masks_dict)``
     tuples in order, followed by a ``None`` sentinel when all batches are done.
+    If the worker hits an error (e.g. a failed zarr read) it enqueues a
+    ``_MaskPrefetchError`` instead; consume the queue via ``_next_mask_batch`` so
+    that error is re-raised in the consumer rather than blocking until timeout.
 
     Using ``maxsize=2`` means the thread runs at most one batch ahead of the
     consumer, bounding peak RAM usage while hiding I/O latency.
@@ -140,29 +155,48 @@ def _start_mask_prefetch(zarr_root, track_ids, frame_start, frame_end, batch_siz
     q = _queue_module.Queue(maxsize=2)
 
     def _worker():
-        for bs in range(frame_start, frame_end, batch_size):
-            be = min(bs + batch_size, frame_end)
-            t0 = time.perf_counter()
-            masks = {}
-            for tid in track_ids:
-                arr_key = f"{tid}_masks"
-                if arr_key not in zarr_root:
-                    continue
-                zarr_arr = zarr_root[arr_key]
-                end_idx = min(be, zarr_arr.shape[0])
-                if bs >= end_idx:
-                    continue
-                masks[tid] = np.asarray(zarr_arr[bs:end_idx])
-            dt_ms = (time.perf_counter() - t0) * 1000
-            logger.debug(
-                f"[mask_load] batch {bs}–{be} ({len(masks)} tracks) in {dt_ms:.1f}ms"
-            )
-            q.put((bs, be, masks))
-        q.put(None)  # sentinel — no more batches
+        try:
+            for bs in range(frame_start, frame_end, batch_size):
+                be = min(bs + batch_size, frame_end)
+                t0 = time.perf_counter()
+                masks = {}
+                for tid in track_ids:
+                    arr_key = f"{tid}_masks"
+                    if arr_key not in zarr_root:
+                        continue
+                    zarr_arr = zarr_root[arr_key]
+                    end_idx = min(be, zarr_arr.shape[0])
+                    if bs >= end_idx:
+                        continue
+                    masks[tid] = np.asarray(zarr_arr[bs:end_idx])
+                dt_ms = (time.perf_counter() - t0) * 1000
+                logger.debug(
+                    f"[mask_load] batch {bs}–{be} ({len(masks)} tracks) in {dt_ms:.1f}ms"
+                )
+                q.put((bs, be, masks))
+        except Exception as exc:  # zarr/network read failure — surface to consumer
+            logger.error(f"Mask prefetch thread failed: {exc}")
+            q.put(_MaskPrefetchError(exc))
+        else:
+            q.put(None)  # sentinel — no more batches
 
     t = threading.Thread(target=_worker, daemon=True, name="mask-prefetch")
     t.start()
     return q
+
+
+def _next_mask_batch(q, timeout=120):
+    """Return the next prefetch item, re-raising worker errors.
+
+    Yields the worker's ``(batch_start, batch_end, masks)`` tuple, or ``None``
+    when the worker has finished.  If the worker thread raised, the original
+    exception is re-raised here (in the consumer) instead of the consumer
+    blocking on the queue until ``timeout`` and failing with an opaque Empty.
+    """
+    item = q.get(timeout=timeout)
+    if isinstance(item, _MaskPrefetchError):
+        raise RuntimeError("Mask prefetch thread failed") from item.exc
+    return item
 
 
 # ---------------------------------------------------------------------------
@@ -585,7 +619,7 @@ def run_tracklets(
             results.zarr_root, render_tids,
             frame_start, frame_end, _BATCH,
         )
-        _first = _mask_q.get(timeout=120)
+        _first = _next_mask_batch(_mask_q)
         if _first is not None:
             _batch_start, _batch_end, _batch_masks = _first
 
@@ -621,7 +655,7 @@ def run_tracklets(
 
         # Advance to next mask batch when current one is exhausted.
         if _mask_q is not None and frame_idx >= _batch_end:
-            _item = _mask_q.get(timeout=120)
+            _item = _next_mask_batch(_mask_q)
             if _item is not None:
                 _batch_start, _batch_end, _batch_masks = _item
             else:
@@ -976,7 +1010,7 @@ def run_render(
             frame_start, frame_end, _BATCH,
         )
         # Pull first batch — blocks for initial load (batch_size frames only)
-        _first = _mask_q.get(timeout=120)
+        _first = _next_mask_batch(_mask_q)
         if _first is not None:
             _batch_start, _batch_end, _batch_masks = _first
             logger.debug(f"[mask_load] first batch ready: frames {_batch_start}–{_batch_end}")
@@ -1014,7 +1048,7 @@ def run_render(
         # so queue.get() returns almost instantly in the common case.
         # Any non-trivial wait here means zarr I/O is slower than rendering.
         if _mask_q is not None and frame_idx >= _batch_end:
-            _item = _mask_q.get(timeout=120)
+            _item = _next_mask_batch(_mask_q)
             if _item is not None:
                 _batch_start, _batch_end, _batch_masks = _item
             else:
