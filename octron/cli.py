@@ -16,7 +16,7 @@ Subcommands
 """
 
 
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from pathlib import Path
 from enum import Enum
 import typer
@@ -40,12 +40,25 @@ def _enum_from_yaml(name: str, yaml_path: Path, *, available_only: bool = False)
     return Enum(name, members, type=str)
 
 
-YOLOModel = _enum_from_yaml(
-    "YOLOModel", _PKG_DIR / "yolo_octron" / "yolo_models.yaml",
-)
-TrackerName = _enum_from_yaml(
-    "TrackerName", _PKG_DIR / "tracking" / "boxmot_trackers.yaml", available_only=True,
-)
+# The CLI choice enums are built dynamically from the YAML catalogs so the
+# choices always match the shipped models/trackers. Static type checkers can't
+# see the members of a runtime-built Enum (hence "Variable not allowed in type
+# expression"), so under TYPE_CHECKING we give them lightweight stand-ins that
+# carry only the members used as defaults below; the real enums are built at
+# runtime in the else branch.
+if TYPE_CHECKING:
+    class YOLOModel(str, Enum):
+        yolo26m = "yolo26m"
+
+    class TrackerName(str, Enum):
+        bytetrack = "bytetrack"
+else:
+    YOLOModel = _enum_from_yaml(
+        "YOLOModel", _PKG_DIR / "yolo_octron" / "yolo_models.yaml",
+    )
+    TrackerName = _enum_from_yaml(
+        "TrackerName", _PKG_DIR / "tracking" / "boxmot_trackers.yaml", available_only=True,
+    )
 
 
 class TrainMode(str, Enum):
@@ -175,7 +188,7 @@ def predict(
     detailed: bool = typer.Option(False, "--detailed", help="Extract detailed region properties (area, eccentricity, solidity, …) from segmentation masks via scikit-image. Ignored for detection models."),
     buffer_size: int = typer.Option(500, help="Frame buffer size before writing to zarr."),
     output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Directory where octron_predictions/ folders are written. Defaults to alongside each video file."),
-    local_cache_dir: Optional[Path] = typer.Option(None, "--local-cache-dir", help="Write zarr output here first, then move to --output-dir when each video finishes. Enabled automatically for network/UNC paths. Useful for NVMe scratch space."),
+    local_cache_dir: Optional[Path] = typer.Option(None, "--local-cache-dir", help="Stage prediction output in this local dir, then move each finished video to --output-dir. Overrides the config.yaml 'prediction_cache_dir'; if neither is set, caching is off."),
 ):
     """Run YOLO prediction and tracking on one or more videos."""
     from octron.tools.predict import run_predict

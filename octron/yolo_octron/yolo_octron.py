@@ -1917,6 +1917,7 @@ class YOLO_octron:
                   overwrite=False,
                   buffer_size=500,
                   output_dir=None,
+                  local_cache_dir=None,
                   ):
         """
         Predict and track objects in multiple videos.
@@ -2113,6 +2114,28 @@ class YOLO_octron:
         
         total_frames = sum(v['num_frames_analyzed'] for v in videos_dict.values())
         
+        # Resolve the optional local prediction cache (explicit opt-in only).
+        # Precedence: local_cache_dir argument > config.yaml prediction_cache_dir > off.
+        # When enabled, each video's output is written under
+        # <cache>/octron_cache_<pid> and moved to its final destination on
+        # completion (avoids zarr atomic-write failures on SMB/network shares).
+        import atexit
+        from octron import config as _octron_config
+        from octron.yolo_octron.helpers.cache_io import is_network_path, move_prediction_folder
+        _cache_base = Path(local_cache_dir) if local_cache_dir is not None else _octron_config.get_prediction_cache_dir()
+        _cache_root = None
+        if _cache_base is not None:
+            _cache_root = Path(_cache_base) / f"octron_cache_{os.getpid()}"
+            _cache_root.mkdir(parents=True, exist_ok=True)
+            atexit.register(lambda p=_cache_root: shutil.rmtree(p, ignore_errors=True))
+            logger.info(f"Local prediction cache: {_cache_root}")
+        elif output_dir is not None and is_network_path(output_dir):
+            logger.warning(
+                f"Writing predictions to a network share ({output_dir}). For "
+                f"reliability/speed, set a local cache dir in config.yaml "
+                f"(prediction_cache_dir) or pass local_cache_dir."
+            )
+
         # Process each video
         for video_index, (video_name, video_dict) in enumerate(videos_dict.items(), start=0):
             num_frames = video_dict['num_frames_analyzed']
@@ -2120,21 +2143,31 @@ class YOLO_octron:
             logger.info(f'Processing video {video_index+1}/{total_videos}: {video_name}')
             video_path = Path(video_dict['video_file_path'])
             
-            # Check overwrite BEFORE loading the model to avoid unnecessary work
+            # Check overwrite BEFORE loading the model to avoid unnecessary work.
+            # The overwrite/skip check is always on the FINAL destination.
             _pred_root = Path(output_dir) if output_dir else video_path.parent
-            save_dir = _pred_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
-            if save_dir.exists() and overwrite:
-                shutil.rmtree(save_dir)
-            elif save_dir.exists() and not overwrite:
-                logger.info(f"Skipping {video_name}: predictions already exist at {save_dir}. Pass --overwrite to replace.")
+            final_save_dir = _pred_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
+            if final_save_dir.exists() and overwrite:
+                shutil.rmtree(final_save_dir)
+            elif final_save_dir.exists() and not overwrite:
+                logger.info(f"Skipping {video_name}: predictions already exist at {final_save_dir}. Pass --overwrite to replace.")
                 yield {
                     'stage': 'skipped_video',
                     'video_name': video_name,
                     'video_index': video_index,
                     'total_videos': total_videos,
-                    'save_dir': save_dir,
+                    'save_dir': final_save_dir,
                 }
                 continue
+
+            # Where output is actually written: the local cache (if configured)
+            # or the final destination directly.
+            if _cache_root is not None:
+                save_dir = _cache_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
+                if save_dir.exists():
+                    shutil.rmtree(save_dir)  # clear stale cache from a prior run
+            else:
+                save_dir = final_save_dir
             
             # Load model anew for every video since the tracker persists
             try:
@@ -2593,13 +2626,34 @@ class YOLO_octron:
                 json.dump(metadata_to_save, f, indent=4)
             logger.info(f"Saved prediction metadata to {json_meta_path.as_posix()}")
             
+            # When caching, close the zarr stores and move the completed video
+            # folder to its final destination before reporting it, so consumers
+            # (e.g. the GUI) load results from the final location.
+            reported_save_dir = save_dir
+            if _cache_root is not None:
+                if is_segment and prediction_store is not None:
+                    try:
+                        prediction_store.close()
+                    except Exception:
+                        pass
+                mask_stores.clear()
+                prediction_store = None
+                gc.collect()
+                move_prediction_folder(save_dir, final_save_dir)
+                reported_save_dir = final_save_dir
+
             yield {
                     'stage': 'video_complete',
                     'video_name': video_name,
-                    'save_dir': save_dir,
+                    'save_dir': reported_save_dir,
                 }
             
             
+        # Clean up the local cache root (each completed video was already moved
+        # to its final destination at its video_complete).
+        if _cache_root is not None and _cache_root.exists():
+            shutil.rmtree(_cache_root, ignore_errors=True)
+
         # ALL COMPLETE    
         yield {
             'stage': 'complete',
