@@ -380,7 +380,7 @@ class YoloHandler(QObject):
         # Watershed? 
         enable_watershed = self.w.train_data_watershed_checkBox.isChecked()
         self.yolo.enable_watershed = enable_watershed
-        self.polygon_worker = create_worker(self.yolo.prepare_polygons)
+        self.polygon_worker = create_worker(self.yolo.prepare_geometry)
         self.polygon_worker.setAutoDelete(True) # auto destruct !!
         self.polygon_worker.yielded.connect(self._polygon_yielded)
         self.polygon_worker.finished.connect(self._on_polygon_finished)
@@ -465,7 +465,7 @@ class YoloHandler(QObject):
         # Watershed?
         enable_watershed = self.w.train_data_watershed_checkBox.isChecked()
         self.yolo.enable_watershed = enable_watershed
-        self.bbox_worker = create_worker(self.yolo.prepare_bboxes)
+        self.bbox_worker = create_worker(self.yolo.prepare_geometry)
         self.bbox_worker.setAutoDelete(True)
         self.bbox_worker.yielded.connect(self._bbox_yielded)
         self.bbox_worker.finished.connect(self._on_bbox_finished)
@@ -548,12 +548,9 @@ class YoloHandler(QObject):
 
     def _create_worker_training_data(self):
         # Create a new worker for training data generation / export
-        # Route to the correct export function based on train_mode
-        if self.w.train_mode == 'detect':
-            export_func = self.yolo.create_training_data_detect
-        else:
-            export_func = self.yolo.create_training_data_segment
-        self.training_data_worker = create_worker(export_func)
+        # Mode dispatch now lives in core create_training_data, which reads
+        # self.yolo.train_mode (set in init_training_data_threaded).
+        self.training_data_worker = create_worker(self.yolo.create_training_data)
         self.training_data_worker.setAutoDelete(True) # auto destruct!
         self.training_data_worker.yielded.connect(self._training_data_yielded)
         self.training_data_worker.finished.connect(self._on_training_data_finished)

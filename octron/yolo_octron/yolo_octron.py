@@ -654,15 +654,56 @@ class YOLO_octron:
                         labels[entry]['frames'] = valid_frames
 
 
+    def prepare_geometry(self):
+        """
+        Generate training geometry, dispatching on ``self.train_mode``.
+
+        Runs :meth:`prepare_bboxes` for ``'detect'`` and :meth:`prepare_polygons`
+        otherwise (``'segment'``), so CLI and GUI select geometry once, here,
+        instead of duplicating the mode branch.  Yields the same progress tuples
+        ``(no_entry, total, label, frame_no, total_frames)`` as the underlying
+        method.
+        """
+        if self.train_mode == 'detect':
+            yield from self.prepare_bboxes()
+        else:
+            yield from self.prepare_polygons()
+
+    @staticmethod
+    def _validate_split_fractions(training_fraction, validation_fraction):
+        """
+        Validate train/val split fractions (shared guard for core and callers).
+
+        The test split is the remainder, so the two fractions must leave room
+        for it.  Raises ``ValueError`` on invalid input.
+        """
+        if not 0.0 < training_fraction < 1.0:
+            raise ValueError(
+                f"training_fraction must be in (0, 1); got {training_fraction!r}"
+            )
+        if not 0.0 <= validation_fraction < 1.0:
+            raise ValueError(
+                f"validation_fraction must be in [0, 1); got {validation_fraction!r}"
+            )
+        if training_fraction + validation_fraction >= 1.0:
+            raise ValueError(
+                f"training_fraction + validation_fraction must be < 1 "
+                f"(test split = remainder); got {training_fraction} + "
+                f"{validation_fraction} = {training_fraction + validation_fraction}"
+            )
+
     def prepare_split(self,
                       training_fraction=0.7,
                       validation_fraction=0.15,
+                      random_seed=88,
                       verbose=False,
                      ):
         """
         Using train_test_val(), this function splits the frame indices 
         into training, testing, and validation sets, based on the fractions provided.
+        ``random_seed`` controls the shuffling so splits are reproducible.
         """
+        self._validate_split_fractions(training_fraction, validation_fraction)
         if self.label_dict is None:
             raise ValueError("No labels found. Please run prepare_labels() first.")
         
@@ -675,6 +716,7 @@ class YOLO_octron:
                 split_dict = train_test_val(frames, 
                                             training_fraction=training_fraction,
                                             validation_fraction=validation_fraction,
+                                            random_seed=random_seed,
                                             verbose=verbose,
                                             )
 
@@ -954,6 +996,22 @@ class YOLO_octron:
 
         logger.info(f"Detection training data exported to {self.data_path.as_posix()}")
         return
+
+    def create_training_data(self, verbose=False):
+        """
+        Export training data, dispatching on ``self.train_mode``.
+
+        Runs :meth:`create_training_data_detect` for ``'detect'`` and
+        :meth:`create_training_data_segment` otherwise (``'segment'``), so CLI and
+        GUI select the export once, here, instead of duplicating the mode branch.
+        Yields the same progress tuples
+        ``(no_entry, total, label, split, frame_no, total_frames)`` as the
+        underlying method.
+        """
+        if self.train_mode == 'detect':
+            yield from self.create_training_data_detect(verbose=verbose)
+        else:
+            yield from self.create_training_data_segment(verbose=verbose)
 
     def write_yolo_config(self,
                          train_path="train",
