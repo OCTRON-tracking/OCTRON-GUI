@@ -260,7 +260,7 @@ def render(
     ),
     tracklet_offset: Optional[str] = typer.Option(
         None, "--tracklet-offset",
-        help="Pixel offset of the tracklet crop centre as 'DX,DY' (e.g. '20,-30'). Positive = right/down. Default: 0,0.",
+        help="Offset of the tracklet crop centre as 'DX,DY' in source-video pixels (e.g. '20,-30'). Positive = right/down. Applied consistently in overlay and raw modes. Default: 0,0.",
     ),
     # --- Filtering ---
     track_ids: Optional[str] = typer.Option(

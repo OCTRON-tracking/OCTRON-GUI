@@ -410,6 +410,10 @@ def run_tracklets(
         When ``segment_only=True``, keep only the N largest connected components
         of the mask (by pixel area in video space).  0 = keep all components.
         Default 0.
+    offset : tuple of int, optional
+        ``(dx, dy)`` shift of each crop centre, in source-video pixels (applied
+        identically whether or not ``also_overlay`` is set).  Positive values
+        move the crop right/down.  Default ``(0, 0)``.
     start : int, optional
         First frame index (inclusive).  Default: beginning of video.
     end : int, optional
@@ -692,10 +696,14 @@ def run_tracklets(
                 row = None  # below confidence threshold — render as black frame
             if row is not None:
                 if also_overlay and out_frame is not None:
-                    cx = float(row["pos_x"]) * scale + offset[0]
-                    cy = float(row["pos_y"]) * scale + offset[1]
+                    # offset is in source-video pixels; scale it together with the
+                    # centroid so --tracklet-offset means the same in both modes.
+                    cx = (float(row["pos_x"]) + offset[0]) * scale
+                    cy = (float(row["pos_y"]) + offset[1]) * scale
                     crop = cv2.getRectSubPix(out_frame, (size, size), (cx, cy))
                 else:
+                    # raw crop from the full-resolution frame; offset is already
+                    # in source-video pixels.
                     cx = float(row["pos_x"]) + offset[0]
                     cy = float(row["pos_y"]) + offset[1]
                     crop = cv2.getRectSubPix(orig_frame, (size, size), (cx, cy))
