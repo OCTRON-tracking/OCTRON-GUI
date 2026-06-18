@@ -1,57 +1,73 @@
 """
-Tests for pure utility functions in octron/tools/train.py.
-No GPU, no model weights, and no heavy dependencies required — only the
-yolo_models.yaml config file that ships with the package.
+Tests for model-name resolution.
 
-Covered
--------
-_normalise_model_name(model, models_yaml_path)
-    Exact match returns the canonical key unchanged
-    All four models in yolo_models.yaml resolve correctly
-    Lowercase input matched case-insensitively → canonical casing returned
-    All-uppercase input matched case-insensitively → canonical casing returned
-    Mixed-case input matched case-insensitively → canonical casing returned
-    Unknown model name not in YAML → input returned as-is
-    Accepts enum-like objects with a .value attribute (e.g. typer enums)
+Resolution now lives in core ``YOLO_octron.resolve_model_name`` (case-insensitive
+match against the model catalog), shared by the CLI and the GUI, replacing the
+old CLI-only ``_normalise_model_name``.
+
+The catalog keys are read from the ``yolo_models.yaml`` that ships with the
+package; a ``YOLO_octron`` instance is built via ``__new__`` (bypassing
+``__init__``) so no weights are downloaded or loaded.
 """
 
 from pathlib import Path
-from octron.tools.train import _normalise_model_name
+
+import yaml
+
+from octron.yolo_octron.yolo_octron import YOLO_octron
 
 MODELS_YAML = Path(__file__).parent.parent / "octron" / "yolo_octron" / "yolo_models.yaml"
 
 
+def _resolver():
+    """A YOLO_octron (no __init__) whose models_dict keys are the catalog names."""
+    with open(MODELS_YAML) as f:
+        keys = list((yaml.safe_load(f) or {}).keys())
+    obj = YOLO_octron.__new__(YOLO_octron)
+    obj.models_dict = {k: {} for k in keys}
+    return obj, keys
+
+
 # ---------------------------------------------------------------------------
-# _normalise_model_name
+# resolve_model_name
 # ---------------------------------------------------------------------------
 
-def test_normalise_exact_match():
-    assert _normalise_model_name("YOLO26m", MODELS_YAML) == "YOLO26m"
+def test_resolve_exact_match():
+    obj, _ = _resolver()
+    assert obj.resolve_model_name("YOLO26m") == "YOLO26m"
 
 
-def test_normalise_exact_match_all_models():
-    for name in ("YOLO11m", "YOLO11l", "YOLO26m", "YOLO26l"):
-        assert _normalise_model_name(name, MODELS_YAML) == name
+def test_resolve_exact_match_all_models():
+    obj, keys = _resolver()
+    for name in keys:
+        assert obj.resolve_model_name(name) == name
 
 
-def test_normalise_lowercase_input():
-    assert _normalise_model_name("yolo26m", MODELS_YAML) == "YOLO26m"
+def test_resolve_lowercase_input():
+    obj, _ = _resolver()
+    assert obj.resolve_model_name("yolo26m") == "YOLO26m"
 
 
-def test_normalise_uppercase_input():
-    assert _normalise_model_name("YOLO11M", MODELS_YAML) == "YOLO11m"
+def test_resolve_uppercase_input():
+    obj, _ = _resolver()
+    assert obj.resolve_model_name("YOLO11M") == "YOLO11m"
 
 
-def test_normalise_mixed_case_input():
-    assert _normalise_model_name("Yolo26L", MODELS_YAML) == "YOLO26l"
+def test_resolve_mixed_case_input():
+    obj, _ = _resolver()
+    assert obj.resolve_model_name("Yolo26L") == "YOLO26l"
 
 
-def test_normalise_unknown_model_returns_input():
-    assert _normalise_model_name("nonexistent_model", MODELS_YAML) == "nonexistent_model"
+def test_resolve_unknown_model_returns_none():
+    obj, _ = _resolver()
+    assert obj.resolve_model_name("nonexistent_model") is None
 
 
-def test_normalise_accepts_enum_like_object():
-    """Objects with a .value attribute (e.g. typer enums) should be handled."""
+def test_resolve_accepts_enum_like_object():
+    """Objects with a .value attribute (e.g. typer enums) are handled."""
+    obj, _ = _resolver()
+
     class FakeEnum:
         value = "yolo26l"
-    assert _normalise_model_name(FakeEnum(), MODELS_YAML) == "YOLO26l"
+
+    assert obj.resolve_model_name(FakeEnum()) == "YOLO26l"

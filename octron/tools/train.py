@@ -54,16 +54,6 @@ def _get_batch_size(model, imgsz, device, cache_path):
     return batch
 
 
-def _normalise_model_name(model, models_yaml_path):
-    """Return the canonical model key from models_yaml (case-insensitive match)."""
-    import yaml
-    model_str = model.value if hasattr(model, 'value') else str(model)
-    with open(models_yaml_path) as f:
-        models_dict = yaml.safe_load(f)
-    match = next((k for k in models_dict if k.lower() == model_str.lower()), None)
-    return match if match is not None else model_str
-
-
 def run_training(
     project_path,
     model="YOLO26m",
@@ -163,8 +153,7 @@ def run_training(
         print(f"Resuming from checkpoint: {last_pt}")
         yolo.load_model(last_pt, train_mode=train_mode)
     else:
-        model = _normalise_model_name(model, _MODELS_YAML)
-        print(f"Loading model: {model}...")
+        print(f"Loading model: {model.value if hasattr(model, 'value') else model}...")
         yolo.load_model(model, train_mode=train_mode)
 
     # --- Step 6: train ---

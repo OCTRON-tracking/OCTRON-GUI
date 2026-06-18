@@ -1031,6 +1031,24 @@ class YOLO_octron:
 
 
     ##### TRAINING AND INFERENCE ############################################################################
+    def resolve_model_name(self, model_name):
+        """
+        Resolve a model name to its canonical key in ``self.models_dict``.
+
+        Matching is case-insensitive (e.g. 'yolo11m' -> 'YOLO11m'), and enum
+        members (with a ``.value``, such as Typer choices) are accepted.
+
+        Returns
+        -------
+        str or None
+            The canonical models_dict key, or None if there is no match.
+        """
+        model_str = model_name.value if hasattr(model_name, 'value') else str(model_name)
+        if model_str in self.models_dict:
+            return model_str
+        model_lower = model_str.lower()
+        return next((k for k in self.models_dict if k.lower() == model_lower), None)
+
     def load_model(self, model_name_path, train_mode='segment'):
         """
         Load the YOLO model
@@ -1069,8 +1087,16 @@ class YOLO_octron:
             # If this path exists, load this model, otherwise 
             # assume that this models is part of the models_dict
         except AssertionError:
+            # Not a file on disk — resolve the catalog name case-insensitively
+            # (e.g. 'yolo11m' -> 'YOLO11m') so callers need not match YAML casing.
+            resolved = self.resolve_model_name(model_name_path)
+            if resolved is None:
+                raise ValueError(
+                    f"Unknown model '{model_name_path}': not an existing file and "
+                    f"not in the model catalog. Available: {sorted(self.models_dict)}"
+                )
             model_key = 'model_path_detect' if train_mode == 'detect' else 'model_path_seg'
-            model_name_path = self.models_dict[model_name_path][model_key]
+            model_name_path = self.models_dict[resolved][model_key]
             model_name_path = self.models_yaml_path.parent / f'models/{model_name_path}'
             
         model = YOLO(model_name_path)
