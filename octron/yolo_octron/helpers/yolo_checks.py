@@ -1,5 +1,4 @@
 # Code for checking the availability of the YOLO models
-import os
 from pathlib import Path
 import requests
 import yaml
@@ -87,13 +86,13 @@ def check_yolo_models(YOLO_BASE_URL,
         # Archiving the YOLO github releases URL here for now ...
         YOLO_BASE_URL="https://github.com/ultralytics/assets/releases/download/v8.4.0" 
     
+    models_yaml_path = Path(models_yaml_path)
     assert models_yaml_path.exists(), f"Path {models_yaml_path} does not exist"
-    yolo_model_path = models_yaml_path.parent / 'models' # OCTRON convention. Currently not changeable.
-    if yolo_model_path.exists():
-        logger.debug(f"Models folder {yolo_model_path} exists.")
-    else:
-        os.mkdir(yolo_model_path)
-        logger.info(f"Created YOLO models folder {yolo_model_path}")
+    # Downloaded weights live in the per-user cache (config.get_yolo_models_dir()),
+    # NOT inside the installed package (which may be read-only and is wiped on
+    # reinstall). The manifest YAML stays bundled with the package.
+    from octron import config
+    yolo_model_path = config.get_yolo_models_dir()
     
     # Load the model YAML file and convert it to a dictionary
     with open(models_yaml_path, 'r') as file:

@@ -110,3 +110,35 @@ def test_specs_includes_prediction_cache_dir(cfg_path):
     assert spec.kind == "dir"
     assert spec.default is None
     assert spec.description  # non-empty, for the dialog/CLI
+
+
+# ---------------------------------------------------------------------------
+# Model cache dir (downloaded weights / checkpoints)
+# ---------------------------------------------------------------------------
+
+def test_model_cache_dir_defaults_to_user_cache(cfg_path):
+    # Unset -> per-user cache dir for "octron" (does NOT create it).
+    d = config.get_model_cache_dir()
+    assert isinstance(d, Path)
+    assert d.name == "octron"
+
+
+def test_model_cache_dir_honors_config_and_tilde(cfg_path):
+    config.set_value("model_cache_dir", "~/octron_models")
+    assert config.get_model_cache_dir() == (Path.home() / "octron_models")
+
+
+def test_yolo_models_and_sam_checkpoints_dirs_created(cfg_path, tmp_path):
+    base = tmp_path / "mcache"
+    config.set_value("model_cache_dir", str(base))
+    models = config.get_yolo_models_dir()
+    ckpts = config.get_sam_checkpoints_dir()
+    assert models == base / "models" and models.is_dir()
+    assert ckpts == base / "checkpoints" and ckpts.is_dir()
+
+
+def test_specs_includes_model_cache_dir(cfg_path):
+    by_key = {s.key: s for s in config.specs()}
+    assert "model_cache_dir" in by_key
+    assert by_key["model_cache_dir"].kind == "dir"
+    assert by_key["model_cache_dir"].default is None

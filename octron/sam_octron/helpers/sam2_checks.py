@@ -1,5 +1,4 @@
 # Code for checking the availability of the SAM2 model configurations and checkpoints
-import os
 from pathlib import Path
 import requests
 import yaml
@@ -96,6 +95,11 @@ def check_sam2_models(SAM2p1_BASE_URL,
     assert sam2_path.exists(), f"Path {sam2_path} does not exist"
     assert models_yaml_path.exists(), f"Path {models_yaml_path} does not exist"
     
+    # Checkpoints (.pt binaries) live in the per-user cache; the SAM2 hydra
+    # configs are version-coupled and stay bundled in the package.
+    from octron import config
+    checkpoints_dir = config.get_sam_checkpoints_dir()
+    
     # Load the model YAML file and convert it to a dictionary
     with open(models_yaml_path, 'r') as file:
         models_dict = yaml.safe_load(file)
@@ -106,13 +110,11 @@ def check_sam2_models(SAM2p1_BASE_URL,
         assert 'config_path' in models_dict[model], f"Config path not found for model {model} in yaml file"
         assert 'checkpoint_path' in models_dict[model], f"Checkpoint path not found for model {model} in yaml file"
 
-        # Some sanity checks on the actual paths
+        # Config file stays in the package (must match the code version).
         model_config_path = (sam2_path  / models_dict[model]['config_path'])
         assert model_config_path.exists(), f"Config file {model_config_path} does not exist" 
-        model_checkpt_path = (sam2_path  / models_dict[model]['checkpoint_path'])
-        if not model_checkpt_path.parent.exists():
-            os.mkdir(model_checkpt_path.parent)
-        assert model_checkpt_path.parent.exists(), f"Checkpoint folder {model_checkpt_path.parent} does not exist"
+        # Checkpoint binary lives in the per-user cache.
+        model_checkpt_path = checkpoints_dir / Path(models_dict[model]['checkpoint_path']).name
         
         # Check if the checkpoint file exists. If not, download it.
         if model_checkpt_path.exists() and not force_download:

@@ -105,6 +105,18 @@ SETTINGS: "tuple[SettingSpec, ...]" = (
         ),
         coerce=_coerce_optional_dir,
     ),
+    SettingSpec(
+        key="model_cache_dir",
+        default=None,
+        kind="dir",
+        description=(
+            "Directory where downloaded model weights and SAM checkpoints are "
+            "stored. Leave empty to use the per-user cache directory "
+            "(platformdirs.user_cache_dir('octron')). Point this at shared/NAS "
+            "storage to reuse downloads across machines or installs."
+        ),
+        coerce=_coerce_optional_dir,
+    ),
 )
 
 _SPECS = {spec.key: spec for spec in SETTINGS}
@@ -227,3 +239,39 @@ def get_prediction_cache_dir() -> Optional[Path]:
     if not raw:
         return None
     return Path(raw).expanduser()
+
+
+def get_model_cache_dir() -> Path:
+    """Return the base directory for downloaded model weights / checkpoints.
+
+    Resolution: the ``model_cache_dir`` setting (``~`` expanded) when set,
+    otherwise the per-user cache directory ``platformdirs.user_cache_dir("octron")``
+    (e.g. ``~/Library/Caches/octron`` on macOS). The directory is NOT created
+    here; use :func:`get_yolo_models_dir` / :func:`get_sam_checkpoints_dir` for
+    the concrete (created) subdirectories.
+    """
+    raw = get_value("model_cache_dir")
+    if raw:
+        return Path(raw).expanduser()
+    return Path(platformdirs.user_cache_dir("octron"))
+
+
+def get_yolo_models_dir() -> Path:
+    """Return ``<model_cache_dir>/models`` (created if missing).
+
+    Home for downloaded YOLO weight files. See :func:`get_model_cache_dir`.
+    """
+    d = get_model_cache_dir() / "models"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def get_sam_checkpoints_dir() -> Path:
+    """Return ``<model_cache_dir>/checkpoints`` (created if missing).
+
+    Home for downloaded SAM2/SAM3 checkpoints (and the SAM3 ``config.json``).
+    See :func:`get_model_cache_dir`.
+    """
+    d = get_model_cache_dir() / "checkpoints"
+    d.mkdir(parents=True, exist_ok=True)
+    return d

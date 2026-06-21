@@ -1179,8 +1179,11 @@ class YOLO_octron:
                     f"not in the model catalog. Available: {sorted(self.models_dict)}"
                 )
             model_key = 'model_path_detect' if train_mode == 'detect' else 'model_path_seg'
-            model_name_path = self.models_dict[resolved][model_key]
-            model_name_path = self.models_yaml_path.parent / f'models/{model_name_path}'
+            model_filename = self.models_dict[resolved][model_key]
+            # Weights are loaded from the per-user cache (see config.get_yolo_models_dir),
+            # where check_yolo_models downloads them.
+            from octron import config as _octron_config
+            model_name_path = _octron_config.get_yolo_models_dir() / model_filename
             
         model = YOLO(model_name_path)
         logger.info(f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})")

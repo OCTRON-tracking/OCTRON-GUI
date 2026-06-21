@@ -1,5 +1,4 @@
 # Code for checking the availability of the SAM3 model checkpoint and config
-import os
 from pathlib import Path
 import yaml
 from loguru import logger
@@ -84,10 +83,10 @@ def check_sam3_models(models_yaml_path, force_download=False):
         assert 'name' in models_dict[model_id], f"Name not found for model {model_id} in yaml file"
         assert 'checkpoint_path' in models_dict[model_id], f"Checkpoint path not found for model {model_id} in yaml file"
 
-    # Collect unique checkpoint files that need downloading
-    checkpoints_dir = sam3_path / 'checkpoints'
-    if not checkpoints_dir.exists():
-        os.makedirs(checkpoints_dir, exist_ok=True)
+    # Checkpoints (sam3.pt + the downloaded config.json) live in the per-user
+    # cache, not inside the installed package.
+    from octron import config
+    checkpoints_dir = config.get_sam_checkpoints_dir()
 
     try:
         for fname in SAM3_FILES:
@@ -109,9 +108,9 @@ def check_sam3_models(models_yaml_path, force_download=False):
         logger.warning("⚠️  sam3.pt not found after download attempt.")
         return {}
 
-    # Verify checkpoint paths from YAML actually exist
+    # Verify checkpoint paths from YAML actually exist (in the per-user cache)
     for model_id, model in models_dict.items():
-        ckpt_path = sam3_path / model['checkpoint_path']
+        ckpt_path = checkpoints_dir / Path(model['checkpoint_path']).name
         if not ckpt_path.exists():
             print(f"⚠️ {ckpt_path} not found after download attempt.")
             return {}

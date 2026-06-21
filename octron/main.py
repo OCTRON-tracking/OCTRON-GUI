@@ -441,7 +441,10 @@ class octron_widget(QWidget):
         self._cleanup_predictor()
         model = self.sam2models_dict[model_id]
         config_path = Path(model['config_path'])
-        checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
+        # Checkpoints live in the per-user cache (config.get_sam_checkpoints_dir),
+        # where check_sam2_models downloads them.
+        from octron.config import get_sam_checkpoints_dir
+        checkpoint_path = get_sam_checkpoints_dir() / Path(model['checkpoint_path']).name
         self.predictor, self.device = build_sam2_octron(config_file_path=config_path.as_posix(),
                                                         ckpt_path=checkpoint_path.as_posix(),
                                                         )
@@ -475,7 +478,10 @@ class octron_widget(QWidget):
         logger.info(f"Loading SAM3 model {model_id}")
         self._cleanup_predictor()
         model = self.sam3models_dict[model_id]
-        checkpoint_path = self.base_path / Path(f"sam_octron/{model['checkpoint_path']}")
+        # Checkpoints live in the per-user cache (config.get_sam_checkpoints_dir),
+        # where check_sam3_models downloads them.
+        from octron.config import get_sam_checkpoints_dir
+        checkpoint_path = get_sam_checkpoints_dir() / Path(model['checkpoint_path']).name
         semantic = model.get('semantic', False)
         self.predictor, self.device = build_sam3_octron(
             ckpt_path=checkpoint_path.as_posix(),
