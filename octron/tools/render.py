@@ -24,7 +24,13 @@ PRESETS = {
 
 
 def _validate_render_args(preset, min_confidence, alpha):
-    """Shared input checks for run_render and run_tracklets."""
+    """Defensive input checks shared by run_render and run_tracklets.
+
+    This is the tool-layer guard for programmatic/notebook callers. The
+    ``octron render`` CLI also validates these before calling in (friendly
+    ``typer.BadParameter`` for preset, Typer ``min``/``max`` for min_confidence
+    and alpha); the overlap is intentional layering, not redundancy.
+    """
     if preset not in PRESETS:
         raise ValueError(
             f"preset must be one of {sorted(PRESETS)}; got {preset!r}"
@@ -40,7 +46,13 @@ def _validate_render_args(preset, min_confidence, alpha):
 
 
 def _coerce_track_ids(track_ids):
-    """Accept None, int, str ('1,3,5'), or iterable of ints; return list[int] or None."""
+    """Coerce track_ids to list[int] or None (tool layer, for programmatic callers).
+
+    Accepts None, int, str ('1,3,5'), or an iterable of ints. The CLI already
+    pre-parses its comma-separated ``--track-ids`` string; this defensively
+    handles the other shapes so notebook/library callers can pass a string or
+    ints directly.
+    """
     if track_ids is None:
         return None
     if isinstance(track_ids, str):

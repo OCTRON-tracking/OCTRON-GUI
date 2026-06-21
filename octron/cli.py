@@ -351,6 +351,15 @@ def render(
         report_bbox_sizes(predictions_path)
         return
 
+    # Validation/parsing layering (convention):
+    #   CLI layer (here) owns user-facing parsing and friendly errors:
+    #     typer.BadParameter for --preset/--tracklet-offset, Typer min/max for
+    #     --min-confidence/--alpha, and splitting --track-ids / --tracklet-size.
+    #   Tool layer (render.py: _validate_render_args, _coerce_track_ids, and the
+    #     offset unpack in run_tracklets) re-validates defensively for
+    #     programmatic/notebook callers that bypass the CLI.
+    #   The overlap on preset/min_confidence is intentional (two audiences),
+    #   not redundancy: keep the friendly CLI message AND the library-safe guard.
     if preset not in PRESETS:
         raise typer.BadParameter(
             f"preset must be one of {list(PRESETS)}.", param_hint="'--preset'"
