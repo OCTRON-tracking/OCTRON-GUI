@@ -115,59 +115,53 @@ class YOLO_results:
         OCTRON saves results of analyzed mp4 files into a subdirectory /octron_predictions/VIDEONAME/
         alongside the original video file.
         """
-        from octron.sam_octron.helpers.video_loader import probe_video
         results_dir = self.results_dir
-        video = None
-        video_dict = None
         stem = '_'.join(results_dir.name.split('_')[:-1])
         for video_path in results_dir.parent.parent.glob('*.mp4'):
             if video_path.stem == stem:
-                video = FastVideoReader(video_path, read_format='rgb24')
-                video_dict = probe_video(video_path, verbose=self.verbose)
-                self.height = video_dict['height']
-                self.width = video_dict['width']
-                self.num_frames = video_dict['num_frames']
-                break
-        if video is None and self.verbose:
+                self._set_video(video_path)
+                return
+        if self.verbose:
             logger.warning(
                 f"No video found for '{results_dir.name}' "
                 f"(looked for {stem}.mp4 "
                 f"in '{results_dir.parent.parent}'). "
                 f"Use --video to specify the path explicitly."
             )
-        self.video, self.video_dict = video, video_dict
+        self.video, self.video_dict = None, None
 
     def _init_video_from_path(self, video_path):
         """Use a caller-supplied video path directly, bypassing auto-detection."""
-        from octron.sam_octron.helpers.video_loader import probe_video
         vp = Path(video_path)
         if not vp.exists():
             raise FileNotFoundError(f"Video not found: {vp}")
-        self.video = FastVideoReader(vp, read_format='rgb24')
-        vd = probe_video(vp, verbose=self.verbose)
-        self.height = vd['height']
-        self.width = vd['width']
-        self.num_frames = vd['num_frames']
-        self.video_dict = vd
+        self._set_video(vp)
 
-    def get_observation_counts(self):
-        """Return {track_id: n_rows} by counting CSV lines without full parsing.
+    def _set_video(self, video_path):
+        """Open *video_path* with the RGB reader, probe it, and set video state.
 
-        Used to pre-filter tracks by observation count before loading data,
-        avoiding tuple-warning noise for tracks that will not be rendered.
+        Shared by find_video (auto-detection) and _init_video_from_path
+        (caller-supplied) so both keep read_format='rgb24' and identical
+        property assignment.
         """
-        import re as _re
-        counts = {}
-        for csv_file in (self.csvs or []):
-            m = _re.search(r'_track_(\d+)\.csv$', csv_file.name)
-            if not m:
-                continue
-            tid = int(m.group(1))
-            with open(csv_file, 'r') as f:
-                n = sum(1 for _ in f)
-            # subtract fixed header lines + 1 column-header row
-            counts[tid] = max(0, n - self.csv_header_lines - 1)
-        return counts
+        from octron.sam_octron.helpers.video_loader import probe_video
+        self.video = FastVideoReader(video_path, read_format='rgb24')
+        self.video_dict = probe_video(video_path, verbose=self.verbose)
+        self.height = self.video_dict['height']
+        self.width = self.video_dict['width']
+        self.num_frames = self.video_dict['num_frames']
+
+    def _csv_observation_count(self, csv_file):
+        """Return the number of data rows (observations) in a tracking CSV.
+
+        Counts lines without parsing, subtracting the fixed metadata header
+        lines plus the single column-header row. This is the one place that
+        encodes the CSV header offset for cheap row counts; full parsing uses
+        ``skiprows`` elsewhere.
+        """
+        with open(csv_file, 'r') as f:
+            n = sum(1 for _ in f)
+        return max(0, n - self.csv_header_lines - 1)
 
     def find_csv(self):
         results_dir = self.results_dir
@@ -459,6 +453,7 @@ class YOLO_results:
                           interpolate_limit=None,
                           sigma=0,
                           track_ids=None,
+                          min_observations=0,
                           ):
         """
         
@@ -549,6 +544,10 @@ class YOLO_results:
                 m = _re.search(r'_track_(\d+)\.csv$', csv_file.name)
                 if m and int(m.group(1)) not in set(track_ids):
                     continue
+            # Cheap row-count pre-filter: skip tracks below the observation
+            # threshold without fully parsing (and warning about) their CSV.
+            if min_observations > 0 and self._csv_observation_count(csv_file) < min_observations:
+                continue
             try:
                 df = pd.read_csv(csv_file, skiprows=self.csv_header_lines)
                 assert set(EXPECTED_CSV_COLUMNS).issubset(df.columns), \

@@ -351,24 +351,19 @@ def run_tracklets(
     out_h += out_h % 2
     out_w += out_w % 2
 
-    # Pre-filter: combine explicit track_ids with min_observations row-count check
-    # so get_tracking_data only loads (and warns about) the CSVs we will render.
-    _prefilter_ids = set(track_ids) if track_ids is not None else None
-    if min_observations > 0:
-        _obs_counts = results.get_observation_counts()
-        _obs_ids = {tid for tid, n in _obs_counts.items() if n >= min_observations}
-        _prefilter_ids = _obs_ids if _prefilter_ids is None else _prefilter_ids & _obs_ids
-
     # Interpolation and smoothing are done in core get_tracking_data so the CLI
     # render path and the napari GUI share one implementation.  --tracklet-interpolate
     # maps to the pandas consecutive-NaN `limit` (0 = off); --tracklet-smooth-sigma
     # to `sigma`.  Interpolation runs first, then smoothing (core order).
+    # min_observations is applied as a cheap CSV row-count pre-filter inside
+    # get_tracking_data, so tracks below threshold are never parsed/warned about.
     _interp_limit = interpolate_limit if (interpolate_limit and interpolate_limit > 0) else None
     tracking_data = results.get_tracking_data(
         interpolate=_interp_limit is not None,
         interpolate_limit=_interp_limit,
         sigma=smooth_sigma if (smooth_sigma and smooth_sigma > 0) else 0,
-        track_ids=list(_prefilter_ids) if _prefilter_ids is not None else None,
+        track_ids=track_ids,
+        min_observations=min_observations,
     )
 
     pos_lookup = {}
@@ -798,17 +793,12 @@ def run_render(
     out_h += out_h % 2
     out_w += out_w % 2
 
-    # Pre-filter: combine explicit track_ids with min_observations row-count check
-    # so get_tracking_data only loads (and warns about) the CSVs we will render.
-    _prefilter_ids = set(track_ids) if track_ids is not None else None
-    if min_observations > 0:
-        _obs_counts = results.get_observation_counts()
-        _obs_ids = {tid for tid, n in _obs_counts.items() if n >= min_observations}
-        _prefilter_ids = _obs_ids if _prefilter_ids is None else _prefilter_ids & _obs_ids
-
+    # min_observations is applied as a cheap CSV row-count pre-filter inside
+    # get_tracking_data, so tracks below threshold are never parsed/warned about.
     tracking_data = results.get_tracking_data(
         interpolate=False,
-        track_ids=list(_prefilter_ids) if _prefilter_ids is not None else None,
+        track_ids=track_ids,
+        min_observations=min_observations,
     )
 
     bbox_lookup = {}
