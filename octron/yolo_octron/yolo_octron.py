@@ -26,9 +26,13 @@ import zarr
 from skimage import measure, color
 from boxmot import create_tracker
 import napari
-from importlib.metadata import version as _get_version
-octron_version = _get_version('octron')
-octron_base_path = Path(__file__).parent.parent
+from importlib.metadata import version as _get_version, PackageNotFoundError
+try:
+    octron_version = _get_version('octron')
+except PackageNotFoundError:
+    # Running from source without an installed distribution.
+    octron_version = 'no version'
+octron_base_path = Path(__file__).parent.parent.resolve()
 from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
 from octron.yolo_octron.helpers.polygons import (find_objects_in_mask, 
                                                  watershed_mask,

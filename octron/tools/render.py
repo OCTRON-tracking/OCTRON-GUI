@@ -2,7 +2,7 @@
 OCTRON video rendering pipeline.
 
 Reads prediction output (zarr masks + CSV tracks + metadata) produced by
-``octron analyze`` and renders annotated videos.
+``octron predict`` and renders annotated videos.
 
 Public functions
 ----------------
@@ -262,7 +262,7 @@ def run_tracklets(
     Parameters
     ----------
     predictions_path : str or Path
-        Path to a prediction output directory produced by ``octron analyze``.
+        Path to a prediction output directory produced by ``octron predict``.
     video_path : str or Path, optional
         Path to the original video.  Auto-detected if alongside
         ``octron_predictions/``.  Pass an optic-flow video here to crop flow
@@ -270,13 +270,15 @@ def run_tracklets(
     output_path : str or Path, optional
         Output directory.  Defaults to ``<predictions_path>/rendered/``.
     preset : {'preview', 'draft', 'final'}
-        Sets the output resolution for ``--tracklet-overlay`` mode only;
+        Sets the output resolution for overlay mode (``also_overlay=True``) only;
         the raw tracklet crops are always at full resolution.
     also_overlay : bool
         If True, render masks and boxes onto the tracklet crops (useful for
         inspecting centroid placement).  Default False.
-    size : int
-        Side length in pixels of each square tracklet crop.  Default 160.
+    size : int, optional
+        Side length in pixels of each square tracklet crop.  If None (the CLI
+        default ``auto``), the size is auto-computed from the largest bounding
+        box (plus 20px padding), falling back to 160px when no boxes exist.
     smooth_sigma : float
         Gaussian smoothing strength (standard deviation in frames) applied to the
         centroid trajectories via core ``get_tracking_data(sigma=...)``.  0 = off.
@@ -703,7 +705,7 @@ def run_render(
     Parameters
     ----------
     predictions_path : str or Path
-        Path to a prediction output directory produced by ``octron analyze``.
+        Path to a prediction output directory produced by ``octron predict``.
     video_path : str or Path, optional
         Path to the original video.  Auto-detected if alongside
         ``octron_predictions/``.
@@ -715,8 +717,10 @@ def run_render(
         If True, render tracklet crops instead of the overlay video.
     also_overlay : bool
         When ``tracklets=True``, render the overlay onto the tracklet crops.
-    tracklet_size : int
-        Side length in pixels of each tracklet crop.  Default 160.
+    tracklet_size : int, optional
+        Side length in pixels of each tracklet crop.  If None (CLI default
+        ``auto``), auto-computed from the largest bounding box (+20px padding),
+        falling back to 160px.
     tracklet_smooth_sigma : float
         Gaussian smoothing strength (standard deviation in frames) for centroid
         smoothing.  0 = off.  Default 2.0.

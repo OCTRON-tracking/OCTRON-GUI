@@ -19,6 +19,7 @@ Subcommands
 from typing import List, Optional, TYPE_CHECKING
 from pathlib import Path
 from enum import Enum
+import re
 import typer
 import yaml
 from loguru import logger
@@ -27,17 +28,59 @@ from loguru import logger
 _PKG_DIR = Path(__file__).parent
 
 
-def _enum_from_yaml(name: str, yaml_path: Path, *, available_only: bool = False) -> type:
-    """Build a (str, Enum) from a YAML mapping. Keys are lower-cased for CLI values."""
-    with open(yaml_path) as f:
-        data = yaml.safe_load(f) or {}
+def _sanitize_identifier(value: str) -> str:
+    """Turn an arbitrary string into a valid Python identifier for an Enum member.
+
+    Non-alphanumeric characters become ``_`` and a leading digit is prefixed
+    with ``_`` so catalog keys like ``3d-sort`` or ``bot.sort`` do not make the
+    functional ``Enum(...)`` call raise at import time.
+    """
+    member = re.sub(r"\W", "_", value)
+    if not member or member[0].isdigit():
+        member = f"_{member}"
+    return member
+
+
+def _enum_from_yaml(
+    name: str, yaml_path: Path, *, available_only: bool = False, fallback: Optional[str] = None
+) -> type:
+    """Build a (str, Enum) from a YAML mapping. Keys are lower-cased for CLI
+    values and sanitised into valid identifiers for the member names.
+
+    The build is defensive so a single malformed/missing catalog does not break
+    the import of every CLI subcommand: on a read/parse failure, or when no
+    usable entries are produced, a minimal enum containing only ``fallback`` is
+    returned (with a warning). If no fallback is given in that case, a clear
+    error naming the catalog is raised.
+    """
+    try:
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning(
+            f"Could not read {name} catalog '{yaml_path}': {e}. "
+            f"Falling back to a minimal set of choices."
+        )
+        data = {}
+
     members = {}
     for key, info in data.items():
         if available_only and isinstance(info, dict) and not info.get("available", False):
             continue
-        value = key.lower()
-        members[value.replace("-", "_")] = value
-    return Enum(name, members, type=str)
+        value = str(key).lower()
+        members.setdefault(_sanitize_identifier(value), value)  # first spelling wins on collision
+
+    if not members:
+        if fallback is None:
+            raise RuntimeError(f"No usable entries found in {name} catalog '{yaml_path}'.")
+        members = {_sanitize_identifier(fallback): fallback}
+
+    try:
+        return Enum(name, members, type=str)
+    except Exception as e:
+        logger.warning(f"Could not build {name} from '{yaml_path}': {e}. Falling back.")
+        fb = fallback if fallback is not None else next(iter(members.values()))
+        return Enum(name, {_sanitize_identifier(fb): fb}, type=str)
 
 
 # The CLI choice enums are built dynamically from the YAML catalogs so the
@@ -55,9 +98,11 @@ if TYPE_CHECKING:
 else:
     YOLOModel = _enum_from_yaml(
         "YOLOModel", _PKG_DIR / "yolo_octron" / "yolo_models.yaml",
+        fallback="yolo26m",
     )
     TrackerName = _enum_from_yaml(
-        "TrackerName", _PKG_DIR / "tracking" / "boxmot_trackers.yaml", available_only=True,
+        "TrackerName", _PKG_DIR / "tracking" / "boxmot_trackers.yaml",
+        available_only=True, fallback="bytetrack",
     )
 
 

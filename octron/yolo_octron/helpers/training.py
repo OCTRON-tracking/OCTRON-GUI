@@ -283,14 +283,24 @@ def collect_labels(project_path,
             expected_video_hash_zarr = loaded_masks.attrs.get('video_hash', None)
             expected_video_hash_organizer = entry['prediction_layer_metadata']['video_hash']    
             
-            video_file_path = project_path / Path(entry['prediction_layer_metadata']['video_file_path'])
-            if not video_file_path in video_hash_dict:
+            # Resolve so the same physical video referenced via different path
+            # strings maps to one key (keeps the single-video assert below honest).
+            video_file_path = (project_path / Path(entry['prediction_layer_metadata']['video_file_path'])).resolve()
+            if video_file_path not in video_hash_dict:
                 assert video_file_path.exists(), f'Video file not found at "{video_file_path.as_posix()}"' 
                 actual_video_hash = get_vfile_hash(video_file_path)[-8:] # By default this is shortened to 8 characters
                 video_hash_dict[video_file_path] = actual_video_hash 
             assert len(video_hash_dict) == 1, 'Different video files found for one object organizer json.'
             assert expected_video_hash_zarr == expected_video_hash_organizer == video_hash_dict[video_file_path], 'Video hash mismatch'
             
+        # An organizer with no entries leaves no video/labels — skip it instead
+        # of failing later with an unbound video_file_path.
+        if not video_hash_dict:
+            logger.warning(
+                f"Object organizer '{object_organizer.parent.name}' has no entries; skipping."
+            )
+            continue
+
         # Maintain only unique entries in 'frames' lists
         for label_id in labels:
             _, i = np.unique(labels[label_id]['frames'], return_index=True)

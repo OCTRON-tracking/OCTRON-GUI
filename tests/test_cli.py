@@ -15,10 +15,10 @@ train       --help: --model, --mode, --device, --epochs, --imagesz,
 predict     --help: --model, --tracker, --tracker-config, --device,
                     --conf-thresh, --iou-thresh, --skip-frames,
                     --one-object-per-label, --opening-radius, --overwrite,
-                    --detailed, --buffer-size, --output-dir, --local-cache
+                    --detailed, --buffer-size, --output-dir, --local-cache-dir
 render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --masks/--no-masks, --boxes/--no-boxes,
-                    --labels/--no-labels, --tracklets, --tracklet-overlay,
+                    --labels/--no-labels, --tracklets,
                     --tracklet-size, --tracklet-smooth-sigma,
                     --tracklet-interpolate, --track-ids, --min-observations,
                     --min-confidence, --bbox-sizes
@@ -26,6 +26,8 @@ transcode   --help: --output, --crf, --fps, --no-audio, --overwrite
 
 auto_device returns 'cuda', 'mps', or 'cpu' (skipped if torch unavailable)
 """
+
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -127,7 +129,7 @@ def test_predict_help():
     assert '--detailed' in result.output
     assert '--buffer-size' in result.output
     assert '--output-dir' in result.output
-    assert '--local-cache' in result.output
+    assert '--local-cache-dir' in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -186,3 +188,35 @@ def test_auto_device_returns_valid():
     from octron.test_gpu import auto_device
     device = auto_device()
     assert device in ('cuda', 'mps', 'cpu')
+
+
+# ---------------------------------------------------------------------------
+# Dynamic enum building (cli._sanitize_identifier / _enum_from_yaml)
+# ---------------------------------------------------------------------------
+
+def test_sanitize_identifier_handles_invalid_names():
+    from octron.cli import _sanitize_identifier
+    assert _sanitize_identifier("bot-sort") == "bot_sort"
+    assert _sanitize_identifier("bot.sort") == "bot_sort"
+    # Leading digit / spaces are not valid identifiers on their own.
+    assert _sanitize_identifier("3d sort").isidentifier()
+    assert _sanitize_identifier("3d sort").startswith("_")
+    assert _sanitize_identifier("") == "_"
+
+
+def test_enum_from_yaml_missing_file_uses_fallback():
+    from octron.cli import _enum_from_yaml
+    enum = _enum_from_yaml("Tmp", Path("/no/such/catalog.yaml"), fallback="bytetrack")
+    assert enum("bytetrack").value == "bytetrack"
+
+
+def test_enum_from_yaml_sanitizes_member_names(tmp_path):
+    from octron.cli import _enum_from_yaml
+    cat = tmp_path / "cat.yaml"
+    cat.write_text("3d-sort:\n  available: true\nbyte.track:\n  available: true\n")
+    enum = _enum_from_yaml("Tmp2", cat, available_only=True, fallback="bytetrack")
+    # Values preserve the lower-cased catalog keys; members are valid identifiers.
+    values = {m.value for m in enum}
+    assert "3d-sort" in values
+    assert "byte.track" in values
+    assert all(m.name.isidentifier() for m in enum)
