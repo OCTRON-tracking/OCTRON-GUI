@@ -23,6 +23,7 @@ render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --tracklet-interpolate, --track-ids, --min-observations,
                     --min-confidence, --bbox-sizes
 transcode   --help: --output, --crf, --fps, --no-audio, --overwrite
+gif         --help (GUI launcher; body not invoked by --help)
 
 auto_device returns 'cuda', 'mps', or 'cpu' (skipped if torch unavailable)
 """
@@ -174,6 +175,16 @@ def test_transcode_help():
     assert '--fps' in result.output
     assert '--no-audio' in result.output
     assert '--overwrite' in result.output
+
+
+# ---------------------------------------------------------------------------
+# gif
+# ---------------------------------------------------------------------------
+
+def test_gif_help():
+    # --help must not import/launch the Qt GUI (body lazy-imports mp4_to_gif).
+    result = runner.invoke(app, ['gif', '--help'])
+    assert result.exit_code == 0
 
 
 # ---------------------------------------------------------------------------

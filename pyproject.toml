@@ -77,13 +77,10 @@ Changelog = "https://github.com/OCTRON-tracking/OCTRON-GUI/blob/master/CHANGELOG
 octron = "octron:napari.yaml"
 
 [project.entry-points."pipx.run"]
-octron = "octron.main:octron_gui"
+octron = "octron.cli:main"
 
 [project.scripts]
 octron = "octron.cli:main"
-octron-gui = "octron.main:octron_gui"
-octron-gif = "octron.tools.mp4_to_gif:main"
-octron-test-gpu = "octron.test_gpu:check_gpu_access"
 
 [tool.setuptools.packages.find]
 where = ["."]

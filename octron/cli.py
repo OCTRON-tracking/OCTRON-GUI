@@ -13,6 +13,7 @@ Subcommands
   render      Render annotated video(s) from prediction output
               (use --bbox-sizes to report bbox sizes instead of rendering)
   transcode   Transcode video files to MP4 (H.264/libx264) using ffmpeg
+  gif         Convert MP4/MOV/AVI videos to GIF (GUI)
 """
 
 
@@ -473,6 +474,15 @@ def transcode(
         fps=fps,
         keep_audio=not no_audio,
     )
+
+
+@app.command()
+def gif():
+    """Launch the OCTRON video→GIF converter (GUI) for MP4/MOV/AVI files."""
+    logger.info("Loading libraries (this may take a moment)...")
+    from octron.tools.mp4_to_gif import main as gif_main
+
+    gif_main()
 
 
 def main():
