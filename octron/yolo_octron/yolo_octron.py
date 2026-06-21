@@ -102,7 +102,7 @@ class YOLO_octron:
         self.data_path = None
         self.model = None
         self.label_dict = None
-        self.config_path = None
+        self._config_path = None  # Use private variable for property
         self.models_dict = {}
         self.enable_watershed = False
         self.prune_empty_labels = True  # Updated by prepare_labels()
@@ -186,6 +186,27 @@ class YOLO_octron:
             # Setup training directories after project_path is validated
             self._setup_training_directories(self.clean_training_dir)
 
+    @property
+    def config_path(self):
+        """
+        Path to the YOLO training config (``yolo_config.yaml``).
+
+        Derived from ``data_path`` when not explicitly set, so callers (CLI,
+        GUI, programmatic) do not need to assign it manually after a split:
+        as long as ``project_path`` is set it resolves to
+        ``<project>/model/training_data/yolo_config.yaml``. ``write_yolo_config``
+        still assigns it explicitly. Returns ``None`` only when ``data_path``
+        is also unset.
+        """
+        if self._config_path is not None:
+            return self._config_path
+        if self.data_path is not None:
+            return self.data_path / "yolo_config.yaml"
+        return None
+
+    @config_path.setter
+    def config_path(self, value):
+        self._config_path = Path(value) if value is not None else None
 
     def _setup_training_directories(self, clean_training_dir):
         """
@@ -1161,7 +1182,198 @@ class YOLO_octron:
         logger.info(f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})")
         self.model = model
         return model
-    
+
+    def _read_checkpoint_state(self, checkpoint_path):
+        """
+        Read a training checkpoint and return ``(epoch, imgsz, error)``.
+
+        Parameters
+        ----------
+        checkpoint_path : str or Path
+            Path to an ultralytics ``last.pt`` checkpoint.
+
+        Returns
+        -------
+        epoch : int or None
+            The checkpoint epoch (ultralytics stores ``-1`` for a completed
+            run), or None when the checkpoint could not be read.
+        imgsz : int or None
+            Image size recovered from the checkpoint's ``train_args``. When the
+            stored value is missing/invalid (<= 0) it is recomputed from the
+            training images. None when recovery failed.
+        error : str or None
+            None on success, else a human-readable reason.
+        """
+        import torch
+        try:
+            ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        except Exception as e:
+            return None, None, f"Could not read checkpoint '{checkpoint_path}': {e}"
+        epoch = ckpt.get('epoch', -1)
+        train_args = ckpt.get('train_args', {}) or {}
+        if 'imgsz' not in train_args:
+            return epoch, None, (
+                "Checkpoint does not contain image size info. Cannot continue from checkpoint."
+            )
+        # ultralytics stores imgsz as an int or occasionally as a list
+        # (e.g. [640]) depending on version — handle both.
+        raw_imgsz = train_args['imgsz']
+        if isinstance(raw_imgsz, (list, tuple)):
+            raw_imgsz = raw_imgsz[0]
+        try:
+            imgsz = int(raw_imgsz)
+        except (TypeError, ValueError):
+            imgsz = 0
+        if imgsz <= 0:
+            # imgsz was corrupted (e.g. by a previous bad resume) — recompute
+            # from the actual training images so the scale the model was
+            # originally trained on is exactly preserved.
+            avg_h, avg_w, _, _ = self._find_train_image_size(self.data_path)
+            largest = max(avg_h, avg_w)
+            imgsz = int(((largest + 31) // 32) * 32)
+            logger.warning(
+                f"Checkpoint imgsz was {raw_imgsz!r} (invalid). "
+                f"Recomputed from training data: imgsz={imgsz}"
+            )
+        return epoch, imgsz, None
+
+    def resolve_resume_state(self, resume=False, overwrite=False):
+        """
+        Decide how to (re)start training: fresh, resume, or init-from-checkpoint.
+
+        Centralises the resume/overwrite decision so the CLI and GUI behave
+        identically. ``overwrite`` always wins (train from scratch). A strict
+        resume is only possible for an interrupted run; a *completed* run
+        (checkpoint ``epoch == -1``) instead initialises a new run from
+        ``last.pt``. Image size is recovered from the checkpoint for both
+        resume and init.
+
+        Parameters
+        ----------
+        resume : bool
+            Whether the user requested to resume/continue training.
+        overwrite : bool
+            Whether the user requested to retrain from scratch.
+
+        Returns
+        -------
+        dict
+            ``action`` : one of ``'fresh'``, ``'resume'``,
+            ``'init_from_checkpoint'``, ``'completed'``, ``'error'``.
+            ``checkpoint`` : Path to ``last.pt`` for resume/init, else None.
+            ``imgsz`` : int recovered from the checkpoint for resume/init, else None.
+            ``message`` : human-readable explanation for logs/UI.
+        """
+        training_dir = self.training_path / 'training'
+        best_pt = training_dir / 'weights' / 'best.pt'
+        last_pt = training_dir / 'weights' / 'last.pt'
+
+        # Overwrite always wins over resume/existing state: train from scratch.
+        if overwrite:
+            return {
+                'action': 'fresh', 'checkpoint': None, 'imgsz': None,
+                'message': 'Overwrite requested: training a new model from scratch.',
+            }
+
+        if resume:
+            if not last_pt.exists():
+                return {
+                    'action': 'fresh', 'checkpoint': None, 'imgsz': None,
+                    'message': (
+                        'Resume requested but no interrupted run (last.pt) found; '
+                        'starting fresh.'
+                    ),
+                }
+            epoch, imgsz, error = self._read_checkpoint_state(last_pt)
+            if error is not None:
+                return {'action': 'error', 'checkpoint': last_pt, 'imgsz': None, 'message': error}
+            if epoch == -1:
+                # Completed run: strict resume is not possible, but we can continue
+                # training by initialising a new run from last.pt.
+                return {
+                    'action': 'init_from_checkpoint', 'checkpoint': last_pt, 'imgsz': imgsz,
+                    'message': (
+                        f"Checkpoint '{last_pt.name}' is from a completed run; initialising a "
+                        f"new run from it (imgsz={imgsz}) rather than a strict resume."
+                    ),
+                }
+            return {
+                'action': 'resume', 'checkpoint': last_pt, 'imgsz': imgsz,
+                'message': (
+                    f"Resuming interrupted run from '{last_pt.name}' "
+                    f"(epoch {epoch}, imgsz={imgsz})."
+                ),
+            }
+
+        # Neither resume nor overwrite: refuse if a finished model already exists.
+        if best_pt.exists():
+            return {
+                'action': 'completed', 'checkpoint': best_pt, 'imgsz': None,
+                'message': (
+                    f"A trained model already exists at '{best_pt}'. Use overwrite to "
+                    f"retrain from scratch, or resume to continue training."
+                ),
+            }
+        return {
+            'action': 'fresh', 'checkpoint': None, 'imgsz': None,
+            'message': 'No existing model found; training a new model from scratch.',
+        }
+
+    def _resolve_batch_size(self, imgsz, device):
+        """
+        Return a training batch size, caching AutoBatch results for CUDA.
+
+        AutoBatch (CUDA memory profiling) runs only for ``device='cuda'``; for
+        ``'cpu'`` and ``'mps'`` this returns ``-1`` so ultralytics applies its
+        own safe default without attempting CUDA-only profiling. CUDA results
+        are cached at ``<project>/model/autobatch_cache.json`` keyed by model
+        architecture, image size, and GPU name, so repeated runs on the same
+        hardware skip the search. Both the CLI and GUI go through here.
+        """
+        if device != 'cuda':
+            # Avoid CUDA-only AutoBatch profiling on CPU/MPS; let ultralytics
+            # pick a safe default for these devices.
+            return -1
+        import torch
+        try:
+            gpu_name = torch.cuda.get_device_name(0)
+        except Exception:
+            gpu_name = 'cuda'
+        arch = self.model.model.__class__.__name__
+        cache_key = f"{arch}_{imgsz}_cuda_{gpu_name}"
+        cache_path = self.training_path / 'autobatch_cache.json'
+        cache = {}
+        if cache_path.exists():
+            try:
+                with open(cache_path) as f:
+                    cache = json.load(f)
+            except Exception:
+                cache = {}
+        if cache_key in cache:
+            batch = cache[cache_key]
+            logger.info(f"AutoBatch: using cached batch size {batch} for {gpu_name} (imgsz={imgsz})")
+            return batch
+        logger.info("AutoBatch: running batch size search (result will be cached) ...")
+        try:
+            from ultralytics.utils.autobatch import check_train_batch_size
+            # Profile on the GPU so AutoBatch measures real CUDA memory.
+            self.model.model.to('cuda')
+            batch = check_train_batch_size(self.model.model, imgsz=imgsz, amp=True)
+        except Exception as e:
+            logger.warning(
+                f"AutoBatch search failed ({e}); deferring to ultralytics default (batch=-1)."
+            )
+            return -1
+        cache[cache_key] = batch
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, 'w') as f:
+                json.dump(cache, f)
+            logger.info(f"AutoBatch: batch size {batch} cached to {cache_path.as_posix()}")
+        except Exception as e:
+            logger.warning(f"Could not write AutoBatch cache: {e}")
+        return batch
+
     def load_model_args(self, model_name_path):
         """
         Load the YOLO model args.yaml (model training settings).
@@ -1381,6 +1593,13 @@ class YOLO_octron:
             logger.warning("MPS is not yet fully supported in PyTorch. Use at your own risk.")
         
         assert imagesz > 0 and imagesz % 32 == 0, 'YOLO image size must be a positive multiple of 32'
+
+        # Resolve a cached AutoBatch size for CUDA when the caller left batch at
+        # the -1 sentinel. CPU/MPS keep -1 so ultralytics applies its own safe
+        # default without attempting CUDA-only profiling.
+        if batch == -1:
+            batch = self._resolve_batch_size(imagesz, device)
+
         # Start training in a separate thread
         training_complete = threading.Event()
         training_error = None

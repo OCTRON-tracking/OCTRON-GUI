@@ -12,6 +12,7 @@ package; a ``YOLO_octron`` instance is built via ``__new__`` (bypassing
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from octron.yolo_octron.yolo_octron import YOLO_octron
@@ -71,3 +72,137 @@ def test_resolve_accepts_enum_like_object():
         value = "yolo26l"
 
     assert obj.resolve_model_name(FakeEnum()) == "YOLO26l"
+
+
+# ---------------------------------------------------------------------------
+# Training-state helpers: config_path / _resolve_batch_size / resolve_resume_state
+#
+# These live in core so the CLI and GUI share one implementation. __init__ is
+# bypassed via __new__; only the attributes the helpers touch are set.
+# ---------------------------------------------------------------------------
+
+def _make_yolo(tmp_path):
+    """Build a minimal YOLO_octron instance without running __init__."""
+    obj = YOLO_octron.__new__(YOLO_octron)
+    obj._project_path = tmp_path
+    obj.training_path = tmp_path / "model"
+    obj.data_path = obj.training_path / "training_data"
+    obj._config_path = None
+    obj.model = None
+    (obj.training_path / "training" / "weights").mkdir(parents=True, exist_ok=True)
+    return obj
+
+
+def _weights_dir(obj):
+    return obj.training_path / "training" / "weights"
+
+
+def _write_checkpoint(path, epoch, imgsz=640, include_imgsz=True):
+    import torch
+    path.parent.mkdir(parents=True, exist_ok=True)
+    train_args = {"imgsz": imgsz} if include_imgsz else {}
+    torch.save({"epoch": epoch, "train_args": train_args}, path)
+
+
+# config_path property -------------------------------------------------------
+
+def test_config_path_derives_from_data_path(tmp_path):
+    obj = _make_yolo(tmp_path)
+    assert obj.config_path == obj.data_path / "yolo_config.yaml"
+
+
+def test_config_path_explicit_override_and_reset(tmp_path):
+    obj = _make_yolo(tmp_path)
+    custom = tmp_path / "elsewhere" / "cfg.yaml"
+    obj.config_path = custom
+    assert obj.config_path == custom
+    # Resetting to None falls back to the derived path.
+    obj.config_path = None
+    assert obj.config_path == obj.data_path / "yolo_config.yaml"
+
+
+def test_config_path_none_without_data_path(tmp_path):
+    obj = _make_yolo(tmp_path)
+    obj.data_path = None
+    assert obj.config_path is None
+
+
+# _resolve_batch_size (cpu / mps) -------------------------------------------
+
+@pytest.mark.parametrize("device", ["cpu", "mps"])
+def test_resolve_batch_size_non_cuda_returns_minus_one(tmp_path, device):
+    obj = _make_yolo(tmp_path)
+    # No CUDA-only AutoBatch profiling for cpu/mps; returns the -1 sentinel.
+    assert obj._resolve_batch_size(640, device) == -1
+
+
+# resolve_resume_state ------------------------------------------------------
+
+def test_resume_state_fresh_when_nothing(tmp_path):
+    obj = _make_yolo(tmp_path)
+    state = obj.resolve_resume_state(resume=False, overwrite=False)
+    assert state["action"] == "fresh"
+    assert state["checkpoint"] is None
+
+
+def test_resume_state_completed_when_best_exists(tmp_path):
+    obj = _make_yolo(tmp_path)
+    (_weights_dir(obj) / "best.pt").touch()
+    state = obj.resolve_resume_state(resume=False, overwrite=False)
+    assert state["action"] == "completed"
+
+
+def test_resume_state_overwrite_wins_over_existing(tmp_path):
+    obj = _make_yolo(tmp_path)
+    (_weights_dir(obj) / "best.pt").touch()
+    (_weights_dir(obj) / "last.pt").touch()
+    state = obj.resolve_resume_state(resume=True, overwrite=True)
+    assert state["action"] == "fresh"
+
+
+def test_resume_state_strict_resume_for_interrupted_run(tmp_path):
+    pytest.importorskip("torch")
+    obj = _make_yolo(tmp_path)
+    last_pt = _weights_dir(obj) / "last.pt"
+    _write_checkpoint(last_pt, epoch=7, imgsz=640)
+    state = obj.resolve_resume_state(resume=True, overwrite=False)
+    assert state["action"] == "resume"
+    assert state["checkpoint"] == last_pt
+    assert state["imgsz"] == 640
+
+
+def test_resume_state_init_from_completed_checkpoint(tmp_path):
+    pytest.importorskip("torch")
+    obj = _make_yolo(tmp_path)
+    last_pt = _weights_dir(obj) / "last.pt"
+    # ultralytics writes epoch == -1 for a completed run.
+    _write_checkpoint(last_pt, epoch=-1, imgsz=832)
+    state = obj.resolve_resume_state(resume=True, overwrite=False)
+    assert state["action"] == "init_from_checkpoint"
+    assert state["imgsz"] == 832
+
+
+def test_resume_state_resume_without_checkpoint_is_fresh(tmp_path):
+    obj = _make_yolo(tmp_path)
+    state = obj.resolve_resume_state(resume=True, overwrite=False)
+    assert state["action"] == "fresh"
+
+
+def test_resume_state_handles_imgsz_as_list(tmp_path):
+    pytest.importorskip("torch")
+    obj = _make_yolo(tmp_path)
+    last_pt = _weights_dir(obj) / "last.pt"
+    _write_checkpoint(last_pt, epoch=3, imgsz=[768])
+    state = obj.resolve_resume_state(resume=True, overwrite=False)
+    assert state["action"] == "resume"
+    assert state["imgsz"] == 768
+
+
+def test_resume_state_missing_imgsz_errors(tmp_path):
+    pytest.importorskip("torch")
+    obj = _make_yolo(tmp_path)
+    last_pt = _weights_dir(obj) / "last.pt"
+    _write_checkpoint(last_pt, epoch=5, include_imgsz=False)
+    state = obj.resolve_resume_state(resume=True, overwrite=False)
+    assert state["action"] == "error"
+    assert "image size" in state["message"].lower()

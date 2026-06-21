@@ -642,59 +642,35 @@ class YoloHandler(QObject):
             return
         self.save_period = int(self.w.save_period_input.value())
         
-        # Check for resume first: model/image-size selections are irrelevant when resuming
+        # Check for resume first: model/image-size selections are irrelevant when resuming.
+        # The fresh/resume/continue decision and imgsz recovery live in core
+        # (resolve_resume_state) so the CLI and GUI behave identically.
         self.resume_training = False
         self.init_from_checkpoint = False
         if self.w.train_resume_checkBox.isChecked():
-            checkpoint_path = self.yolo.training_path / 'training' / 'weights' / 'last.pt'
-            if checkpoint_path.exists():
-                # Check whether the previous training run already completed
-                ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-                ckpt_epoch = ckpt.get('epoch', -1)
-                train_args = ckpt.get('train_args', {})
-                if 'imgsz' not in train_args:
-                    show_warning("Checkpoint does not contain image size info. Cannot continue from checkpoint.")
-                    return
-                # ultralytics stores imgsz as an int or occasionally as a list
-                # (e.g. [640]) depending on version — handle both.
-                _raw_imgsz = train_args['imgsz']
-                if isinstance(_raw_imgsz, (list, tuple)):
-                    _raw_imgsz = _raw_imgsz[0]
-                self.image_size_yolo = int(_raw_imgsz)
-                if self.image_size_yolo <= 0:
-                    # imgsz was corrupted (e.g. by a previous bad resume) —
-                    # recompute it from the actual training images so the scale
-                    # the model was originally trained on is exactly preserved.
-                    _avg_h, _avg_w, _ = self.yolo._find_train_image_size(self.yolo.data_path)
-                    _largest = max(_avg_h, _avg_w)
-                    self.image_size_yolo = int(((_largest + 31) // 32) * 32)
-                    logger.warning(
-                        f"Checkpoint imgsz was 0 (corrupted). "
-                        f"Recomputed from training data: imgsz={self.image_size_yolo}"
-                    )
-
-                if ckpt_epoch == -1:
-                    # Completed run: strict resume is not possible, but we can continue
-                    # training by initializing a new run from last.pt.
-                    logger.info(
-                        "Resume requested, but checkpoint indicates a completed run "
-                        f"(epoch={ckpt_epoch}). Initializing new training from {checkpoint_path}."
-                    )
+            state = self.yolo.resolve_resume_state(resume=True, overwrite=False)
+            action = state['action']
+            if action == 'error':
+                show_warning(state['message'])
+                return
+            if action in ('resume', 'init_from_checkpoint'):
+                self.image_size_yolo = state['imgsz']
+                logger.info(state['message'])
+                if action == 'init_from_checkpoint':
+                    self.init_from_checkpoint = True
                     show_info(
                         "Checkpoint is from a completed run. Continuing training from last.pt "
                         "as initialization (new run), not strict resume."
                     )
-                    self.init_from_checkpoint = True
                 else:
-                    logger.info(f"Resuming training from checkpoint: {checkpoint_path} (epoch {ckpt_epoch})")
                     self.resume_training = True
-
-                yolo_model = self.yolo.load_model(checkpoint_path, train_mode=self.w.train_mode)
+                yolo_model = self.yolo.load_model(state['checkpoint'], train_mode=self.w.train_mode)
                 if not yolo_model:
                     show_warning("Could not load checkpoint model.")
                     return
                 logger.info(f"Resumed image size from checkpoint: {self.image_size_yolo}")
             else:
+                # 'fresh': resume requested but no usable checkpoint (last.pt) found.
                 logger.info("No checkpoint found (last.pt), starting fresh training.")
                 show_info("No checkpoint found — starting fresh.")
         
