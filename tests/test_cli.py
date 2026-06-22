@@ -16,6 +16,7 @@ predict     --help: --model, --tracker, --tracker-config, --device,
                     --conf-thresh, --iou-thresh, --skip-frames,
                     --one-object-per-label, --opening-radius, --overwrite,
                     --detailed, --buffer-size, --output-dir, --local-cache-dir
+dump-tracker-config  TRACKER [-o PATH]: print/write a tracker's default config
 render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --masks/--no-masks, --boxes/--no-boxes,
                     --labels/--no-labels, --tracklets,
@@ -133,6 +134,59 @@ def test_predict_help():
     assert '--buffer-size' in result.output
     assert '--output-dir' in result.output
     assert '--local-cache-dir' in result.output
+
+
+def test_detailed_help_lists_region_property_names():
+    from octron.cli import _DETAILED_HELP, _REGION_PROPERTY_NAMES
+    assert _REGION_PROPERTY_NAMES  # non-empty catalog
+    for name in _REGION_PROPERTY_NAMES:
+        assert name in _DETAILED_HELP
+
+
+def test_parse_region_properties_valid():
+    from octron.cli import _parse_region_properties, _REGION_PROPERTY_NAMES
+    assert _parse_region_properties(None) is None
+    assert _parse_region_properties("") is None
+    assert _parse_region_properties("all") == _REGION_PROPERTY_NAMES
+    assert _parse_region_properties("area, eccentricity") == ("area", "eccentricity")
+    assert _parse_region_properties("area,area") == ("area",)  # de-duplicated
+
+
+def test_parse_region_properties_rejects_unknown():
+    import typer
+    from octron.cli import _parse_region_properties
+    with pytest.raises(typer.BadParameter):
+        _parse_region_properties("not_a_real_prop")
+
+
+def test_predict_detailed_unknown_property_errors():
+    # --detailed is validated before any heavy import or prediction.
+    result = runner.invoke(app, ['predict', 'v.mp4', '--model', 'm.pt', '--detailed', 'bogus'])
+    assert result.exit_code != 0
+    assert 'Unknown region property' in result.output
+
+
+# ---------------------------------------------------------------------------
+# dump-tracker-config
+# ---------------------------------------------------------------------------
+
+def test_dump_tracker_config_help():
+    result = runner.invoke(app, ['dump-tracker-config', '--help'])
+    assert result.exit_code == 0
+    assert '--output' in result.output
+
+
+def test_dump_tracker_config_to_file(tmp_path):
+    out = tmp_path / "tracker.yaml"
+    result = runner.invoke(app, ['dump-tracker-config', 'botsort', '-o', str(out)])
+    assert result.exit_code == 0
+    assert 'current_value' in out.read_text()  # bundled default config, copied verbatim
+
+
+def test_dump_tracker_config_to_stdout():
+    result = runner.invoke(app, ['dump-tracker-config', 'bytetrack'])
+    assert result.exit_code == 0
+    assert 'current_value' in result.output
 
 
 # ---------------------------------------------------------------------------

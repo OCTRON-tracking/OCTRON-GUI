@@ -10,6 +10,7 @@ Subcommands
   split       Prepare and export train/val/test data from an OCTRON project
   train       Prepare training data and run YOLO model training
   predict     Run YOLO prediction and tracking on one or more videos
+  dump-tracker-config  Print a tracker's default config YAML (edit, then pass via --tracker-config)
   render      Render annotated video(s) from prediction output
               (use --bbox-sizes to report bbox sizes instead of rendering)
   transcode   Transcode video files to MP4 (H.264/libx264) using ffmpeg
@@ -28,8 +29,46 @@ import typer
 import yaml
 from loguru import logger
 
+from octron.yolo_octron.constants import ALL_REGION_PROPERTIES
 
 _PKG_DIR = Path(__file__).parent
+
+# Flat tuple of all valid scikit-image region-property names (for predict --detailed).
+_REGION_PROPERTY_NAMES = tuple(
+    name for group in ALL_REGION_PROPERTIES.values() for name in group
+)
+_DETAILED_HELP = (
+    "Extract scikit-image region properties from each segmentation mask "
+    "(ignored for detection models). Pass a comma-separated list of property "
+    "names, or 'all'. Custom measurement functions are supported only via the "
+    "Python API (predict_batch extra_properties). Available: "
+    + ", ".join(_REGION_PROPERTY_NAMES) + "."
+)
+
+
+def _parse_region_properties(detailed):
+    """Parse the predict ``--detailed`` value into region-property names.
+
+    Returns ``None`` (no extraction) when not given, the full catalog for
+    ``all``, or the validated comma-separated names (de-duplicated, order
+    preserved). Raises ``typer.BadParameter`` on unknown names.
+    """
+    if detailed is None:
+        return None
+    text = detailed.strip()
+    if not text:
+        return None
+    if text.lower() == "all":
+        return _REGION_PROPERTY_NAMES
+    names = [n.strip() for n in text.split(",") if n.strip()]
+    unknown = [n for n in names if n not in _REGION_PROPERTY_NAMES]
+    if unknown:
+        raise typer.BadParameter(
+            f"Unknown region property name(s): {', '.join(unknown)}. "
+            f"Valid names: {', '.join(_REGION_PROPERTY_NAMES)}.",
+            param_hint="'--detailed'",
+        )
+    return tuple(dict.fromkeys(names))
 
 
 def _sanitize_identifier(value: str) -> str:
@@ -234,12 +273,15 @@ def predict(
     one_object_per_label: bool = typer.Option(False, help="Track only the top-confidence detection per label."),
     opening_radius: int = typer.Option(0, help="Morphological opening radius applied to masks."),
     overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite existing prediction results. Default: skip videos that already have predictions."),
-    detailed: bool = typer.Option(False, "--detailed", help="Extract detailed region properties (area, eccentricity, solidity, …) from segmentation masks via scikit-image. Ignored for detection models."),
+    detailed: Optional[str] = typer.Option(None, "--detailed", help=_DETAILED_HELP),
     buffer_size: int = typer.Option(500, help="Frame buffer size before writing to zarr."),
     output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Directory where octron_predictions/ folders are written. Defaults to alongside each video file."),
     local_cache_dir: Optional[Path] = typer.Option(None, "--local-cache-dir", help="Stage prediction output in this local dir, then move each finished video to --output-dir. Overrides the config.yaml 'prediction_cache_dir'; if neither is set, caching is off."),
 ):
     """Run YOLO prediction and tracking on one or more videos."""
+    # Validate --detailed up front (before any heavy import) so a typo fails fast.
+    region_properties = _parse_region_properties(detailed)
+
     from octron.tools.predict import run_predict
 
     if tracker_config is not None:
@@ -248,7 +290,6 @@ def predict(
     else:
         tracker_name = tracker.value
         tracker_cfg_path = None
-    from octron.yolo_octron.constants import DEFAULT_REGION_PROPERTIES
     run_predict(
         videos=videos,
         model_path=model_path,
@@ -262,10 +303,44 @@ def predict(
         opening_radius=opening_radius,
         overwrite=overwrite,
         buffer_size=buffer_size,
-        region_properties=DEFAULT_REGION_PROPERTIES if detailed else None,
+        region_properties=region_properties,
         output_dir=output_dir,
         local_cache_dir=local_cache_dir,
     )
+
+
+@app.command("dump-tracker-config")
+def dump_tracker_config(
+    tracker: TrackerName = typer.Argument(
+        TrackerName.bytetrack, help="Tracker whose default config to dump.",
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="Write to this file instead of printing to stdout.",
+    ),
+):
+    """Print (or write with -o) a tracker's default config YAML.
+
+    A starting point for customization: edit the values, then pass the file to
+    `octron predict --tracker-config <file>`.
+    """
+    from octron.tracking.helpers.tracker_checks import load_boxmot_trackers, resolve_tracker
+
+    trackers_dict = load_boxmot_trackers(_PKG_DIR / "tracking" / "boxmot_trackers.yaml")
+    tracker_id, info = resolve_tracker(tracker.value, trackers_dict)
+    src = _PKG_DIR / info["config_path"]
+    if not src.exists():
+        raise typer.BadParameter(f"Tracker config not found: {src}", param_hint="TRACKER")
+    content = src.read_text()
+    if output is None:
+        typer.echo(content)
+    else:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(content)
+        logger.info(
+            f"Wrote '{tracker_id}' tracker config to {output.as_posix()}. "
+            f"Edit it and pass it to `octron predict --tracker-config`."
+        )
 
 
 @app.command()
