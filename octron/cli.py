@@ -181,10 +181,13 @@ def default(ctx: typer.Context):
             typer.echo(ctx.get_help())
         raise typer.Exit()
     # A subcommand was given: print the welcome banner, unless the user is just
-    # asking for that subcommand's help (those tokens are forwarded via ctx.args
-    # / ctx.protected_args, which works for both real sys.argv and CliRunner).
-    _remaining = list(ctx.protected_args or []) + list(ctx.args or [])
-    if not ctx.resilient_parsing and "--help" not in _remaining and "-h" not in _remaining:
+    # asking for help. We inspect the raw argv because, across Click versions,
+    # the parent callback cannot reliably see the subcommand's --help token via
+    # ctx.args/ctx.protected_args (and protected_args is removed in Click 9).
+    import sys
+    _argv = sys.argv[1:]
+    _wants_help = "--help" in _argv or "-h" in _argv
+    if not ctx.resilient_parsing and not _wants_help:
         from octron._logging import setup_logging, print_welcome
         setup_logging()
         print_welcome()

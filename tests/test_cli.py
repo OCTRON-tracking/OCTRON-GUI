@@ -31,14 +31,30 @@ download-yolo / download-sam2 / download-sam3   --help: --force
 auto_device returns 'cuda', 'mps', or 'cpu' (skipped if torch unavailable)
 """
 
+import re
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 from octron.cli import app
 
-# Wide terminal so Rich/typer never truncates long flag names in help output
-runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1"})
+# Wide terminal so Rich/typer never truncates long flag names in help output.
+# TERM=dumb and clearing FORCE_COLOR make Rich treat the captured stream as a
+# non-terminal and emit plain text; some CI environments otherwise force color,
+# which styles option names in bold and splits substrings like '--mode'.
+runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb", "FORCE_COLOR": None})
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text):
+    """Strip ANSI SGR escape codes so help substring checks are robust.
+
+    Rich/typer may style help text (e.g. bold option names) depending on the
+    environment; that splits substrings like '--mode' across escape sequences.
+    Stripping makes the assertions environment-independent.
+    """
+    return _ANSI_RE.sub("", text)
 
 
 # ---------------------------------------------------------------------------
@@ -93,11 +109,12 @@ def test_gpu_test_runs():
 def test_split_help():
     result = runner.invoke(app, ['split', '--help'])
     assert result.exit_code == 0
-    assert '--mode' in result.output
-    assert '--train' in result.output
-    assert '--val' in result.output
-    assert '--seed' in result.output
-    assert '--dry-run' in result.output
+    out = _plain(result.output)
+    assert '--mode' in out
+    assert '--train' in out
+    assert '--val' in out
+    assert '--seed' in out
+    assert '--dry-run' in out
 
 
 # ---------------------------------------------------------------------------
@@ -107,18 +124,19 @@ def test_split_help():
 def test_train_help():
     result = runner.invoke(app, ['train', '--help'])
     assert result.exit_code == 0
-    assert '--model' in result.output
-    assert '--mode' in result.output
-    assert '--device' in result.output
-    assert '--epochs' in result.output
-    assert '--imagesz' in result.output
-    assert '--save-period' in result.output
-    assert '--overwrite' in result.output
-    assert '--resume' in result.output
-    assert '--no-split' in result.output
-    assert '--train' in result.output
-    assert '--val' in result.output
-    assert '--seed' in result.output
+    out = _plain(result.output)
+    assert '--model' in out
+    assert '--mode' in out
+    assert '--device' in out
+    assert '--epochs' in out
+    assert '--imagesz' in out
+    assert '--save-period' in out
+    assert '--overwrite' in out
+    assert '--resume' in out
+    assert '--no-split' in out
+    assert '--train' in out
+    assert '--val' in out
+    assert '--seed' in out
 
 
 # ---------------------------------------------------------------------------
@@ -128,20 +146,21 @@ def test_train_help():
 def test_predict_help():
     result = runner.invoke(app, ['predict', '--help'])
     assert result.exit_code == 0
-    assert '--model' in result.output
-    assert '--tracker' in result.output
-    assert '--tracker-config' in result.output
-    assert '--device' in result.output
-    assert '--conf-thresh' in result.output
-    assert '--iou-thresh' in result.output
-    assert '--skip-frames' in result.output
-    assert '--one-object-per-label' in result.output
-    assert '--opening-radius' in result.output
-    assert '--overwrite' in result.output
-    assert '--detailed' in result.output
-    assert '--buffer-size' in result.output
-    assert '--output-dir' in result.output
-    assert '--local-cache-dir' in result.output
+    out = _plain(result.output)
+    assert '--model' in out
+    assert '--tracker' in out
+    assert '--tracker-config' in out
+    assert '--device' in out
+    assert '--conf-thresh' in out
+    assert '--iou-thresh' in out
+    assert '--skip-frames' in out
+    assert '--one-object-per-label' in out
+    assert '--opening-radius' in out
+    assert '--overwrite' in out
+    assert '--detailed' in out
+    assert '--buffer-size' in out
+    assert '--output-dir' in out
+    assert '--local-cache-dir' in out
 
 
 def test_detailed_help_lists_region_property_names():
@@ -181,7 +200,7 @@ def test_predict_detailed_unknown_property_errors():
 def test_dump_tracker_config_help():
     result = runner.invoke(app, ['dump-tracker-config', '--help'])
     assert result.exit_code == 0
-    assert '--output' in result.output
+    assert '--output' in _plain(result.output)
 
 
 def test_dump_tracker_config_to_file(tmp_path):
@@ -204,28 +223,29 @@ def test_dump_tracker_config_to_stdout():
 def test_render_help():
     result = runner.invoke(app, ['render', '--help'])
     assert result.exit_code == 0
-    assert '--video' in result.output
-    assert '--output' in result.output
-    assert '--preset' in result.output
-    assert '--start' in result.output
-    assert '--end' in result.output
-    assert '--alpha' in result.output
-    assert '--masks' in result.output
-    assert '--no-masks' in result.output
-    assert '--boxes' in result.output
-    assert '--no-boxes' in result.output
-    assert '--labels' in result.output
-    assert '--no-labels' in result.output
-    assert '--tracklets' in result.output
-    assert '--tracklet-size' in result.output
-    assert '--tracklet-smooth-sigma' in result.output
-    assert '--tracklet-interpolate' in result.output
-    assert '--track-ids' in result.output
-    assert '--min-observations' in result.output
-    assert '--min-confidence' in result.output
-    assert '--skip-empty' in result.output
-    assert '--bbox-sizes' in result.output
-    assert '--debug' in result.output
+    out = _plain(result.output)
+    assert '--video' in out
+    assert '--output' in out
+    assert '--preset' in out
+    assert '--start' in out
+    assert '--end' in out
+    assert '--alpha' in out
+    assert '--masks' in out
+    assert '--no-masks' in out
+    assert '--boxes' in out
+    assert '--no-boxes' in out
+    assert '--labels' in out
+    assert '--no-labels' in out
+    assert '--tracklets' in out
+    assert '--tracklet-size' in out
+    assert '--tracklet-smooth-sigma' in out
+    assert '--tracklet-interpolate' in out
+    assert '--track-ids' in out
+    assert '--min-observations' in out
+    assert '--min-confidence' in out
+    assert '--skip-empty' in out
+    assert '--bbox-sizes' in out
+    assert '--debug' in out
 
 
 # ---------------------------------------------------------------------------
@@ -235,11 +255,12 @@ def test_render_help():
 def test_transcode_help():
     result = runner.invoke(app, ['transcode', '--help'])
     assert result.exit_code == 0
-    assert '--output' in result.output
-    assert '--crf' in result.output
-    assert '--fps' in result.output
-    assert '--no-audio' in result.output
-    assert '--overwrite' in result.output
+    out = _plain(result.output)
+    assert '--output' in out
+    assert '--crf' in out
+    assert '--fps' in out
+    assert '--no-audio' in out
+    assert '--overwrite' in out
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +282,7 @@ def test_download_help(cmd):
     # --help must not trigger any download (bodies lazy-import the check_* fns).
     result = runner.invoke(app, [cmd, '--help'])
     assert result.exit_code == 0
-    assert '--force' in result.output
+    assert '--force' in _plain(result.output)
 
 
 # ---------------------------------------------------------------------------
