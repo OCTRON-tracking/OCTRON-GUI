@@ -146,3 +146,35 @@ def test_run_tracklets_accepts_valid_offset(good_offset):
         run_tracklets(predictions_path="/nope_for_test", offset=good_offset)
     # Make sure it did NOT fail at the offset check
     assert "offset" not in str(exc.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# _open_ffmpeg_writer — even-dimension + yuv420p
+# ---------------------------------------------------------------------------
+
+def test_open_ffmpeg_writer_forces_even_dim_yuv420p(monkeypatch):
+    """The writer must apply the shared even-dim + yuv420p filter.
+
+    Without it, encoding rgb24 input yields yuv444p (unplayable on macOS) and
+    odd crop sizes (e.g. the 47px auto tracklet size) produce an invalid stream.
+    We capture the ffmpeg argv instead of spawning ffmpeg.
+    """
+    from octron.tools import render
+    from octron.tools._ffmpeg import EVEN_DIM_YUV420P
+
+    captured = {}
+
+    class _FakePopen:
+        def __init__(self, cmd, **kwargs):
+            captured["cmd"] = cmd
+
+    monkeypatch.setattr(render.subprocess, "Popen", _FakePopen)
+
+    render._open_ffmpeg_writer("out.mp4", 30, 47, 47, "libx264")
+
+    cmd = captured["cmd"]
+    assert "-vf" in cmd
+    assert cmd[cmd.index("-vf") + 1] == EVEN_DIM_YUV420P  # rounds to even + 4:2:0
+    # The raw input size stays as written (the filter, not -s, does the rounding).
+    assert "47x47" in cmd
+    assert cmd[-1] == "out.mp4"

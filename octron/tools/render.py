@@ -14,7 +14,7 @@ report_bbox_sizes : Report bounding-box sizes to help choose tracklet crop size.
 import subprocess
 from pathlib import Path
 
-from octron.tools._ffmpeg import detect_h264_encoder, h264_codec_args
+from octron.tools._ffmpeg import detect_h264_encoder, h264_codec_args, EVEN_DIM_YUV420P
 
 PRESETS = {
     "preview": {"scale": 0.25},
@@ -79,6 +79,11 @@ def _coerce_track_ids(track_ids):
 def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
     """Open an ffmpeg subprocess pipe for encoding. Returns a Popen object."""
     codec_args = h264_codec_args(encoder, crf=20, preset="fast")
+    # Apply the shared even-dimension + yuv420p filter (mirrors transcode.py).
+    # Without it, encoding rgb24 input defaults to yuv444p (4:4:4), which macOS
+    # players (QuickTime/AVFoundation/Preview) cannot decode; odd crop sizes
+    # (e.g. the 47px auto tracklet size) compound the problem. The filter rounds
+    # each dimension down to even and converts to the widely-playable 4:2:0.
     cmd = [
         "ffmpeg", "-y",
         "-f", "rawvideo", "-vcodec", "rawvideo",
@@ -86,6 +91,7 @@ def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
         "-s", f"{width}x{height}",
         "-r", str(fps),
         "-i", "pipe:0",
+        "-vf", EVEN_DIM_YUV420P,
     ] + codec_args + [str(output_path)]
     return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
