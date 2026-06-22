@@ -120,6 +120,12 @@ def run_predict(
     # Silence boxmot's verbose INFO chatter (tracker init parameter dumps).
     logger.disable("boxmot")
 
+    # Unwrap a Device enum to its plain string value (mirrors run_training).
+    # boxmot's select_device() calls str(device).lower(); a (str, Enum) member
+    # stringifies to e.g. "Device.mps" -> "device.mps", which it then misreads
+    # as a CUDA device and rejects. Passing the bare value ("mps") avoids that.
+    device = device.value if hasattr(device, "value") else str(device)
+
     if device == "auto":
         device = auto_device()
 
