@@ -51,6 +51,14 @@ def test_root_help():
     assert 'OCTRON' in result.output
 
 
+def test_root_no_args_shows_help():
+    # Bare `octron` must behave like `octron --help` (no GUI launch).
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0
+    assert 'Usage' in result.output
+    assert 'gui' in result.output  # the GUI is now an explicit subcommand
+
+
 # ---------------------------------------------------------------------------
 # gui
 # ---------------------------------------------------------------------------
