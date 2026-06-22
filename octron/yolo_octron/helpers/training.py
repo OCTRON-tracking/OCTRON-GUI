@@ -23,7 +23,12 @@ def find_files_with_depth_limit(base_path, pattern, max_depth=1):
         List of Path objects matching the pattern within the depth limit
     """
     results = []
-    
+
+    # A non-existent directory yields no matches. This avoids a FileNotFoundError
+    # from glob/iterdir on a path that hasn't been created yet.
+    if not base_path.is_dir():
+        return results
+
     # Process base directory (depth 0)
     for path in base_path.glob(pattern):
         if path.is_file():
@@ -182,11 +187,6 @@ def collect_labels(project_path,
                     video: FastVideoReader object   
 
     """
-    # Hiding some imports here to reduce initial loading time
-    from napari_pyav._reader import FastVideoReader
-    from octron.sam_octron.helpers.video_loader import get_vfile_hash
-    from octron.sam_octron.helpers.sam_zarr import load_image_zarr, get_annotated_frames
-
     project_path = Path(project_path)
     assert project_path.exists(), f'Project path not found at {project_path.as_posix()}'
     assert project_path.is_dir(), f'Project path should be a directory, not file'
@@ -194,11 +194,18 @@ def collect_labels(project_path,
     # Check whether .json files should be found in only a subfolder
     if subfolder is not None:
         json_parent_path = project_path / subfolder
-        assert project_path.exists(), f'Subfolder not found at {project_path.as_posix()}'
-        assert project_path.is_dir(), f'Subfolder should be a directory, not file'
+        # The per-video subfolder is only created once annotation data has been
+        # saved. 
+        if not json_parent_path.is_dir():
+            return {}
     else:
         # If no subfolder is provided, search in the project root directory
         json_parent_path = project_path
+
+    # Hiding some imports here to reduce initial loading time
+    from napari_pyav._reader import FastVideoReader
+    from octron.sam_octron.helpers.video_loader import get_vfile_hash
+    from octron.sam_octron.helpers.sam_zarr import load_image_zarr, get_annotated_frames
 
     label_dict = {}
     # Create a (new) global mapping of label names to IDs for consistency across directories

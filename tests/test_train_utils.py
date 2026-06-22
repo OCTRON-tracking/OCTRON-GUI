@@ -198,6 +198,27 @@ def test_resume_state_handles_imgsz_as_list(tmp_path):
     assert state["imgsz"] == 768
 
 
+# ---------------------------------------------------------------------------
+# collect_labels / find_files_with_depth_limit — missing-folder safety
+#
+# Loading a video then returning to the project tab before generating any data
+# used to crash: the per-video subfolder (project/<hash>) doesn't exist yet, so
+# scanning it raised FileNotFoundError. It should yield no labels instead.
+# These early-return before any heavy (napari/zarr) imports, so they stay light.
+# ---------------------------------------------------------------------------
+
+def test_collect_labels_missing_subfolder_returns_empty(tmp_path):
+    from octron.yolo_octron.helpers.training import collect_labels
+    # Project dir exists; the per-video subfolder has not been created yet.
+    assert collect_labels(tmp_path, subfolder="acb207d1") == {}
+
+
+def test_find_files_with_depth_limit_missing_base_returns_empty(tmp_path):
+    from octron.yolo_octron.helpers.training import find_files_with_depth_limit
+    missing = tmp_path / "does_not_exist"
+    assert find_files_with_depth_limit(missing, "object_organizer.json") == []
+
+
 def test_resume_state_missing_imgsz_errors(tmp_path):
     pytest.importorskip("torch")
     obj = _make_yolo(tmp_path)
