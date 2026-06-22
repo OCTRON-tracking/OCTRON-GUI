@@ -14,6 +14,9 @@ Subcommands
               (use --bbox-sizes to report bbox sizes instead of rendering)
   transcode   Transcode video files to MP4 (H.264/libx264) using ffmpeg
   gif         Convert MP4/MOV/AVI videos to GIF (GUI)
+  download-yolo   Download/refresh YOLO base weights into the model cache
+  download-sam2   Download/refresh SAM2 checkpoints into the model cache
+  download-sam3   Download/refresh the SAM3 checkpoint (needs HuggingFace access)
 """
 
 
@@ -483,6 +486,68 @@ def gif():
     from octron.tools.mp4_to_gif import main as gif_main
 
     gif_main()
+
+
+@app.command("download-yolo")
+def download_yolo(
+    force: bool = typer.Option(
+        False, "--force", help="Re-download even if the weight files already exist."
+    ),
+):
+    """Download YOLO base model weights into the model cache.
+
+    Files are stored under config.get_yolo_models_dir() (the per-user model
+    cache, or model_cache_dir from config.yaml). Missing files are always
+    fetched; pass --force to re-download ones that already exist.
+    """
+    from octron import config
+    from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
+
+    yaml_path = _PKG_DIR / "yolo_octron" / "yolo_models.yaml"
+    check_yolo_models(YOLO_BASE_URL=None, models_yaml_path=yaml_path, force_download=force)
+    logger.info(f"YOLO weights are in: {config.get_yolo_models_dir().as_posix()}")
+
+
+@app.command("download-sam2")
+def download_sam2(
+    force: bool = typer.Option(
+        False, "--force", help="Re-download even if the checkpoint files already exist."
+    ),
+):
+    """Download SAM2 checkpoints into the model cache.
+
+    Files are stored under config.get_sam_checkpoints_dir() (the per-user model
+    cache, or model_cache_dir from config.yaml). Missing files are always
+    fetched; pass --force to re-download ones that already exist.
+    """
+    from octron import config
+    from octron.sam_octron.helpers.sam2_checks import check_sam2_models
+
+    yaml_path = _PKG_DIR / "sam_octron" / "sam2_models.yaml"
+    check_sam2_models(SAM2p1_BASE_URL="", models_yaml_path=yaml_path, force_download=force)
+    logger.info(f"SAM checkpoints are in: {config.get_sam_checkpoints_dir().as_posix()}")
+
+
+@app.command("download-sam3")
+def download_sam3(
+    force: bool = typer.Option(
+        False, "--force", help="Re-download even if the checkpoint files already exist."
+    ),
+):
+    """Download the SAM3 checkpoint into the model cache (requires HuggingFace access).
+
+    Needs licence acceptance + `huggingface-cli login` (see the SAM3 model card).
+    Files are stored under config.get_sam_checkpoints_dir(). Missing files are
+    always fetched; pass --force to re-download ones that already exist.
+    """
+    from octron import config
+    from octron.sam_octron.helpers.sam3_checks import check_sam3_models
+
+    yaml_path = _PKG_DIR / "sam_octron" / "sam3_models.yaml"
+    result = check_sam3_models(models_yaml_path=yaml_path, force_download=force)
+    if not result:
+        raise typer.Exit(code=1)
+    logger.info(f"SAM checkpoints are in: {config.get_sam_checkpoints_dir().as_posix()}")
 
 
 def main():

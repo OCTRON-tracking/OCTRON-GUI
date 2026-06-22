@@ -24,6 +24,8 @@ render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --min-confidence, --bbox-sizes
 transcode   --help: --output, --crf, --fps, --no-audio, --overwrite
 gif         --help (GUI launcher; body not invoked by --help)
+download-yolo / download-sam2 / download-sam3   --help: --force
+            (download bodies are not invoked by --help)
 
 auto_device returns 'cuda', 'mps', or 'cpu' (skipped if torch unavailable)
 """
@@ -185,6 +187,18 @@ def test_gif_help():
     # --help must not import/launch the Qt GUI (body lazy-imports mp4_to_gif).
     result = runner.invoke(app, ['gif', '--help'])
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# download-yolo / download-sam2 / download-sam3
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("cmd", ["download-yolo", "download-sam2", "download-sam3"])
+def test_download_help(cmd):
+    # --help must not trigger any download (bodies lazy-import the check_* fns).
+    result = runner.invoke(app, [cmd, '--help'])
+    assert result.exit_code == 0
+    assert '--force' in result.output
 
 
 # ---------------------------------------------------------------------------
