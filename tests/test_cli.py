@@ -38,11 +38,14 @@ import pytest
 from typer.testing import CliRunner
 from octron.cli import app
 
-# Wide terminal so Rich/typer never truncates long flag names in help output.
-# TERM=dumb and clearing FORCE_COLOR make Rich treat the captured stream as a
-# non-terminal and emit plain text; some CI environments otherwise force color,
-# which styles option names in bold and splits substrings like '--mode'.
-runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb", "FORCE_COLOR": None})
+# Render help at a wide, plain (un-styled) width so option-name substring checks
+# are stable across environments:
+#  - COLUMNS=200 keeps Rich from wrapping long flags (e.g. --tracklet-smooth-sigma).
+#    NOTE: do NOT set TERM=dumb — Rich then forces an 80-col "dumb terminal" and
+#    ignores COLUMNS, which wraps long flags onto two lines.
+#  - NO_COLOR + clearing FORCE_COLOR stop CI from forcing ANSI styling (which
+#    otherwise splits substrings like '--mode'). _plain() below strips any that remain.
+runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "FORCE_COLOR": None})
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
