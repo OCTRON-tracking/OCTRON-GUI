@@ -72,6 +72,19 @@ def _coerce_track_ids(track_ids):
         ) from e
 
 
+def _select_render_frames(per_track_frames, frame_start, frame_end):
+    """Sorted unique union of per-track frame indices within ``[frame_start, frame_end)``.
+
+    ``per_track_frames`` maps ``track_id -> iterable of frame indices`` that will
+    render content (used by ``--skip-empty``). Frames outside the range are
+    dropped. Pure/stdlib-only so it is cheap to unit-test.
+    """
+    frames = set()
+    for track_frames in per_track_frames.values():
+        frames.update(f for f in track_frames if frame_start <= f < frame_end)
+    return sorted(frames)
+
+
 # ---------------------------------------------------------------------------
 # Encoder helpers
 # ---------------------------------------------------------------------------
@@ -268,6 +281,7 @@ def run_tracklets(
     track_ids=None,
     min_observations=0,
     trim=False,
+    skip_empty=False,
     min_confidence=0.5,
     debug=False,
 ):
@@ -324,6 +338,11 @@ def run_tracklets(
         ``(dx, dy)`` shift of each crop centre, in source-video pixels (applied
         identically whether or not ``also_overlay`` is set).  Positive values
         move the crop right/down.  Default ``(0, 0)``.
+    skip_empty : bool, optional
+        If True, render only frames that show content for a track (a detection
+        at/above ``min_confidence``). Each track's crop keeps only its own such
+        frames, so per-track videos can differ in length. Supersedes ``trim``.
+        Default False.
     start : int, optional
         First frame index (inclusive).  Default: beginning of video.
     end : int, optional
@@ -442,6 +461,12 @@ def run_tracklets(
                     f"Consider --tracklet-size {max(max_w, max_h) + 20}."
                 )
 
+    # --skip-empty supersedes --trim (it removes all gaps, not just leading/
+    # trailing ones).
+    if skip_empty and trim:
+        logger.info("--skip-empty is set; ignoring --trim (skip-empty already removes gaps).")
+        trim = False
+
     # Trim: per-track active span (first→last observation within current range)
     trim_starts = {}
     trim_ends = {}
@@ -461,6 +486,30 @@ def run_tracklets(
             n_frames = frame_end - frame_start
             logger.info(f"Trim enabled: decoding frames {frame_start}–{frame_end} (union of track spans)")
 
+    # --skip-empty: render only frames that show content for a track (a detection
+    # at/above min_confidence). bbox_lookup keys are exactly the predicted frames
+    # (one CSV row per prediction; consistent with the zarr 'annotated_frames'
+    # attribute) and carry confidence. Each track keeps its own frames, so the
+    # decode loop walks the union and writes a crop only on that track's frames.
+    nonempty_frames = {}
+    if skip_empty:
+        nonempty_frames = {
+            tid: {
+                f for f, row in bbox_lookup.get(tid, {}).items()
+                if frame_start <= f < frame_end and row.get("confidence", 1.0) >= min_confidence
+            }
+            for tid in render_tids
+        }
+        frames_to_render = _select_render_frames(nonempty_frames, frame_start, frame_end)
+        n_frames = len(frames_to_render)
+        if not frames_to_render:
+            logger.warning(
+                f"--skip-empty: no detections at/above min_confidence={min_confidence} "
+                f"in frames {frame_start}–{frame_end}; tracklet video(s) will be empty."
+            )
+    else:
+        frames_to_render = range(frame_start, frame_end)
+
     track_colors = {}
     for tid in render_tids:
         rgba, _ = results.get_color_for_track_id(tid)
@@ -478,14 +527,30 @@ def run_tracklets(
 
     _need_masks = (also_overlay and draw_masks or segment_only) and results.has_masks
 
+    def _read_mask_frame(tid, frame_idx):
+        """Read one (H, W) mask for *tid* at an absolute frame index, or None.
+
+        Used by --skip-empty (random access) in place of the contiguous prefetch.
+        Mask zarr arrays are full-length and indexed by absolute frame index.
+        """
+        root = results.zarr_root
+        key = f"{tid}_masks"
+        if root is None or key not in root:
+            return None
+        arr = root[key]
+        if frame_idx >= arr.shape[0]:
+            return None
+        return np.asarray(arr[frame_idx])
+
     _BATCH = 100
     _batch_masks = {}
     _batch_start = -1
     _batch_end = -1
 
-    # Start background zarr prefetch thread when masks are needed.
+    # Start background zarr prefetch thread when masks are needed. Skipped for
+    # --skip-empty, which reads the few needed masks on demand instead.
     _mask_q = None
-    if _need_masks:
+    if _need_masks and not skip_empty:
         logger.info("Starting mask prefetch thread...")
         _mask_q = _start_mask_prefetch(
             results.zarr_root, render_tids,
@@ -507,7 +572,7 @@ def run_tracklets(
         _dbg_t_decode = _dbg_t_queue = _dbg_t_blend = _dbg_t_crop = 0.0
         _dbg_next_report = time.perf_counter() + 2.0
 
-    for i, frame_idx in enumerate(range(frame_start, frame_end)):
+    for i, frame_idx in enumerate(frames_to_render):
         if debug:
             _t0 = time.perf_counter()
 
@@ -539,6 +604,22 @@ def run_tracklets(
             _t2 = time.perf_counter()
             _dbg_t_queue += _t2 - _t1
 
+        # Masks for this frame: prefetch batch (dense) or on-demand random reads
+        # (--skip-empty). Maps track_id -> (H, W) array.
+        cur_masks = {}
+        if _need_masks:
+            if skip_empty:
+                for _tid in render_tids:
+                    if frame_idx in nonempty_frames[_tid]:
+                        _m = _read_mask_frame(_tid, frame_idx)
+                        if _m is not None:
+                            cur_masks[_tid] = _m
+            elif _batch_masks:
+                for _tid in render_tids:
+                    _batch = _batch_masks.get(_tid)
+                    if _batch is not None and j < _batch.shape[0]:
+                        cur_masks[_tid] = _batch[j]
+
         # Build overlay frame if requested
         out_frame = None
         if also_overlay:
@@ -548,22 +629,20 @@ def run_tracklets(
                 frame_small = orig_frame
 
             # Build combined mask at video resolution, then resize once to output.
-            if draw_masks and results.has_masks and _batch_masks:
+            if draw_masks and results.has_masks and cur_masks:
                 _comb_mask = np.zeros((height, width), dtype=np.uint8)
                 _comb_color = np.zeros((height, width, 3), dtype=np.uint8)
                 _drew_any = False
                 for tid in render_tids:
-                    if tid in _batch_masks:
+                    if tid in cur_masks:
                         _conf_row = bbox_lookup.get(tid, {}).get(frame_idx)
-                        if _conf_row is None or _conf_row["confidence"] < min_confidence:
+                        if _conf_row is None or _conf_row.get("confidence", 1.0) < min_confidence:
                             continue
-                        batch = _batch_masks[tid]
-                        if j < batch.shape[0]:
-                            obj = batch[j] == 1
-                            if obj.any():
-                                _comb_mask[obj] = 255
-                                _comb_color[obj] = track_colors[tid]
-                                _drew_any = True
+                        obj = cur_masks[tid] == 1
+                        if obj.any():
+                            _comb_mask[obj] = 255
+                            _comb_color[obj] = track_colors[tid]
+                            _drew_any = True
                 if _drew_any:
                     mask_full = cv2.resize(_comb_mask, (out_w, out_h), interpolation=cv2.INTER_NEAREST) > 0
                     color_full = cv2.resize(_comb_color, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
@@ -594,6 +673,8 @@ def run_tracklets(
 
         # Crop each track
         for tid in render_tids:
+            if skip_empty and frame_idx not in nonempty_frames[tid]:
+                continue  # this track has no in-confidence detection here
             if trim and not (trim_starts[tid] <= frame_idx < trim_ends[tid]):
                 continue
             _conf_row = bbox_lookup.get(tid, {}).get(frame_idx)
@@ -616,27 +697,25 @@ def run_tracklets(
 
                 if segment_only:
                     masked = False
-                    if _batch_masks and tid in _batch_masks:
-                        batch = _batch_masks[tid]
-                        if j < batch.shape[0]:
-                            # zarr fill_value=-1 (int8); use == 1 to get clean binary uint8
-                            raw_mask = (batch[j] == 1).astype(np.uint8)
-                            # Resize mask to match the source frame resolution used for cropping
-                            if also_overlay and out_frame is not None:
-                                mask_src = cv2.resize(raw_mask, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
-                            else:
-                                mask_src = cv2.resize(raw_mask, (width, height), interpolation=cv2.INTER_NEAREST)
-                            # Optionally keep only the N largest connected components
-                            if segment_keep_n > 0 and mask_src.any():
-                                n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask_src, connectivity=8)
-                                if n_labels > 1:  # label 0 is background
-                                    areas = [(stats[i, cv2.CC_STAT_AREA], i) for i in range(1, n_labels)]
-                                    areas.sort(reverse=True)
-                                    keep = {i for _, i in areas[:segment_keep_n]}
-                                    mask_src = np.where(np.isin(labels, list(keep)), mask_src, 0).astype(np.uint8)
-                            mask_crop = cv2.getRectSubPix(mask_src.astype(np.float32), (size, size), (cx, cy))
-                            crop[mask_crop < 0.5] = 0
-                            masked = True
+                    if tid in cur_masks:
+                        # zarr fill_value=-1 (int8); use == 1 to get clean binary uint8
+                        raw_mask = (cur_masks[tid] == 1).astype(np.uint8)
+                        # Resize mask to match the source frame resolution used for cropping
+                        if also_overlay and out_frame is not None:
+                            mask_src = cv2.resize(raw_mask, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+                        else:
+                            mask_src = cv2.resize(raw_mask, (width, height), interpolation=cv2.INTER_NEAREST)
+                        # Optionally keep only the N largest connected components
+                        if segment_keep_n > 0 and mask_src.any():
+                            n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask_src, connectivity=8)
+                            if n_labels > 1:  # label 0 is background
+                                areas = [(stats[i, cv2.CC_STAT_AREA], i) for i in range(1, n_labels)]
+                                areas.sort(reverse=True)
+                                keep = {i for _, i in areas[:segment_keep_n]}
+                                mask_src = np.where(np.isin(labels, list(keep)), mask_src, 0).astype(np.uint8)
+                        mask_crop = cv2.getRectSubPix(mask_src.astype(np.float32), (size, size), (cx, cy))
+                        crop[mask_crop < 0.5] = 0
+                        masked = True
                     if not masked:
                         crop[:] = 0
             else:
@@ -700,6 +779,7 @@ def run_render(
     track_ids=None,
     min_observations=0,
     trim=False,
+    skip_empty=False,
     min_confidence=0.5,
     alpha=0.4,
     draw_masks=True,
@@ -746,6 +826,10 @@ def run_render(
     draw_labels : bool
         Render label text above bounding boxes (overlay only; never on tracklets).
         Default True.
+    skip_empty : bool, optional
+        If True, render only frames that have at least one detection at/above
+        ``min_confidence`` (drops the empty frames left by ``predict
+        --skip-frames``). Default False.
     start : int, optional
         First frame index (inclusive).
     end : int, optional
@@ -776,6 +860,7 @@ def run_render(
             track_ids=track_ids,
             min_observations=min_observations,
             trim=trim,
+            skip_empty=skip_empty,
             min_confidence=min_confidence,
             debug=debug,
         )
@@ -851,6 +936,29 @@ def run_render(
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
         track_colors[tid] = (r, g, b)  # RGB to match FastVideoReader frames
 
+    # --skip-empty: render only frames where at least one track has a detection
+    # at/above min_confidence (drops the empty frames left by predict
+    # --skip-frames). bbox_lookup keys are exactly the predicted frames and carry
+    # confidence (consistent with the zarr 'annotated_frames' attribute).
+    nonempty_frames = {}
+    if skip_empty:
+        nonempty_frames = {
+            tid: {
+                f for f, row in bbox_lookup.get(tid, {}).items()
+                if frame_start <= f < frame_end and row.get("confidence", 1.0) >= min_confidence
+            }
+            for tid in render_tids
+        }
+        frames_to_render = _select_render_frames(nonempty_frames, frame_start, frame_end)
+        n_frames = len(frames_to_render)
+        if not frames_to_render:
+            logger.warning(
+                f"--skip-empty: no detections at/above min_confidence={min_confidence} "
+                f"in frames {frame_start}–{frame_end}; overlay video will be empty."
+            )
+    else:
+        frames_to_render = range(frame_start, frame_end)
+
     # Detect best encoder and open the ffmpeg writer
     overlay_out = output_path / f"overlay_{preset}.mp4"
     _encoder = detect_h264_encoder()
@@ -860,19 +968,36 @@ def run_render(
     # Batch size for zarr mask reads.  100 frames balances first-frame latency
     # (~1–7s on network) against memory usage; the prefetch thread ensures the
     # next batch is ready before the current one is exhausted.
+    _need_masks = draw_masks and results.has_masks
     _BATCH = 100
     _batch_masks = {}
     _batch_start = -1
     _batch_end = -1
+
+    def _read_mask_frame(tid, frame_idx):
+        """Read one (H, W) mask for *tid* at an absolute frame index, or None.
+
+        Used by --skip-empty (random access) in place of the contiguous prefetch.
+        Mask zarr arrays are full-length and indexed by absolute frame index.
+        """
+        root = results.zarr_root
+        key = f"{tid}_masks"
+        if root is None or key not in root:
+            return None
+        arr = root[key]
+        if frame_idx >= arr.shape[0]:
+            return None
+        return np.asarray(arr[frame_idx])
 
     logger.info(
         f"Rendering {n_frames} frames | preset={preset} | scale={scale:.0%} "
         f"| output {out_w}×{out_h} px"
     )
 
-    # Start background zarr prefetch thread (only when masks are present).
+    # Start background zarr prefetch thread (only when masks are present). Skipped
+    # for --skip-empty, which reads the few needed masks on demand instead.
     _mask_q = None
-    if draw_masks and results.has_masks:
+    if _need_masks and not skip_empty:
         logger.info("Starting mask prefetch thread...")
         _mask_q = _start_mask_prefetch(
             results.zarr_root, render_tids,
@@ -894,7 +1019,7 @@ def run_render(
         _dbg_t_decode = _dbg_t_queue = _dbg_t_blend = _dbg_t_encode = 0.0
         _dbg_next_report = time.perf_counter() + 2.0
 
-    for i, frame_idx in enumerate(range(frame_start, frame_end)):
+    for i, frame_idx in enumerate(frames_to_render):
         if debug:
             _t0 = time.perf_counter()
 
@@ -929,6 +1054,22 @@ def run_render(
             _t2 = time.perf_counter()
             _dbg_t_queue += _t2 - _t1
 
+        # Masks for this frame: prefetch batch (dense) or on-demand random reads
+        # (--skip-empty). Maps track_id -> (H, W) array.
+        cur_masks = {}
+        if _need_masks:
+            if skip_empty:
+                for _tid in render_tids:
+                    if frame_idx in nonempty_frames[_tid]:
+                        _m = _read_mask_frame(_tid, frame_idx)
+                        if _m is not None:
+                            cur_masks[_tid] = _m
+            elif _batch_masks:
+                for _tid in render_tids:
+                    _batch = _batch_masks.get(_tid)
+                    if _batch is not None and j < _batch.shape[0]:
+                        cur_masks[_tid] = _batch[j]
+
         if orig_frame.shape[1] != out_w or orig_frame.shape[0] != out_h:
             frame_small = cv2.resize(orig_frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
         else:
@@ -938,22 +1079,20 @@ def run_render(
         # This replaces n_tracks per-frame fancy-index remap ops (each allocating
         # out_H×out_W bools) with a single cv2.resize call, giving ~10× speedup on
         # large outputs with many tracks.
-        if draw_masks and results.has_masks and _batch_masks:
+        if draw_masks and results.has_masks and cur_masks:
             _comb_mask = np.zeros((height, width), dtype=np.uint8)
             _comb_color = np.zeros((height, width, 3), dtype=np.uint8)
             _drew_any = False
             for tid in render_tids:
-                if tid in _batch_masks:
+                if tid in cur_masks:
                     _conf_row = bbox_lookup.get(tid, {}).get(frame_idx)
-                    if _conf_row is None or _conf_row["confidence"] < min_confidence:
+                    if _conf_row is None or _conf_row.get("confidence", 1.0) < min_confidence:
                         continue
-                    batch = _batch_masks[tid]
-                    if j < batch.shape[0]:
-                        obj = batch[j] == 1
-                        if obj.any():
-                            _comb_mask[obj] = 255
-                            _comb_color[obj] = track_colors[tid]
-                            _drew_any = True
+                    obj = cur_masks[tid] == 1
+                    if obj.any():
+                        _comb_mask[obj] = 255
+                        _comb_color[obj] = track_colors[tid]
+                        _drew_any = True
             if _drew_any:
                 mask_full = cv2.resize(_comb_mask, (out_w, out_h), interpolation=cv2.INTER_NEAREST) > 0
                 color_full = cv2.resize(_comb_color, (out_w, out_h), interpolation=cv2.INTER_NEAREST)

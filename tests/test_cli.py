@@ -223,6 +223,7 @@ def test_render_help():
     assert '--track-ids' in result.output
     assert '--min-observations' in result.output
     assert '--min-confidence' in result.output
+    assert '--skip-empty' in result.output
     assert '--bbox-sizes' in result.output
     assert '--debug' in result.output
 

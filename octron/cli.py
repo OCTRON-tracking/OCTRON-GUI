@@ -419,6 +419,11 @@ def render(
     trim: bool = typer.Option(
         False, "--trim", help="Trim each tracklet video to the track's first and last observation (within --start/--end if given).",
     ),
+    skip_empty: bool = typer.Option(
+        False, "--skip-empty",
+        help="Skip frames with no detection at/above --min-confidence (e.g. from predict --skip-frames). "
+             "Tracklets: each track's video keeps only its own detected frames. Overlay: keeps frames with any detection.",
+    ),
     bbox_sizes: bool = typer.Option(
         False, "--bbox-sizes",
         help="Report per-track bounding-box sizes to help choose --tracklet-size, then exit.",
@@ -505,6 +510,7 @@ def render(
         track_ids=parsed_track_ids,
         min_observations=min_observations,
         trim=trim,
+        skip_empty=skip_empty,
         min_confidence=min_confidence,
         debug=debug,
     )

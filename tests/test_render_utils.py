@@ -22,6 +22,7 @@ import pytest
 
 from octron.tools.render import (
     _coerce_track_ids,
+    _select_render_frames,
     _validate_render_args,
     run_tracklets,
 )
@@ -146,6 +147,32 @@ def test_run_tracklets_accepts_valid_offset(good_offset):
         run_tracklets(predictions_path="/nope_for_test", offset=good_offset)
     # Make sure it did NOT fail at the offset check
     assert "offset" not in str(exc.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# _select_render_frames (--skip-empty frame selection)
+# ---------------------------------------------------------------------------
+
+def test_select_render_frames_unions_and_dedupes():
+    per_track = {1: [0, 100, 200], 2: [100, 300]}
+    assert _select_render_frames(per_track, 0, 400) == [0, 100, 200, 300]
+
+
+def test_select_render_frames_accepts_sets():
+    # Production code passes sets; result must still be sorted + deduped.
+    per_track = {1: {0, 100}, 2: {100, 50}}
+    assert _select_render_frames(per_track, 0, 400) == [0, 50, 100]
+
+
+def test_select_render_frames_clamps_to_range():
+    # start inclusive, end exclusive.
+    per_track = {1: [0, 100, 200, 300]}
+    assert _select_render_frames(per_track, 100, 300) == [100, 200]
+
+
+def test_select_render_frames_empty_inputs():
+    assert _select_render_frames({}, 0, 100) == []
+    assert _select_render_frames({1: [500, 600]}, 0, 100) == []  # all out of range
 
 
 # ---------------------------------------------------------------------------
