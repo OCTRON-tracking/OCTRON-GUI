@@ -15,9 +15,14 @@ def auto_device() -> str:
 
 
 def check_gpu_access():
+    """Log CUDA / MPS availability.
+
+    Logging setup and the welcome banner are owned by the CLI root callback
+    (for ``octron gpu-test``), so this function does not print them itself —
+    otherwise the banner would appear twice. The ``__main__`` block below sets
+    them up for direct ``python -m octron.test_gpu`` use.
+    """
     import torch
-    setup_logging()
-    print_welcome()
     if torch.cuda.is_available():
         logger.info("CUDA GPU is available.")
         logger.info(f"Number of CUDA GPUs: {torch.cuda.device_count()}")
@@ -34,4 +39,6 @@ def check_gpu_access():
         logger.info("MPS GPU is not available.")
 
 if __name__ == "__main__":
+    setup_logging()
+    print_welcome()
     check_gpu_access()
