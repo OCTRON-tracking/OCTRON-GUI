@@ -8,12 +8,9 @@ import pandas as pd
 import warnings
 # Plugins
 from loguru import logger
-from napari_pyav._reader import FastVideoReader
-from napari.utils import DirectLabelColormap
 from scipy.ndimage import gaussian_filter1d
 from skimage.morphology import remove_small_holes, binary_closing, disk
 from tqdm import tqdm
-from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
 
 class YOLO_results:
     def __init__(self, results_dir, verbose=True, **kwargs):
@@ -145,6 +142,7 @@ class YOLO_results:
         property assignment.
         """
         from octron.sam_octron.helpers.video_loader import probe_video
+        from napari_pyav._reader import FastVideoReader
         self.video = FastVideoReader(video_path, read_format='rgb24')
         self.video_dict = probe_video(video_path, verbose=self.verbose)
         self.height = self.video_dict['height']
@@ -438,7 +436,13 @@ class YOLO_results:
         label_color_index = indices_max_diff_labels[original_class_id % len(indices_max_diff_labels)]
         subcolor_index = indices_max_diff_subcolors[track_occurrence_index % len(indices_max_diff_subcolors)]
         obj_color =  all_labels_submaps[label_color_index][subcolor_index]
-                                          
+
+        # Import napari colormap support lazily. Importing napari.utils at module
+        # import time triggers Pydantic json_encoders deprecation warnings from a
+        # dependency even when users only do `from octron import YOLO_results`.
+        from octron import _suppress_known_dependency_warnings
+        with _suppress_known_dependency_warnings():
+            from napari.utils import DirectLabelColormap
         napari_color = DirectLabelColormap(color_dict={None: [0.,0.,0.,0.], 1: obj_color}, 
                                            use_selection=True, 
                                            selection=1,
@@ -784,6 +788,7 @@ class YOLO_results:
                         assert width == self.width, \
                             f"Width in mask data ({width}) does not match width in video ({self.width})."
                     # Find out which indices have data
+                    from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
                     frame_indices = get_annotated_frames(masks)
                     if len(frame_indices) == 0 and self.verbose:
                         logger.warning(f"No valid frames found for track ID '{track_id}' (label '{label}') in mask data.")
