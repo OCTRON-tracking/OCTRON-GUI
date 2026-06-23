@@ -1,5 +1,25 @@
 import importlib.metadata
+import warnings
 from importlib.metadata import version
+
+
+def _install_warning_filters():
+    """Suppress known dependency deprecations that OCTRON cannot fix directly.
+
+    napari/psygnal currently define Pydantic v2 models that still use
+    ``json_encoders``. Pydantic emits the warning from inside its own schema
+    generation code when those dependency models are created. Keep the filter
+    narrow so unrelated deprecations remain visible.
+    """
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*`json_encoders` is deprecated.*",
+        category=DeprecationWarning,
+        module=r"pydantic\..*",
+    )
+
+
+_install_warning_filters()
 
 try:
     __version__ = version("octron")
