@@ -8,12 +8,9 @@ import pandas as pd
 import warnings
 # Plugins
 from loguru import logger
-from napari_pyav._reader import FastVideoReader
-from napari.utils import DirectLabelColormap
 from scipy.ndimage import gaussian_filter1d
 from skimage.morphology import remove_small_holes, binary_closing, disk
 from tqdm import tqdm
-from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
 
 class YOLO_results:
     def __init__(self, results_dir, verbose=True, **kwargs):
@@ -109,65 +106,82 @@ class YOLO_results:
         elif self.verbose:
             logger.info(f"No prediction_metadata.json found in '{self.results_dir.name}'")
 
+    def _candidate_video_path(self):
+        """Return the original video matching this results dir, or ``None``.
+
+        The prediction folder is named ``<video_stem>_<tracker>``. The video
+        normally lives two levels up
+        (<video_dir>/octron_predictions/<folder>/), but the prediction folder
+        may also sit directly next to the video. 
+        Search the immediate parent and the grandparent (nearest first). 
+        """
+        results_dir = self.results_dir
+        stem = '_'.join(results_dir.name.split('_')[:-1])
+        search_dirs = []
+        for d in (results_dir.parent, results_dir.parent.parent):
+            if d not in search_dirs:
+                search_dirs.append(d)
+        for d in search_dirs:
+            for video_path in sorted(d.glob('*.mp4')):
+                if video_path.stem == stem:
+                    return video_path
+        return None
+
     def find_video(self):
         """
-        Check if video is present in the second parent directory, then probe it for properties.
-        OCTRON saves results of analyzed mp4 files into a subdirectory /octron_predictions/VIDEONAME/
-        alongside the original video file.
+        Locate the original video associated with this prediction output and probe it.
+
+        OCTRON normally saves results into
+        "<video_dir>/octron_predictions/<video>_<tracker>/" (video two levels
+        up), but the prediction folder may also sit directly beside the video.
         """
-        from octron.sam_octron.helpers.video_loader import probe_video
         results_dir = self.results_dir
-        video = None
-        video_dict = None
-        stem = '_'.join(results_dir.name.split('_')[:-1])
-        for video_path in results_dir.parent.parent.glob('*.mp4'):
-            if video_path.stem == stem:
-                video = FastVideoReader(video_path, read_format='rgb24')
-                video_dict = probe_video(video_path, verbose=self.verbose)
-                self.height = video_dict['height']
-                self.width = video_dict['width']
-                self.num_frames = video_dict['num_frames']
-                break
-        if video is None and self.verbose:
+        video_path = self._candidate_video_path()
+        if video_path is not None:
+            self._set_video(video_path)
+            return
+        if self.verbose:
+            stem = '_'.join(results_dir.name.split('_')[:-1])
             logger.warning(
                 f"No video found for '{results_dir.name}' "
-                f"(looked for {stem}.mp4 "
-                f"in '{results_dir.parent.parent}'). "
-                f"Use --video to specify the path explicitly."
+                f"(looked for {stem}.mp4 next to and one level above the "
+                f"prediction folder). Use --video to specify the path explicitly."
             )
-        self.video, self.video_dict = video, video_dict
+        self.video, self.video_dict = None, None
 
     def _init_video_from_path(self, video_path):
         """Use a caller-supplied video path directly, bypassing auto-detection."""
-        from octron.sam_octron.helpers.video_loader import probe_video
         vp = Path(video_path)
         if not vp.exists():
             raise FileNotFoundError(f"Video not found: {vp}")
-        self.video = FastVideoReader(vp, read_format='rgb24')
-        vd = probe_video(vp, verbose=self.verbose)
-        self.height = vd['height']
-        self.width = vd['width']
-        self.num_frames = vd['num_frames']
-        self.video_dict = vd
+        self._set_video(vp)
 
-    def get_observation_counts(self):
-        """Return {track_id: n_rows} by counting CSV lines without full parsing.
+    def _set_video(self, video_path):
+        """Open *video_path* with the RGB reader, probe it, and set video state.
 
-        Used to pre-filter tracks by observation count before loading data,
-        avoiding tuple-warning noise for tracks that will not be rendered.
+        Shared by find_video (auto-detection) and _init_video_from_path
+        (caller-supplied) so both keep read_format='rgb24' and identical
+        property assignment.
         """
-        import re as _re
-        counts = {}
-        for csv_file in (self.csvs or []):
-            m = _re.search(r'_track_(\d+)\.csv$', csv_file.name)
-            if not m:
-                continue
-            tid = int(m.group(1))
-            with open(csv_file, 'r') as f:
-                n = sum(1 for _ in f)
-            # subtract fixed header lines + 1 column-header row
-            counts[tid] = max(0, n - self.csv_header_lines - 1)
-        return counts
+        from octron.sam_octron.helpers.video_loader import probe_video
+        from napari_pyav._reader import FastVideoReader
+        self.video = FastVideoReader(video_path, read_format='rgb24')
+        self.video_dict = probe_video(video_path, verbose=self.verbose)
+        self.height = self.video_dict['height']
+        self.width = self.video_dict['width']
+        self.num_frames = self.video_dict['num_frames']
+
+    def _csv_observation_count(self, csv_file):
+        """Return the number of data rows (observations) in a tracking CSV.
+
+        Counts lines without parsing, subtracting the fixed metadata header
+        lines plus the single column-header row. This is the one place that
+        encodes the CSV header offset for cheap row counts; full parsing uses
+        ``skiprows`` elsewhere.
+        """
+        with open(csv_file, 'r') as f:
+            n = sum(1 for _ in f)
+        return max(0, n - self.csv_header_lines - 1)
 
     def find_csv(self):
         results_dir = self.results_dir
@@ -444,7 +458,13 @@ class YOLO_results:
         label_color_index = indices_max_diff_labels[original_class_id % len(indices_max_diff_labels)]
         subcolor_index = indices_max_diff_subcolors[track_occurrence_index % len(indices_max_diff_subcolors)]
         obj_color =  all_labels_submaps[label_color_index][subcolor_index]
-                                          
+
+        # Import napari colormap support lazily. Importing napari.utils at module
+        # import time triggers Pydantic json_encoders deprecation warnings from a
+        # dependency even when users only do `from octron import YOLO_results`.
+        from octron import _suppress_known_dependency_warnings
+        with _suppress_known_dependency_warnings():
+            from napari.utils import DirectLabelColormap
         napari_color = DirectLabelColormap(color_dict={None: [0.,0.,0.,0.], 1: obj_color}, 
                                            use_selection=True, 
                                            selection=1,
@@ -459,6 +479,7 @@ class YOLO_results:
                           interpolate_limit=None,
                           sigma=0,
                           track_ids=None,
+                          min_observations=0,
                           ):
         """
         
@@ -549,6 +570,10 @@ class YOLO_results:
                 m = _re.search(r'_track_(\d+)\.csv$', csv_file.name)
                 if m and int(m.group(1)) not in set(track_ids):
                     continue
+            # Cheap row-count pre-filter: skip tracks below the observation
+            # threshold without fully parsing (and warning about) their CSV.
+            if min_observations > 0 and self._csv_observation_count(csv_file) < min_observations:
+                continue
             try:
                 df = pd.read_csv(csv_file, skiprows=self.csv_header_lines)
                 assert set(EXPECTED_CSV_COLUMNS).issubset(df.columns), \
@@ -785,6 +810,7 @@ class YOLO_results:
                         assert width == self.width, \
                             f"Width in mask data ({width}) does not match width in video ({self.width})."
                     # Find out which indices have data
+                    from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
                     frame_indices = get_annotated_frames(masks)
                     if len(frame_indices) == 0 and self.verbose:
                         logger.warning(f"No valid frames found for track ID '{track_id}' (label '{label}') in mask data.")

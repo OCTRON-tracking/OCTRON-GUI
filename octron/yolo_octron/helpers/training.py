@@ -23,7 +23,12 @@ def find_files_with_depth_limit(base_path, pattern, max_depth=1):
         List of Path objects matching the pattern within the depth limit
     """
     results = []
-    
+
+    # A non-existent directory yields no matches. This avoids a FileNotFoundError
+    # from glob/iterdir on a path that hasn't been created yet.
+    if not base_path.is_dir():
+        return results
+
     # Process base directory (depth 0)
     for path in base_path.glob(pattern):
         if path.is_file():
@@ -182,11 +187,6 @@ def collect_labels(project_path,
                     video: FastVideoReader object   
 
     """
-    # Hiding some imports here to reduce initial loading time
-    from napari_pyav._reader import FastVideoReader
-    from octron.sam_octron.helpers.video_loader import get_vfile_hash
-    from octron.sam_octron.helpers.sam_zarr import load_image_zarr, get_annotated_frames
-
     project_path = Path(project_path)
     assert project_path.exists(), f'Project path not found at {project_path.as_posix()}'
     assert project_path.is_dir(), f'Project path should be a directory, not file'
@@ -194,11 +194,18 @@ def collect_labels(project_path,
     # Check whether .json files should be found in only a subfolder
     if subfolder is not None:
         json_parent_path = project_path / subfolder
-        assert project_path.exists(), f'Subfolder not found at {project_path.as_posix()}'
-        assert project_path.is_dir(), f'Subfolder should be a directory, not file'
+        # The per-video subfolder is only created once annotation data has been
+        # saved. 
+        if not json_parent_path.is_dir():
+            return {}
     else:
         # If no subfolder is provided, search in the project root directory
         json_parent_path = project_path
+
+    # Hiding some imports here to reduce initial loading time
+    from napari_pyav._reader import FastVideoReader
+    from octron.sam_octron.helpers.video_loader import get_vfile_hash
+    from octron.sam_octron.helpers.sam_zarr import load_image_zarr, get_annotated_frames
 
     label_dict = {}
     # Create a (new) global mapping of label names to IDs for consistency across directories
@@ -283,14 +290,24 @@ def collect_labels(project_path,
             expected_video_hash_zarr = loaded_masks.attrs.get('video_hash', None)
             expected_video_hash_organizer = entry['prediction_layer_metadata']['video_hash']    
             
-            video_file_path = project_path / Path(entry['prediction_layer_metadata']['video_file_path'])
-            if not video_file_path in video_hash_dict:
+            # Resolve so the same physical video referenced via different path
+            # strings maps to one key (keeps the single-video assert below honest).
+            video_file_path = (project_path / Path(entry['prediction_layer_metadata']['video_file_path'])).resolve()
+            if video_file_path not in video_hash_dict:
                 assert video_file_path.exists(), f'Video file not found at "{video_file_path.as_posix()}"' 
                 actual_video_hash = get_vfile_hash(video_file_path)[-8:] # By default this is shortened to 8 characters
                 video_hash_dict[video_file_path] = actual_video_hash 
             assert len(video_hash_dict) == 1, 'Different video files found for one object organizer json.'
             assert expected_video_hash_zarr == expected_video_hash_organizer == video_hash_dict[video_file_path], 'Video hash mismatch'
             
+        # An organizer with no entries leaves no video/labels — skip it instead
+        # of failing later with an unbound video_file_path.
+        if not video_hash_dict:
+            logger.warning(
+                f"Object organizer '{object_organizer.parent.name}' has no entries; skipping."
+            )
+            continue
+
         # Maintain only unique entries in 'frames' lists
         for label_id in labels:
             _, i = np.unique(labels[label_id]['frames'], return_index=True)

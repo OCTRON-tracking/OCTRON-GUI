@@ -15,9 +15,12 @@ def auto_device() -> str:
 
 
 def check_gpu_access():
+    """Log CUDA / MPS availability.
+
+    To call directly you can also do
+    python -m octron.test_gpu
+    """
     import torch
-    setup_logging()
-    print_welcome()
     if torch.cuda.is_available():
         logger.info("CUDA GPU is available.")
         logger.info(f"Number of CUDA GPUs: {torch.cuda.device_count()}")
@@ -34,4 +37,6 @@ def check_gpu_access():
         logger.info("MPS GPU is not available.")
 
 if __name__ == "__main__":
+    setup_logging()
+    print_welcome()
     check_gpu_access()

@@ -27,7 +27,7 @@ classifiers = [
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "setuptools",
-    "napari==0.7.0",
+    "napari==0.7.1",
     "numpy>=2.1.0",
     "qtpy>=2.4.3",
     "torch>=2.5.1",
@@ -47,6 +47,7 @@ dependencies = [
     "opencv-python>=4.11.0",       
     "natsort>=8.4.0",
     "loguru>=0.7",
+    "platformdirs>=4.0",
     "typer>=0.12.0",
     "huggingface_hub>=1.5.0",
     "transformers>=5.2.0",
@@ -60,7 +61,7 @@ dependencies = [
 [project.optional-dependencies]
 pyqt5 = ["PyQt5>=5.15.11"]
 pyqt6 = ["PyQt6>=6.10.0"]
-all = ["napari[pyqt6]==0.7.0"]
+all = ["napari[pyqt6]==0.7.1"]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
@@ -76,13 +77,10 @@ Changelog = "https://github.com/OCTRON-tracking/OCTRON-GUI/blob/master/CHANGELOG
 octron = "octron:napari.yaml"
 
 [project.entry-points."pipx.run"]
-octron = "octron.main:octron_gui"
+octron = "octron.cli:main"
 
 [project.scripts]
 octron = "octron.cli:main"
-octron-gui = "octron.main:octron_gui"
-octron-gif = "octron.tools.mp4_to_gif:main"
-octron-test-gpu = "octron.test_gpu:check_gpu_access"
 
 [tool.setuptools.packages.find]
 where = ["."]

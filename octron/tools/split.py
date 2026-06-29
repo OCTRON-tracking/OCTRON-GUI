@@ -46,23 +46,13 @@ def run_split(
     dry_run : bool
         If ``True``, print split sizes without writing anything to disk.
     """
-    if not 0.0 < train_fraction < 1.0:
-        raise ValueError(
-            f"train_fraction must be in (0, 1); got {train_fraction!r}"
-        )
-    if not 0.0 <= val_fraction < 1.0:
-        raise ValueError(
-            f"val_fraction must be in [0, 1); got {val_fraction!r}"
-        )
-    if train_fraction + val_fraction >= 1.0:
-        raise ValueError(
-            f"train_fraction + val_fraction must be < 1 (test split = remainder); "
-            f"got {train_fraction} + {val_fraction} = {train_fraction + val_fraction}"
-        )
-
     from octron.yolo_octron.yolo_octron import YOLO_octron
 
     train_mode = train_mode.value if hasattr(train_mode, 'value') else str(train_mode)
+
+    # Validate fractions up front using the core guard (also enforced inside
+    # prepare_split) so the CLI fails before any model, label, or geometry work.
+    YOLO_octron._validate_split_fractions(train_fraction, val_fraction)
 
     yolo = YOLO_octron(
         models_yaml_path=_MODELS_YAML,
@@ -74,29 +64,21 @@ def run_split(
     print("Preparing labels...")
     yolo.prepare_labels()
 
-    # --- Step 2: generate polygons / bboxes ---
-    if train_mode == "segment":
-        print("Generating polygons...")
-        for no_entry, total, label, frame_no, total_frames in yolo.prepare_polygons():
-            print(
-                f"  [{no_entry}/{total}] {label}: frame {frame_no}/{total_frames}",
-                end="\r",
-            )
-        print()
-    else:
-        print("Generating bounding boxes...")
-        for no_entry, total, label, frame_no, total_frames in yolo.prepare_bboxes():
-            print(
-                f"  [{no_entry}/{total}] {label}: frame {frame_no}/{total_frames}",
-                end="\r",
-            )
-        print()
+    # --- Step 2: generate geometry (polygons for segment, bboxes for detect) ---
+    print("Generating polygons..." if train_mode == "segment" else "Generating bounding boxes...")
+    for no_entry, total, label, frame_no, total_frames in yolo.prepare_geometry():
+        print(
+            f"  [{no_entry}/{total}] {label}: frame {frame_no}/{total_frames}",
+            end="\r",
+        )
+    print()
 
     # --- Step 3: split ---
     print("Splitting data into train/val/test sets...")
     yolo.prepare_split(
         training_fraction=train_fraction,
         validation_fraction=val_fraction,
+        random_seed=seed,
     )
 
     # Print summary table
@@ -108,11 +90,7 @@ def run_split(
 
     # --- Step 4: export to disk ---
     print("Exporting training data...")
-    if train_mode == "segment":
-        gen = yolo.create_training_data_segment()
-    else:
-        gen = yolo.create_training_data_detect()
-    for no_entry, total, label, split, frame_no, total_frames in gen:
+    for no_entry, total, label, split, frame_no, total_frames in yolo.create_training_data():
         print(
             f"  [{no_entry}/{total}] {label} ({split}): frame {frame_no}/{total_frames}",
             end="\r",

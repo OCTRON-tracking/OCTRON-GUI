@@ -26,9 +26,13 @@ import zarr
 from skimage import measure, color
 from boxmot import create_tracker
 import napari
-from importlib.metadata import version as _get_version
-octron_version = _get_version('octron')
-octron_base_path = Path(__file__).parent.parent
+from importlib.metadata import version as _get_version, PackageNotFoundError
+try:
+    octron_version = _get_version('octron')
+except PackageNotFoundError:
+    # Running from source without an installed distribution.
+    octron_version = 'no version'
+octron_base_path = Path(__file__).parent.parent.resolve()
 from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
 from octron.yolo_octron.helpers.polygons import (find_objects_in_mask, 
                                                  watershed_mask,
@@ -102,7 +106,7 @@ class YOLO_octron:
         self.data_path = None
         self.model = None
         self.label_dict = None
-        self.config_path = None
+        self._config_path = None  # Use private variable for property
         self.models_dict = {}
         self.enable_watershed = False
         self.prune_empty_labels = True  # Updated by prepare_labels()
@@ -186,6 +190,27 @@ class YOLO_octron:
             # Setup training directories after project_path is validated
             self._setup_training_directories(self.clean_training_dir)
 
+    @property
+    def config_path(self):
+        """
+        Path to the YOLO training config (``yolo_config.yaml``).
+
+        Derived from ``data_path`` when not explicitly set, so callers (CLI,
+        GUI, programmatic) do not need to assign it manually after a split:
+        as long as ``project_path`` is set it resolves to
+        ``<project>/model/training_data/yolo_config.yaml``. ``write_yolo_config``
+        still assigns it explicitly. Returns ``None`` only when ``data_path``
+        is also unset.
+        """
+        if self._config_path is not None:
+            return self._config_path
+        if self.data_path is not None:
+            return self.data_path / "yolo_config.yaml"
+        return None
+
+    @config_path.setter
+    def config_path(self, value):
+        self._config_path = Path(value) if value is not None else None
 
     def _setup_training_directories(self, clean_training_dir):
         """
@@ -654,15 +679,56 @@ class YOLO_octron:
                         labels[entry]['frames'] = valid_frames
 
 
+    def prepare_geometry(self):
+        """
+        Generate training geometry, dispatching on ``self.train_mode``.
+
+        Runs :meth:`prepare_bboxes` for ``'detect'`` and :meth:`prepare_polygons`
+        otherwise (``'segment'``), so CLI and GUI select geometry once, here,
+        instead of duplicating the mode branch.  Yields the same progress tuples
+        ``(no_entry, total, label, frame_no, total_frames)`` as the underlying
+        method.
+        """
+        if self.train_mode == 'detect':
+            yield from self.prepare_bboxes()
+        else:
+            yield from self.prepare_polygons()
+
+    @staticmethod
+    def _validate_split_fractions(training_fraction, validation_fraction):
+        """
+        Validate train/val split fractions (shared guard for core and callers).
+
+        The test split is the remainder, so the two fractions must leave room
+        for it.  Raises ``ValueError`` on invalid input.
+        """
+        if not 0.0 < training_fraction < 1.0:
+            raise ValueError(
+                f"training_fraction must be in (0, 1); got {training_fraction!r}"
+            )
+        if not 0.0 <= validation_fraction < 1.0:
+            raise ValueError(
+                f"validation_fraction must be in [0, 1); got {validation_fraction!r}"
+            )
+        if training_fraction + validation_fraction >= 1.0:
+            raise ValueError(
+                f"training_fraction + validation_fraction must be < 1 "
+                f"(test split = remainder); got {training_fraction} + "
+                f"{validation_fraction} = {training_fraction + validation_fraction}"
+            )
+
     def prepare_split(self,
                       training_fraction=0.7,
                       validation_fraction=0.15,
+                      random_seed=88,
                       verbose=False,
                      ):
         """
         Using train_test_val(), this function splits the frame indices 
         into training, testing, and validation sets, based on the fractions provided.
+        ``random_seed`` controls the shuffling so splits are reproducible.
         """
+        self._validate_split_fractions(training_fraction, validation_fraction)
         if self.label_dict is None:
             raise ValueError("No labels found. Please run prepare_labels() first.")
         
@@ -675,6 +741,7 @@ class YOLO_octron:
                 split_dict = train_test_val(frames, 
                                             training_fraction=training_fraction,
                                             validation_fraction=validation_fraction,
+                                            random_seed=random_seed,
                                             verbose=verbose,
                                             )
 
@@ -955,6 +1022,22 @@ class YOLO_octron:
         logger.info(f"Detection training data exported to {self.data_path.as_posix()}")
         return
 
+    def create_training_data(self, verbose=False):
+        """
+        Export training data, dispatching on ``self.train_mode``.
+
+        Runs :meth:`create_training_data_detect` for ``'detect'`` and
+        :meth:`create_training_data_segment` otherwise (``'segment'``), so CLI and
+        GUI select the export once, here, instead of duplicating the mode branch.
+        Yields the same progress tuples
+        ``(no_entry, total, label, split, frame_no, total_frames)`` as the
+        underlying method.
+        """
+        if self.train_mode == 'detect':
+            yield from self.create_training_data_detect(verbose=verbose)
+        else:
+            yield from self.create_training_data_segment(verbose=verbose)
+
     def write_yolo_config(self,
                          train_path="train",
                          val_path="val",
@@ -1031,6 +1114,24 @@ class YOLO_octron:
 
 
     ##### TRAINING AND INFERENCE ############################################################################
+    def resolve_model_name(self, model_name):
+        """
+        Resolve a model name to its canonical key in ``self.models_dict``.
+
+        Matching is case-insensitive (e.g. 'yolo11m' -> 'YOLO11m'), and enum
+        members (with a ``.value``, such as Typer choices) are accepted.
+
+        Returns
+        -------
+        str or None
+            The canonical models_dict key, or None if there is no match.
+        """
+        model_str = model_name.value if hasattr(model_name, 'value') else str(model_name)
+        if model_str in self.models_dict:
+            return model_str
+        model_lower = model_str.lower()
+        return next((k for k in self.models_dict if k.lower() == model_lower), None)
+
     def load_model(self, model_name_path, train_mode='segment'):
         """
         Load the YOLO model
@@ -1069,15 +1170,217 @@ class YOLO_octron:
             # If this path exists, load this model, otherwise 
             # assume that this models is part of the models_dict
         except AssertionError:
+            # Not a file on disk — resolve the catalog name case-insensitively
+            # (e.g. 'yolo11m' -> 'YOLO11m') so callers need not match YAML casing.
+            resolved = self.resolve_model_name(model_name_path)
+            if resolved is None:
+                raise ValueError(
+                    f"Unknown model '{model_name_path}': not an existing file and "
+                    f"not in the model catalog. Available: {sorted(self.models_dict)}"
+                )
             model_key = 'model_path_detect' if train_mode == 'detect' else 'model_path_seg'
-            model_name_path = self.models_dict[model_name_path][model_key]
-            model_name_path = self.models_yaml_path.parent / f'models/{model_name_path}'
+            model_filename = self.models_dict[resolved][model_key]
+            # Weights are loaded from the per-user cache (see config.get_yolo_models_dir),
+            # where check_yolo_models downloads them.
+            from octron import config as _octron_config
+            model_name_path = _octron_config.get_yolo_models_dir() / model_filename
             
         model = YOLO(model_name_path)
         logger.info(f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})")
         self.model = model
         return model
-    
+
+    def _read_checkpoint_state(self, checkpoint_path):
+        """
+        Read a training checkpoint and return ``(epoch, imgsz, error)``.
+
+        Parameters
+        ----------
+        checkpoint_path : str or Path
+            Path to an ultralytics ``last.pt`` checkpoint.
+
+        Returns
+        -------
+        epoch : int or None
+            The checkpoint epoch (ultralytics stores ``-1`` for a completed
+            run), or None when the checkpoint could not be read.
+        imgsz : int or None
+            Image size recovered from the checkpoint's ``train_args``. When the
+            stored value is missing/invalid (<= 0) it is recomputed from the
+            training images. None when recovery failed.
+        error : str or None
+            None on success, else a human-readable reason.
+        """
+        import torch
+        try:
+            ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        except Exception as e:
+            return None, None, f"Could not read checkpoint '{checkpoint_path}': {e}"
+        epoch = ckpt.get('epoch', -1)
+        train_args = ckpt.get('train_args', {}) or {}
+        if 'imgsz' not in train_args:
+            return epoch, None, (
+                "Checkpoint does not contain image size info. Cannot continue from checkpoint."
+            )
+        # ultralytics stores imgsz as an int or occasionally as a list
+        # (e.g. [640]) depending on version — handle both.
+        raw_imgsz = train_args['imgsz']
+        if isinstance(raw_imgsz, (list, tuple)):
+            raw_imgsz = raw_imgsz[0]
+        try:
+            imgsz = int(raw_imgsz)
+        except (TypeError, ValueError):
+            imgsz = 0
+        if imgsz <= 0:
+            # imgsz was corrupted (e.g. by a previous bad resume) — recompute
+            # from the actual training images so the scale the model was
+            # originally trained on is exactly preserved.
+            avg_h, avg_w, _, _ = self._find_train_image_size(self.data_path)
+            largest = max(avg_h, avg_w)
+            imgsz = int(((largest + 31) // 32) * 32)
+            logger.warning(
+                f"Checkpoint imgsz was {raw_imgsz!r} (invalid). "
+                f"Recomputed from training data: imgsz={imgsz}"
+            )
+        return epoch, imgsz, None
+
+    def resolve_resume_state(self, resume=False, overwrite=False):
+        """
+        Decide how to (re)start training: fresh, resume, or init-from-checkpoint.
+
+        Centralises the resume/overwrite decision so the CLI and GUI behave
+        identically. ``overwrite`` always wins (train from scratch). A strict
+        resume is only possible for an interrupted run; a *completed* run
+        (checkpoint ``epoch == -1``) instead initialises a new run from
+        ``last.pt``. Image size is recovered from the checkpoint for both
+        resume and init.
+
+        Parameters
+        ----------
+        resume : bool
+            Whether the user requested to resume/continue training.
+        overwrite : bool
+            Whether the user requested to retrain from scratch.
+
+        Returns
+        -------
+        dict
+            ``action`` : one of ``'fresh'``, ``'resume'``,
+            ``'init_from_checkpoint'``, ``'completed'``, ``'error'``.
+            ``checkpoint`` : Path to ``last.pt`` for resume/init, else None.
+            ``imgsz`` : int recovered from the checkpoint for resume/init, else None.
+            ``message`` : human-readable explanation for logs/UI.
+        """
+        training_dir = self.training_path / 'training'
+        best_pt = training_dir / 'weights' / 'best.pt'
+        last_pt = training_dir / 'weights' / 'last.pt'
+
+        # Overwrite always wins over resume/existing state: train from scratch.
+        if overwrite:
+            return {
+                'action': 'fresh', 'checkpoint': None, 'imgsz': None,
+                'message': 'Overwrite requested: training a new model from scratch.',
+            }
+
+        if resume:
+            if not last_pt.exists():
+                return {
+                    'action': 'fresh', 'checkpoint': None, 'imgsz': None,
+                    'message': (
+                        'Resume requested but no interrupted run (last.pt) found; '
+                        'starting fresh.'
+                    ),
+                }
+            epoch, imgsz, error = self._read_checkpoint_state(last_pt)
+            if error is not None:
+                return {'action': 'error', 'checkpoint': last_pt, 'imgsz': None, 'message': error}
+            if epoch == -1:
+                # Completed run: strict resume is not possible, but we can continue
+                # training by initialising a new run from last.pt.
+                return {
+                    'action': 'init_from_checkpoint', 'checkpoint': last_pt, 'imgsz': imgsz,
+                    'message': (
+                        f"Checkpoint '{last_pt.name}' is from a completed run; initialising a "
+                        f"new run from it (imgsz={imgsz}) rather than a strict resume."
+                    ),
+                }
+            return {
+                'action': 'resume', 'checkpoint': last_pt, 'imgsz': imgsz,
+                'message': (
+                    f"Resuming interrupted run from '{last_pt.name}' "
+                    f"(epoch {epoch}, imgsz={imgsz})."
+                ),
+            }
+
+        # Neither resume nor overwrite: refuse if a finished model already exists.
+        if best_pt.exists():
+            return {
+                'action': 'completed', 'checkpoint': best_pt, 'imgsz': None,
+                'message': (
+                    f"A trained model already exists at '{best_pt}'. Use overwrite to "
+                    f"retrain from scratch, or resume to continue training."
+                ),
+            }
+        return {
+            'action': 'fresh', 'checkpoint': None, 'imgsz': None,
+            'message': 'No existing model found; training a new model from scratch.',
+        }
+
+    def _resolve_batch_size(self, imgsz, device):
+        """
+        Return a training batch size, caching AutoBatch results for CUDA.
+
+        AutoBatch (CUDA memory profiling) runs only for ``device='cuda'``; for
+        ``'cpu'`` and ``'mps'`` this returns ``-1`` so ultralytics applies its
+        own safe default without attempting CUDA-only profiling. CUDA results
+        are cached at ``<project>/model/autobatch_cache.json`` keyed by model
+        architecture, image size, and GPU name, so repeated runs on the same
+        hardware skip the search. Both the CLI and GUI go through here.
+        """
+        if device != 'cuda':
+            # Avoid CUDA-only AutoBatch profiling on CPU/MPS; let ultralytics
+            # pick a safe default for these devices.
+            return -1
+        import torch
+        try:
+            gpu_name = torch.cuda.get_device_name(0)
+        except Exception:
+            gpu_name = 'cuda'
+        arch = self.model.model.__class__.__name__
+        cache_key = f"{arch}_{imgsz}_cuda_{gpu_name}"
+        cache_path = self.training_path / 'autobatch_cache.json'
+        cache = {}
+        if cache_path.exists():
+            try:
+                with open(cache_path) as f:
+                    cache = json.load(f)
+            except Exception:
+                cache = {}
+        if cache_key in cache:
+            batch = cache[cache_key]
+            logger.info(f"AutoBatch: using cached batch size {batch} for {gpu_name} (imgsz={imgsz})")
+            return batch
+        logger.info("AutoBatch: running batch size search (result will be cached) ...")
+        try:
+            from ultralytics.utils.autobatch import check_train_batch_size
+            # Profile on the GPU so AutoBatch measures real CUDA memory.
+            self.model.model.to('cuda')
+            batch = check_train_batch_size(self.model.model, imgsz=imgsz, amp=True)
+        except Exception as e:
+            logger.warning(
+                f"AutoBatch search failed ({e}); deferring to ultralytics default (batch=-1)."
+            )
+            return -1
+        cache[cache_key] = batch
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, 'w') as f:
+                json.dump(cache, f)
+            logger.info(f"AutoBatch: batch size {batch} cached to {cache_path.as_posix()}")
+        except Exception as e:
+            logger.warning(f"Could not write AutoBatch cache: {e}")
+        return batch
+
     def load_model_args(self, model_name_path):
         """
         Load the YOLO model args.yaml (model training settings).
@@ -1297,6 +1600,13 @@ class YOLO_octron:
             logger.warning("MPS is not yet fully supported in PyTorch. Use at your own risk.")
         
         assert imagesz > 0 and imagesz % 32 == 0, 'YOLO image size must be a positive multiple of 32'
+
+        # Resolve a cached AutoBatch size for CUDA when the caller left batch at
+        # the -1 sentinel. CPU/MPS keep -1 so ultralytics applies its own safe
+        # default without attempting CUDA-only profiling.
+        if batch == -1:
+            batch = self._resolve_batch_size(imagesz, device)
+
         # Start training in a separate thread
         training_complete = threading.Event()
         training_error = None
@@ -1833,6 +2143,7 @@ class YOLO_octron:
                   overwrite=False,
                   buffer_size=500,
                   output_dir=None,
+                  local_cache_dir=None,
                   ):
         """
         Predict and track objects in multiple videos.
@@ -2029,6 +2340,28 @@ class YOLO_octron:
         
         total_frames = sum(v['num_frames_analyzed'] for v in videos_dict.values())
         
+        # Resolve the optional local prediction cache (explicit opt-in only).
+        # Precedence: local_cache_dir argument > config.yaml prediction_cache_dir > off.
+        # When enabled, each video's output is written under
+        # <cache>/octron_cache_<pid> and moved to its final destination on
+        # completion (avoids zarr atomic-write failures on SMB/network shares).
+        import atexit
+        from octron import config as _octron_config
+        from octron.yolo_octron.helpers.cache_io import is_network_path, move_prediction_folder
+        _cache_base = Path(local_cache_dir) if local_cache_dir is not None else _octron_config.get_prediction_cache_dir()
+        _cache_root = None
+        if _cache_base is not None:
+            _cache_root = Path(_cache_base) / f"octron_cache_{os.getpid()}"
+            _cache_root.mkdir(parents=True, exist_ok=True)
+            atexit.register(lambda p=_cache_root: shutil.rmtree(p, ignore_errors=True))
+            logger.info(f"Local prediction cache: {_cache_root}")
+        elif output_dir is not None and is_network_path(output_dir):
+            logger.warning(
+                f"Writing predictions to a network share ({output_dir}). For "
+                f"reliability/speed, set a local cache dir in config.yaml "
+                f"(prediction_cache_dir) or pass local_cache_dir."
+            )
+
         # Process each video
         for video_index, (video_name, video_dict) in enumerate(videos_dict.items(), start=0):
             num_frames = video_dict['num_frames_analyzed']
@@ -2036,21 +2369,31 @@ class YOLO_octron:
             logger.info(f'Processing video {video_index+1}/{total_videos}: {video_name}')
             video_path = Path(video_dict['video_file_path'])
             
-            # Check overwrite BEFORE loading the model to avoid unnecessary work
+            # Check overwrite BEFORE loading the model to avoid unnecessary work.
+            # The overwrite/skip check is always on the FINAL destination.
             _pred_root = Path(output_dir) if output_dir else video_path.parent
-            save_dir = _pred_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
-            if save_dir.exists() and overwrite:
-                shutil.rmtree(save_dir)
-            elif save_dir.exists() and not overwrite:
-                logger.info(f"Skipping {video_name}: predictions already exist at {save_dir}. Pass --overwrite to replace.")
+            final_save_dir = _pred_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
+            if final_save_dir.exists() and overwrite:
+                shutil.rmtree(final_save_dir)
+            elif final_save_dir.exists() and not overwrite:
+                logger.info(f"Skipping {video_name}: predictions already exist at {final_save_dir}. Pass --overwrite to replace.")
                 yield {
                     'stage': 'skipped_video',
                     'video_name': video_name,
                     'video_index': video_index,
                     'total_videos': total_videos,
-                    'save_dir': save_dir,
+                    'save_dir': final_save_dir,
                 }
                 continue
+
+            # Where output is actually written: the local cache (if configured)
+            # or the final destination directly.
+            if _cache_root is not None:
+                save_dir = _cache_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
+                if save_dir.exists():
+                    shutil.rmtree(save_dir)  # clear stale cache from a prior run
+            else:
+                save_dir = final_save_dir
             
             # Load model anew for every video since the tracker persists
             try:
@@ -2082,10 +2425,20 @@ class YOLO_octron:
                 custom_tracker_params[param_name] = param_config['current_value']
             custom_tracker_params['nr_classes'] = len(model.names)
             per_class = custom_tracker_params.get('per_class', False)
-            # Initialize tracker with the custom parameters
+            # Initialize tracker with the custom parameters.
+            # Resolve ReID weights into the OCTRON model cache (config.py) so a
+            # bare filename like 'osnet_x1_0_market1501.pt' is downloaded next to
+            # the YOLO/SAM models.
+            reid_weights = None
+            if is_reid:
+                reid_model = Path(tracker_config[tracker_id]['reid_model'])
+                if reid_model.parent == Path('.'):
+                    reid_weights = _octron_config.get_reid_weights_dir() / reid_model.name
+                else:
+                    reid_weights = reid_model
             tracker = create_tracker(
                 tracker_type=tracker_config[tracker_id]['tracker_type'],
-                reid_weights=Path(tracker_config[tracker_id]['reid_model']) if is_reid else None,
+                reid_weights=reid_weights,
                 device=device,
                 per_class=per_class,
                 evolve_param_dict=custom_tracker_params
@@ -2509,13 +2862,34 @@ class YOLO_octron:
                 json.dump(metadata_to_save, f, indent=4)
             logger.info(f"Saved prediction metadata to {json_meta_path.as_posix()}")
             
+            # When caching, close the zarr stores and move the completed video
+            # folder to its final destination before reporting it, so consumers
+            # (e.g. the GUI) load results from the final location.
+            reported_save_dir = save_dir
+            if _cache_root is not None:
+                if is_segment and prediction_store is not None:
+                    try:
+                        prediction_store.close()
+                    except Exception:
+                        pass
+                mask_stores.clear()
+                prediction_store = None
+                gc.collect()
+                move_prediction_folder(save_dir, final_save_dir)
+                reported_save_dir = final_save_dir
+
             yield {
                     'stage': 'video_complete',
                     'video_name': video_name,
-                    'save_dir': save_dir,
+                    'save_dir': reported_save_dir,
                 }
             
             
+        # Clean up the local cache root (each completed video was already moved
+        # to its final destination at its video_complete).
+        if _cache_root is not None and _cache_root.exists():
+            shutil.rmtree(_cache_root, ignore_errors=True)
+
         # ALL COMPLETE    
         yield {
             'stage': 'complete',
@@ -2539,10 +2913,12 @@ class YOLO_octron:
         video_dict : dict
             Dictionary with video metadata including num_frames
         region_properties : list or tuple, optional
-            List of region property names to include as extra columns (e.g. ['area', 'solidity']).
-            If None, only bounding-box columns are created.
+            Region-property columns are added dynamically during prediction (not pre-created), 
+            because regionprops_table may expand one property into several columns:
+            Ontensity-based functions expand to one column per image channel (e.g. <name>-0/-1/-2 for RGB).
         extra_properties : tuple of callables, optional
-            Custom measurement functions. Each function's __name__ is added as a column.
+            Custom-function columns. Intensity-based functions expand to
+            one column per image channel (e.g. <name>-0/-1/-2 for RGB).
             
         Returns
         -------
@@ -2562,17 +2938,17 @@ class YOLO_octron:
                 'bbox_y_min',
                 'bbox_y_max',
                 ]
-        # Region property columns are NOT pre-created here.
+        # Region-property AND extra-property columns are NOT pre-created here.
         # regionprops_table may expand a single property into multiple columns
         # (e.g. intensity_mean -> intensity_mean-0, -1, -2 for RGB;
         #        moments_hu    -> moments_hu-0 .. moments_hu-6).
-        # The actual expanded column names are discovered at runtime from the
-        # regionprops output and added to the DataFrame dynamically via .loc.
-        # Append extra property columns (from custom functions)
-        if extra_properties:
-            for fn in extra_properties:
-                if fn.__name__ not in columns:
-                    columns.append(fn.__name__)
+        # The same applies to intensity-based extra_properties (custom functions):
+        # with a multichannel (RGB) intensity image skimage calls them once per
+        # channel and writes <name>-0/-1/-2, so pre-creating a bare <name> column
+        # would leave it permanently NaN. All region/extra-property columns are
+        # therefore discovered at runtime from the regionprops output and added
+        # to the DataFrame dynamically via .loc (see predict_batch). The
+        # region_properties / extra_properties args are accepted only for API symmetry.
 
         # Initialize the DataFrame with NaN values
         df = pd.DataFrame(

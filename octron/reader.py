@@ -205,10 +205,10 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
         
         # Show dialog and wait for user input
         if dialog.exec_():
-            # User clicked OK, process videos
-            import subprocess
-            import time
-            
+            # User clicked OK, process the selected inputs through the shared
+            # GUI-free transcode helper (same code path as the `octron transcode` CLI).
+            from octron.tools.transcode import transcode_one, detect_h264_encoder
+
             # Get options
             create_subfolder = subfolder_check.isChecked()
             crf_value = crf_spin.value()
@@ -233,211 +233,38 @@ def read_octron_folder(path: "Path") -> List["LayerData"]:
                 
             fps_info = f"{fps_value} fps" if fps_value is not None else "source fps (videos) / 20 fps (TIFFs)"
             logger.info(f"Transcoding {len(selected_videos)} inputs to MP4 | CRF: {crf_value} | Framerate: {fps_info}")
-            
-            # Process one input at a time
+
+            # Detect the encoder once up front (raises if ffmpeg/H.264 is missing).
+            # Transcode standardises on libx264 for reproducible, compatible output.
+            try:
+                encoder = detect_h264_encoder(prefer_hardware=False)
+            except RuntimeError as e:
+                logger.error(str(e))
+                return [(None,)]
+
+            # Process one input at a time through the shared helper.  Audio is
+            # kept (re-encoded to AAC) for videos; TIFF stacks have no audio.
             successful = 0
             for i, video_path in enumerate(selected_videos, 1):
-                is_tiff = video_path.suffix.lower() in {".tif", ".tiff"}
-                input_label = video_path.name
                 output_path = output_folder / f"{video_path.stem}.mp4"
+                logger.info(f"Processing {i}/{len(selected_videos)}: {video_path.name}")
 
-                logger.info(f"Processing {i}/{len(selected_videos)}: {input_label}")
-                
                 # Check if file exists and overwrite is not selected
                 if not overwrite_existing and output_path.exists():
                     logger.info(f"Skipped: '{output_path.name}' already exists and overwrite is disabled.")
                     continue
 
-                # Define FFmpeg command
-                if is_tiff:
-                    try:
-                        import numpy as np
-                        import tifffile
-                    except ImportError as e:
-                        logger.error(f"TIFF transcoding requires numpy+tifffile: {e}")
-                        continue
-
-                    def _to_uint8(arr: "np.ndarray") -> "np.ndarray":
-                        """Normalise array to uint8, preserving relative intensities."""
-                        if arr.dtype == np.uint8:
-                            return arr
-                        smin, smax = float(arr.min()), float(arr.max())
-                        if smax > smin:
-                            return ((arr.astype(np.float32) - smin) / (smax - smin) * 255).astype(np.uint8)
-                        return np.zeros_like(arr, dtype=np.uint8)
-
-                    try:
-                        with tifffile.TiffFile(str(video_path)) as tif:
-                            series = tif.series[0]
-                            axes  = series.axes   # e.g. "TCYX", "TYX", "TZYXC"
-                            stack = series.asarray()
-                            # Build sizes from axes + shape directly.
-                            # series.sizes can be unreliable across tifffile versions.
-                            sizes = dict(zip(axes, stack.shape))
-                    except Exception as e:
-                        logger.error(f"Failed to read TIFF '{video_path.name}': {e}")
-                        continue
-
-                    n_t = sizes.get('T', 0)
-                    n_z = sizes.get('Z', 0)
-                    n_c = sizes.get('C', 0)
-
-                    logger.info(
-                        f"TIFF detected: axes='{axes}' shape={stack.shape} dtype={stack.dtype} "
-                        f"| T={n_t} Z={n_z} C={n_c} "
-                        f"H={sizes.get('Y', '?')} W={sizes.get('X', '?')} "
-                        f"| {video_path.name}"
-                    )
-
-                    # Reject TIFFs with both a time AND a Z axis — ambiguous for video conversion
-                    if n_t > 0 and n_z > 0:
-                        logger.warning(
-                            f"Skipped '{video_path.name}': TIFF contains both a time axis "
-                            f"(T={n_t}) and a Z axis (Z={n_z}) (axes='{axes}'). "
-                            f"Cannot determine intended frame order for video conversion."
-                        )
-                        continue
-
-                    # Reject single-frame / 2D-only images
-                    if n_t >= 2:
-                        frame_key = 'T'
-                        n_frames = n_t
-                    elif n_z >= 2:
-                        frame_key = 'Z'
-                        n_frames = n_z
-                        logger.info(f"No time axis; treating Z-stack ({n_z} slices) as frames.")
-                    else:
-                        logger.warning(
-                            f"Skipped '{video_path.name}': single-frame or 2D TIFF "
-                            f"(axes='{axes}'). Only multi-frame TIFFs are supported."
-                        )
-                        continue
-
-                    # Reorder axes to canonical order:
-                    # (frame_key, [unknown extras,] [C,] Y, X)
-                    axes_list = list(axes)
-                    known = {'T', 'Z', 'C', 'Y', 'X'}
-                    extra = [a for a in axes_list if a not in known]
-
-                    target_order = [frame_key] + extra + (['C'] if n_c > 0 else []) + ['Y', 'X']
-
-                    perm = [axes_list.index(a) for a in target_order]
-                    if perm != list(range(stack.ndim)):
-                        stack = stack.transpose(perm)
-
-                    # Flatten any extra leading dims into the frames axis.
-                    # The last `trailing` dims are always (C,) Y, X.
-                    trailing = 3 if n_c > 0 else 2
-                    n_leading = stack.ndim - trailing
-                    if n_leading > 1:
-                        n_frames = int(np.prod(stack.shape[:n_leading]))
-                        stack = stack.reshape(n_frames, *stack.shape[n_leading:])
-                        logger.info(f"Flattened leading axes → {n_frames} frames.")
-
-                    # Move C from position 1 to last → (frames, Y, X, C)
-                    if n_c > 0:
-                        stack = np.moveaxis(stack, 1, -1)
-
-                    # Map channels to RGB (frames, Y, X, 3)
-                    if n_c == 0:
-                        # Grayscale: (frames, Y, X) → (frames, Y, X, 3)
-                        stack = _to_uint8(stack)
-                        stack = np.repeat(stack[..., np.newaxis], 3, axis=-1)
-                    elif n_c == 1:
-                        stack = _to_uint8(stack[..., 0])
-                        stack = np.repeat(stack[..., np.newaxis], 3, axis=-1)
-                    elif n_c == 2:
-                        # Map to R/G channels, B = 0
-                        stack = _to_uint8(stack)
-                        zeros = np.zeros((*stack.shape[:3], 1), dtype=np.uint8)
-                        stack = np.concatenate([stack, zeros], axis=-1)
-                        logger.info("2-channel TIFF mapped to R/G channels (B=0).")
-                    elif n_c == 3:
-                        stack = _to_uint8(stack)
-                    elif n_c == 4:
-                        stack = _to_uint8(stack[..., :3])  # drop alpha
-                    else:
-                        logger.warning(f"'{video_path.name}': {n_c} channels detected; using first 3 as RGB.")
-                        stack = _to_uint8(stack[..., :3])
-
-                    frame_count, height, width, _ = stack.shape
-                    out_fps = fps_value if fps_value is not None else 20.0
-                    logger.info(
-                        f"Transcoding TIFF: {frame_count} frames ({width}\u00d7{height}) "
-                        f"@ {out_fps} fps | '{video_path.name}'"
-                    )
-
-                    cmd = [
-                        "ffmpeg",
-                        "-f", "rawvideo",
-                        "-pixel_format", "rgb24",
-                        "-video_size", f"{width}x{height}",
-                        "-framerate", str(fps_value) if fps_value is not None else "20",
-                        "-i", "-",
-                        "-c:v", "libx264", "-preset", "superfast",
-                        "-crf", str(crf_value),
-                        "-an",
-                        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                        str(output_path),
-                    ]
-                else:
-                    if fps_value is not None:
-                        logger.info(
-                            f"Transcoding video: source fps reinterpreted as {fps_value} fps "
-                            f"(faster playback) | '{video_path.name}'"
-                        )
-                    else:
-                        logger.info(f"Transcoding video: keeping source fps | '{video_path.name}'")
-                    # -r before -i reinterprets the source timestamps at the given fps,
-                    # changing playback speed without duplicating frames.
-                    cmd = ["ffmpeg"]
-                    if fps_value is not None:
-                        cmd += ["-r", str(fps_value)]
-                    cmd += [
-                        "-i", str(video_path),
-                        "-c:v", "libx264", "-preset", "superfast",
-                        "-crf", str(crf_value),
-                        "-an",  # Disable audio for all outputs
-                        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                        str(output_path),
-                    ]
-                if overwrite_existing:
-                    cmd.append("-y") # Overwrite output if it exists
-                
-                # Time the transcoding process
-                start_time = time.time()
-                try:
-                    if is_tiff:
-                        result = subprocess.run(
-                            cmd,
-                            input=stack.tobytes(),
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            check=True,
-                        )
-                    else:
-                        result = subprocess.run(
-                            cmd,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            check=True,
-                        )
-                    elapsed_time = time.time() - start_time
-                    # Calculate file sizes for comparison
-                    input_bytes = video_path.stat().st_size
-                    input_size = input_bytes / (1024 * 1024)  # MB
-                    output_size = output_path.stat().st_size / (1024 * 1024)  # MB
-                    size_reduction = 100 * (1 - output_size / input_size) if input_size > 0 else 0
-                    
-                    logger.info(f"Successfully transcoded in {elapsed_time:.2f} seconds | Input: {input_size:.2f} MB, Output: {output_size:.2f} MB ({size_reduction:.1f}%)")
+                if transcode_one(
+                    video_path,
+                    output_path,
+                    crf=crf_value,
+                    overwrite=overwrite_existing,
+                    fps=fps_value,
+                    keep_audio=True,
+                    encoder=encoder,
+                ):
                     successful += 1
-                except subprocess.CalledProcessError as e:
-                    stderr_msg = e.stderr.decode("utf-8", errors="ignore").strip()
-                    if stderr_msg:
-                        logger.error(f"Failed: {stderr_msg.splitlines()[-1]}")
-                    else:
-                        logger.error(f"Failed: {str(e)}")
-            
+
             # Report final results
             logger.info(f"Successfully transcoded {successful}/{len(selected_videos)} inputs")
         
