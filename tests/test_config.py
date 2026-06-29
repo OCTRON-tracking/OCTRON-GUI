@@ -137,6 +137,14 @@ def test_yolo_models_and_sam_checkpoints_dirs_created(cfg_path, tmp_path):
     assert ckpts == base / "checkpoints" and ckpts.is_dir()
 
 
+def test_reid_weights_dir_created(cfg_path, tmp_path):
+    # boxmot ReID weights live alongside the YOLO/SAM downloads, not the CWD.
+    base = tmp_path / "mcache"
+    config.set_value("model_cache_dir", str(base))
+    reid = config.get_reid_weights_dir()
+    assert reid == base / "reid" and reid.is_dir()
+
+
 def test_specs_includes_model_cache_dir(cfg_path):
     by_key = {s.key: s for s in config.specs()}
     assert "model_cache_dir" in by_key

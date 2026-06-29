@@ -275,3 +275,16 @@ def get_sam_checkpoints_dir() -> Path:
     d = get_model_cache_dir() / "checkpoints"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def get_reid_weights_dir() -> Path:
+    """Return ``<model_cache_dir>/reid`` (created if missing).
+
+    Home for boxmot ReID weights (e.g. ``osnet_x1_0_market1501.pt``) downloaded
+    on demand for Re-ID-capable trackers (BotSort, HybridSort, ...). Keeping them
+    here means they sit next to the YOLO/SAM downloads instead of the current
+    working directory. See :func:`get_model_cache_dir`.
+    """
+    d = get_model_cache_dir() / "reid"
+    d.mkdir(parents=True, exist_ok=True)
+    return d

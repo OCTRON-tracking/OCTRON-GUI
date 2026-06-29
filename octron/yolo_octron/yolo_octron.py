@@ -2425,10 +2425,20 @@ class YOLO_octron:
                 custom_tracker_params[param_name] = param_config['current_value']
             custom_tracker_params['nr_classes'] = len(model.names)
             per_class = custom_tracker_params.get('per_class', False)
-            # Initialize tracker with the custom parameters
+            # Initialize tracker with the custom parameters.
+            # Resolve ReID weights into the OCTRON model cache (config.py) so a
+            # bare filename like 'osnet_x1_0_market1501.pt' is downloaded next to
+            # the YOLO/SAM models.
+            reid_weights = None
+            if is_reid:
+                reid_model = Path(tracker_config[tracker_id]['reid_model'])
+                if reid_model.parent == Path('.'):
+                    reid_weights = _octron_config.get_reid_weights_dir() / reid_model.name
+                else:
+                    reid_weights = reid_model
             tracker = create_tracker(
                 tracker_type=tracker_config[tracker_id]['tracker_type'],
-                reid_weights=Path(tracker_config[tracker_id]['reid_model']) if is_reid else None,
+                reid_weights=reid_weights,
                 device=device,
                 per_class=per_class,
                 evolve_param_dict=custom_tracker_params
