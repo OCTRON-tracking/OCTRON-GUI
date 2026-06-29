@@ -106,24 +106,46 @@ class YOLO_results:
         elif self.verbose:
             logger.info(f"No prediction_metadata.json found in '{self.results_dir.name}'")
 
-    def find_video(self):
-        """
-        Check if video is present in the second parent directory, then probe it for properties.
-        OCTRON saves results of analyzed mp4 files into a subdirectory /octron_predictions/VIDEONAME/
-        alongside the original video file.
+    def _candidate_video_path(self):
+        """Return the original video matching this results dir, or ``None``.
+
+        The prediction folder is named ``<video_stem>_<tracker>``. The video
+        normally lives two levels up
+        (<video_dir>/octron_predictions/<folder>/), but the prediction folder
+        may also sit directly next to the video. 
+        Search the immediate parent and the grandparent (nearest first). 
         """
         results_dir = self.results_dir
         stem = '_'.join(results_dir.name.split('_')[:-1])
-        for video_path in results_dir.parent.parent.glob('*.mp4'):
-            if video_path.stem == stem:
-                self._set_video(video_path)
-                return
+        search_dirs = []
+        for d in (results_dir.parent, results_dir.parent.parent):
+            if d not in search_dirs:
+                search_dirs.append(d)
+        for d in search_dirs:
+            for video_path in sorted(d.glob('*.mp4')):
+                if video_path.stem == stem:
+                    return video_path
+        return None
+
+    def find_video(self):
+        """
+        Locate the original video associated with this prediction output and probe it.
+
+        OCTRON normally saves results into
+        "<video_dir>/octron_predictions/<video>_<tracker>/" (video two levels
+        up), but the prediction folder may also sit directly beside the video.
+        """
+        results_dir = self.results_dir
+        video_path = self._candidate_video_path()
+        if video_path is not None:
+            self._set_video(video_path)
+            return
         if self.verbose:
+            stem = '_'.join(results_dir.name.split('_')[:-1])
             logger.warning(
                 f"No video found for '{results_dir.name}' "
-                f"(looked for {stem}.mp4 "
-                f"in '{results_dir.parent.parent}'). "
-                f"Use --video to specify the path explicitly."
+                f"(looked for {stem}.mp4 next to and one level above the "
+                f"prediction folder). Use --video to specify the path explicitly."
             )
         self.video, self.video_dict = None, None
 

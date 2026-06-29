@@ -46,3 +46,38 @@ def test_csv_observation_count_respects_header_lines(tmp_path):
     )
     csv.write_text("\n".join(lines) + "\n")
     assert obj._csv_observation_count(csv) == 2
+
+
+# ---------------------------------------------------------------------------
+# Video auto-detection (_candidate_video_path)
+#
+# The prediction folder is named '<video_stem>_<tracker>'. The video may sit
+# directly beside the folder (sibling layout) or one level up, next to the
+# octron_predictions/ directory (nested layout). Both must be found. Pure
+# filesystem lookup, so no real video is opened.
+# ---------------------------------------------------------------------------
+
+def test_candidate_video_path_finds_sibling(tmp_path):
+    (tmp_path / "clipA_ByteTrack").mkdir()
+    video = tmp_path / "clipA.mp4"
+    video.write_bytes(b"")
+    obj = YOLO_results.__new__(YOLO_results)
+    obj.results_dir = tmp_path / "clipA_ByteTrack"
+    assert obj._candidate_video_path() == video
+
+
+def test_candidate_video_path_finds_nested(tmp_path):
+    folder = tmp_path / "octron_predictions" / "clipB_ByteTrack"
+    folder.mkdir(parents=True)
+    video = tmp_path / "clipB.mp4"
+    video.write_bytes(b"")
+    obj = YOLO_results.__new__(YOLO_results)
+    obj.results_dir = folder
+    assert obj._candidate_video_path() == video
+
+
+def test_candidate_video_path_none_when_missing(tmp_path):
+    (tmp_path / "clipC_ByteTrack").mkdir()
+    obj = YOLO_results.__new__(YOLO_results)
+    obj.results_dir = tmp_path / "clipC_ByteTrack"
+    assert obj._candidate_video_path() is None
