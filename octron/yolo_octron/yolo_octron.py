@@ -2913,10 +2913,12 @@ class YOLO_octron:
         video_dict : dict
             Dictionary with video metadata including num_frames
         region_properties : list or tuple, optional
-            List of region property names to include as extra columns (e.g. ['area', 'solidity']).
-            If None, only bounding-box columns are created.
+            Region-property columns are added dynamically during prediction (not pre-created), 
+            because regionprops_table may expand one property into several columns:
+            Ontensity-based functions expand to one column per image channel (e.g. <name>-0/-1/-2 for RGB).
         extra_properties : tuple of callables, optional
-            Custom measurement functions. Each function's __name__ is added as a column.
+            Custom-function columns. Intensity-based functions expand to
+            one column per image channel (e.g. <name>-0/-1/-2 for RGB).
             
         Returns
         -------
@@ -2936,17 +2938,17 @@ class YOLO_octron:
                 'bbox_y_min',
                 'bbox_y_max',
                 ]
-        # Region property columns are NOT pre-created here.
+        # Region-property AND extra-property columns are NOT pre-created here.
         # regionprops_table may expand a single property into multiple columns
         # (e.g. intensity_mean -> intensity_mean-0, -1, -2 for RGB;
         #        moments_hu    -> moments_hu-0 .. moments_hu-6).
-        # The actual expanded column names are discovered at runtime from the
-        # regionprops output and added to the DataFrame dynamically via .loc.
-        # Append extra property columns (from custom functions)
-        if extra_properties:
-            for fn in extra_properties:
-                if fn.__name__ not in columns:
-                    columns.append(fn.__name__)
+        # The same applies to intensity-based extra_properties (custom functions):
+        # with a multichannel (RGB) intensity image skimage calls them once per
+        # channel and writes <name>-0/-1/-2, so pre-creating a bare <name> column
+        # would leave it permanently NaN. All region/extra-property columns are
+        # therefore discovered at runtime from the regionprops output and added
+        # to the DataFrame dynamically via .loc (see predict_batch). The
+        # region_properties / extra_properties args are accepted only for API symmetry.
 
         # Initialize the DataFrame with NaN values
         df = pd.DataFrame(
