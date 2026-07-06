@@ -2016,8 +2016,12 @@ def octron_gui():
     _set_windows_app_id()
     _ensure_windows_qapp()
 
-    viewer = napari.Viewer()
-    _apply_windows_taskbar_icon(viewer)
+    # On Windows, create the viewer hidden so the window icon is in place before
+    # the window is first shown -- the taskbar button only adopts the icon that
+    # exists at show time (setting it afterwards updates only the title bar and
+    # thumbnail). Other platforms keep napari's default show-on-create.
+    _win = os.name == "nt" and not getattr(sys, "frozen", False)
+    viewer = napari.Viewer(show=not _win)
     
     # If there's already a QApplication instance (as may be the case when running as a napari plugin),
     # then set its style explicitly:
@@ -2028,13 +2032,34 @@ def octron_gui():
         app.setStyle(QStyleFactory.create("Fusion")) 
     
     viewer.window.add_dock_widget(octron_widget(viewer))
+
+    if _win:
+        # Set the icon on the actual window, then show it, so the taskbar button
+        # is created with the icon already applied.
+        _apply_windows_taskbar_icon(viewer)
+        viewer.window.show()
+        # napari runs this dock resize after showing when show=True; replicate
+        # it here since we deferred the show. Best-effort (napari-internal).
+        try:
+            _qtv = viewer.window._qt_viewer
+            viewer.window._qt_window.resizeDocks(
+                [_qtv.dockLayerControls, _qtv.dockLayerList],
+                [_qtv.dockLayerControls.minimumHeight(), 10000],
+                Qt.Orientation.Vertical,
+            )
+        except Exception as e:
+            logger.debug(f"Could not resize napari docks after deferred show: {e}")
+
     napari.run()
 
 
 if __name__ == "__main__":
     _set_windows_app_id()
     _ensure_windows_qapp()
-    viewer = napari.Viewer()
-    _apply_windows_taskbar_icon(viewer)
+    _win = os.name == "nt" and not getattr(sys, "frozen", False)
+    viewer = napari.Viewer(show=not _win)
     viewer.window.add_dock_widget(octron_widget(viewer))
+    if _win:
+        _apply_windows_taskbar_icon(viewer)
+        viewer.window.show()
     napari.run()
