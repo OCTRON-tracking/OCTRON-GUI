@@ -1953,6 +1953,11 @@ class octron_widget(QWidget):
 ###############################################################################################################
 ###############################################################################################################
 
+# Strong reference to a QApplication we may create ourselves on Windows, so it
+# is never garbage-collected (see _ensure_windows_qapp).
+_QAPP_REF = None
+
+
 def _set_windows_app_id(app_id: str = "OCTRON-tracking.OCTRON") -> None:
     """Give OCTRON its own Windows taskbar identity (AppUserModelID).
     """
@@ -1963,6 +1968,16 @@ def _set_windows_app_id(app_id: str = "OCTRON-tracking.OCTRON") -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
     except Exception as e:  # never let a cosmetic taskbar tweak break startup
         logger.debug(f"Could not set Windows AppUserModelID: {e}")
+
+
+def _ensure_windows_qapp():
+    """On Windows, create and RETAIN the QApplication before napari does.
+
+    napari's get_qapp() sets its own AppUserModelID
+    """
+    global _QAPP_REF
+    if os.name == "nt" and QApplication.instance() is None:
+        _QAPP_REF = QApplication(sys.argv[:1] or ["octron"])
 
 
 def octron_gui():
@@ -1978,8 +1993,7 @@ def octron_gui():
     # Give OCTRON its own Windows taskbar identity, then (on Windows) create the
     # QApplication ourselves *before* napari does. 
     _set_windows_app_id()
-    if os.name == "nt" and QApplication.instance() is None:
-        QApplication(sys.argv[:1] or ["octron"])
+    _ensure_windows_qapp()
 
     viewer = napari.Viewer()
     
@@ -1997,8 +2011,7 @@ def octron_gui():
 
 if __name__ == "__main__":
     _set_windows_app_id()
-    if os.name == "nt" and QApplication.instance() is None:
-        QApplication(sys.argv[:1] or ["octron"])
+    _ensure_windows_qapp()
     viewer = napari.Viewer()
     viewer.window.add_dock_widget(octron_widget(viewer))
     napari.run()
