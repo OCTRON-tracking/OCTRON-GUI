@@ -1955,11 +1955,6 @@ class octron_widget(QWidget):
 
 def _set_windows_app_id(app_id: str = "OCTRON-tracking.OCTRON") -> None:
     """Give OCTRON its own Windows taskbar identity (AppUserModelID).
-
-    napari only sets the AppUserModelID when *it* creates the QApplication
-    (napari._qt.qt_event_loop.get_qapp calls set_app_id only in the create
-    branch). Setting it here, before the window appears, keeps the
-    taskbar icon correct.
     """
     if os.name != "nt" or getattr(sys, "frozen", False):
         return
@@ -1980,8 +1975,11 @@ def octron_gui():
     from octron._logging import setup_logging
     setup_logging()
 
-    # Set OCTRON's Windows taskbar identity before napari creates the Qt app.
+    # Give OCTRON its own Windows taskbar identity, then (on Windows) create the
+    # QApplication ourselves *before* napari does. 
     _set_windows_app_id()
+    if os.name == "nt" and QApplication.instance() is None:
+        QApplication(sys.argv[:1] or ["octron"])
 
     viewer = napari.Viewer()
     
@@ -1999,6 +1997,8 @@ def octron_gui():
 
 if __name__ == "__main__":
     _set_windows_app_id()
+    if os.name == "nt" and QApplication.instance() is None:
+        QApplication(sys.argv[:1] or ["octron"])
     viewer = napari.Viewer()
     viewer.window.add_dock_widget(octron_widget(viewer))
     napari.run()
