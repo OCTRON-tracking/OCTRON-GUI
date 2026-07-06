@@ -1980,6 +1980,27 @@ def _ensure_windows_qapp():
         _QAPP_REF = QApplication(sys.argv[:1] or ["octron"])
 
 
+def _apply_windows_taskbar_icon(viewer) -> None:
+    """On Windows, copy the app icon onto napari's main window.
+
+    napari sets the icon on the QApplication only. On Windows the taskbar
+    button reads the icon set directly on the top-level window (its HWND), so
+    an app-level-only icon shows in the title bar and thumbnail while the
+    taskbar button stays generic. Setting the same icon on the QMainWindow
+    makes the taskbar button use it too.
+    """
+    if os.name != "nt" or getattr(sys, "frozen", False):
+        return
+    try:
+        app = QApplication.instance()
+        icon = app.windowIcon() if app is not None else None
+        qt_window = getattr(getattr(viewer, "window", None), "_qt_window", None)
+        if qt_window is not None and icon is not None and not icon.isNull():
+            qt_window.setWindowIcon(icon)
+    except Exception as e:  # cosmetic only; never break startup
+        logger.debug(f"Could not set Windows taskbar window icon: {e}")
+
+
 def octron_gui():
     """
     This is the main entry point for the GUI call
@@ -1996,6 +2017,7 @@ def octron_gui():
     _ensure_windows_qapp()
 
     viewer = napari.Viewer()
+    _apply_windows_taskbar_icon(viewer)
     
     # If there's already a QApplication instance (as may be the case when running as a napari plugin),
     # then set its style explicitly:
@@ -2013,5 +2035,6 @@ if __name__ == "__main__":
     _set_windows_app_id()
     _ensure_windows_qapp()
     viewer = napari.Viewer()
+    _apply_windows_taskbar_icon(viewer)
     viewer.window.add_dock_widget(octron_widget(viewer))
     napari.run()
