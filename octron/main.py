@@ -1981,13 +1981,9 @@ def _ensure_windows_qapp():
 
 
 def _apply_windows_taskbar_icon(viewer) -> None:
-    """On Windows, copy the app icon onto napari's main window.
+    """
+    On Windows, copy the app icon onto napari's main window.
 
-    napari sets the icon on the QApplication only. On Windows the taskbar
-    button reads the icon set directly on the top-level window (its HWND), so
-    an app-level-only icon shows in the title bar and thumbnail while the
-    taskbar button stays generic. Setting the same icon on the QMainWindow
-    makes the taskbar button use it too.
     """
     if os.name != "nt" or getattr(sys, "frozen", False):
         return
@@ -2016,10 +2012,7 @@ def octron_gui():
     _set_windows_app_id()
     _ensure_windows_qapp()
 
-    # On Windows, create the viewer hidden so the window icon is in place before
-    # the window is first shown -- the taskbar button only adopts the icon that
-    # exists at show time (setting it afterwards updates only the title bar and
-    # thumbnail). Other platforms keep napari's default show-on-create.
+    # On Windows, create the viewer hidden so the window icon.
     _win = os.name == "nt" and not getattr(sys, "frozen", False)
     viewer = napari.Viewer(show=not _win)
     
