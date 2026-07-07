@@ -1330,22 +1330,37 @@ class YOLO_octron:
         """
         Return a training batch size, caching AutoBatch results for CUDA.
 
-        AutoBatch (CUDA memory profiling) runs only for ``device='cuda'``; for
-        ``'cpu'`` and ``'mps'`` this returns ``-1`` so ultralytics applies its
-        own safe default without attempting CUDA-only profiling. CUDA results
-        are cached at ``<project>/model/autobatch_cache.json`` keyed by model
+        AutoBatch (CUDA memory profiling) runs only for device='cuda';
+        CUDA results are cached at <project>/model/autobatch_cache.json keyed by model
         architecture, image size, and GPU name, so repeated runs on the same
         hardware skip the search. Both the CLI and GUI go through here.
+
+        If the CUDA search fails (e.g. profiling a large "imgsz" on a small
+        GPU runs out of memory), ultralytics returns its own default (16) -
+        larger than the sizes that just failed - so that case is replaced with
+        a safe batch of 1 and not cached.
         """
         if device != 'cuda':
             # Avoid CUDA-only AutoBatch profiling on CPU/MPS; let ultralytics
             # pick a safe default for these devices.
             return -1
+        _SAFE_BATCH = 1            # guaranteed-to-fit fallback when profiling fails
+        _ULTRA_DEFAULT_BATCH = 16  # what ultralytics returns when AutoBatch fails
         import torch
         try:
             gpu_name = torch.cuda.get_device_name(0)
         except Exception:
             gpu_name = 'cuda'
+        # Warn early when the image size is large for the available VRAM.
+        try:
+            total_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        except Exception:
+            total_gb = None
+        if total_gb is not None and imgsz >= 1024 and total_gb < 12:
+            logger.warning(
+                f"imgsz={imgsz} is large for a {total_gb:.0f} GB GPU ({gpu_name}); "
+                f"training may run out of memory - consider a smaller image size (e.g. 640)."
+            )
         arch = self.model.model.__class__.__name__
         cache_key = f"{arch}_{imgsz}_cuda_{gpu_name}"
         cache_path = self.training_path / 'autobatch_cache.json'
@@ -1368,9 +1383,19 @@ class YOLO_octron:
             batch = check_train_batch_size(self.model.model, imgsz=imgsz, amp=True)
         except Exception as e:
             logger.warning(
-                f"AutoBatch search failed ({e}); deferring to ultralytics default (batch=-1)."
+                f"AutoBatch search failed ({e}); using a safe batch size of {_SAFE_BATCH}."
             )
-            return -1
+            return _SAFE_BATCH
+        # ultralytics swallows a profiling OOM and returns its default batch
+        # (16), which is larger than the sizes that just failed. On a small GPU
+        # treat that as a failed search: use a safe batch of 1 and don't cache.
+        if not batch or (batch == _ULTRA_DEFAULT_BATCH and (total_gb is None or total_gb < 12)):
+            logger.warning(
+                f"AutoBatch could not find a fitting batch size for imgsz={imgsz} on {gpu_name} "
+                f"(profiling likely ran out of memory); using a safe batch size of {_SAFE_BATCH}. "
+                f"Consider a smaller image size (e.g. 640)."
+            )
+            return _SAFE_BATCH
         cache[cache_key] = batch
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
