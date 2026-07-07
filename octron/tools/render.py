@@ -12,9 +12,10 @@ report_bbox_sizes : Report bounding-box sizes to help choose tracklet crop size.
 """
 
 import subprocess
+import tempfile
 from pathlib import Path
 
-from octron.tools._ffmpeg import detect_h264_encoder, h264_codec_args, EVEN_DIM_YUV420P
+from octron.tools._ffmpeg import h264_codec_args, EVEN_DIM_YUV420P, resolve_encoder, _FfmpegWriter
 
 PRESETS = {
     "preview": {"scale": 0.25},
@@ -90,7 +91,12 @@ def _select_render_frames(per_track_frames, frame_start, frame_end):
 # ---------------------------------------------------------------------------
 
 def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
-    """Open an ffmpeg subprocess pipe for encoding. Returns a Popen object."""
+    """Open an ffmpeg subprocess pipe for encoding. Returns a _FfmpegWriter.
+
+    ffmpeg's stderr is captured to a temp file (via the writer) so that if
+    ffmpeg exits early -- e.g. h264_nvenc can't initialise -- the real reason is
+    surfaced instead of an opaque broken-pipe error on the first frame write.
+    """
     codec_args = h264_codec_args(encoder, crf=20, preset="fast")
     # Apply the shared even-dimension + yuv420p filter (mirrors transcode.py).
     # Without it, encoding rgb24 input defaults to yuv444p (4:4:4), which macOS
@@ -98,7 +104,7 @@ def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
     # (e.g. the 47px auto tracklet size) compound the problem. The filter rounds
     # each dimension down to even and converts to the widely-playable 4:2:0.
     cmd = [
-        "ffmpeg", "-y",
+        "ffmpeg", "-y", "-nostats", "-loglevel", "warning",
         "-f", "rawvideo", "-vcodec", "rawvideo",
         "-pix_fmt", "rgb24",
         "-s", f"{width}x{height}",
@@ -106,7 +112,10 @@ def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
         "-i", "pipe:0",
         "-vf", EVEN_DIM_YUV420P,
     ] + codec_args + [str(output_path)]
-    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # stderr -> temp file (not an unread PIPE, which could deadlock the encode).
+    stderr_file = tempfile.TemporaryFile(mode="w+b")
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=stderr_file)
+    return _FfmpegWriter(proc, stderr_file, encoder, output_path)
 
 
 class _MaskPrefetchError:
@@ -283,6 +292,7 @@ def run_tracklets(
     trim=False,
     skip_empty=False,
     min_confidence=0.5,
+    encoder="auto",
     debug=False,
 ):
     """
@@ -517,7 +527,7 @@ def run_tracklets(
         track_colors[tid] = (r, g, b)  # RGB to match FastVideoReader frames
 
     # One ffmpeg pipe per tracklet (replaces cv2.VideoWriter).
-    _encoder = detect_h264_encoder()
+    _encoder = resolve_encoder(encoder)
     logger.info(f"Encoder:  {_encoder} (ffmpeg)")
     writers = {}
     for tid in render_tids:
@@ -720,7 +730,7 @@ def run_tracklets(
                         crop[:] = 0
             else:
                 crop = np.zeros((size, size, 3), dtype=np.uint8)
-            writers[tid].stdin.write(np.ascontiguousarray(crop).tobytes())
+            writers[tid].write(np.ascontiguousarray(crop).tobytes())
 
         if debug:
             _t4 = time.perf_counter()
@@ -757,8 +767,7 @@ def run_tracklets(
 
     print()  # close the \r progress line
     for w in writers.values():
-        w.stdin.close()
-        w.wait()
+        w.close()
     logger.info(f"Tracklet(s) saved → {output_path}")
 
 
@@ -787,6 +796,7 @@ def run_render(
     draw_labels=True,
     start=None,
     end=None,
+    encoder="auto",
     debug=False,
 ):
     """
@@ -862,6 +872,7 @@ def run_render(
             trim=trim,
             skip_empty=skip_empty,
             min_confidence=min_confidence,
+            encoder=encoder,
             debug=debug,
         )
         return
@@ -959,11 +970,11 @@ def run_render(
     else:
         frames_to_render = range(frame_start, frame_end)
 
-    # Detect best encoder and open the ffmpeg writer
+    # Resolve the encoder (honours --encoder/--no-nvenc) and open the ffmpeg writer
     overlay_out = output_path / f"overlay_{preset}.mp4"
-    _encoder = detect_h264_encoder()
+    _encoder = resolve_encoder(encoder)
     logger.info(f"Encoder:  {_encoder} (ffmpeg)")
-    _ffmpeg_proc = _open_ffmpeg_writer(overlay_out, fps, out_w, out_h, _encoder)
+    _ffmpeg_writer = _open_ffmpeg_writer(overlay_out, fps, out_w, out_h, _encoder)
 
     # Batch size for zarr mask reads.  100 frames balances first-frame latency
     # (~1–7s on network) against memory usage; the prefetch thread ensures the
@@ -1131,7 +1142,7 @@ def run_render(
             _t3 = time.perf_counter()
             _dbg_t_blend += _t3 - _t2
 
-        _ffmpeg_proc.stdin.write(np.ascontiguousarray(out_frame).tobytes())
+        _ffmpeg_writer.write(np.ascontiguousarray(out_frame).tobytes())
 
         if debug:
             _t4 = time.perf_counter()
@@ -1167,8 +1178,5 @@ def run_render(
         )
 
     print()
-    _ffmpeg_proc.stdin.close()
-    rc = _ffmpeg_proc.wait()
-    if rc != 0:
-        logger.warning(f"ffmpeg exited with code {rc} — output may be incomplete.")
+    _ffmpeg_writer.close()
     logger.info(f"Overlay saved → {overlay_out}")

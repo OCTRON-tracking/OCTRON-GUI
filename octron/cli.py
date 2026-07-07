@@ -369,6 +369,14 @@ def render(
         "draft", "--preset",
         help="Quality preset: 'preview' (0.25×), 'draft' (0.5×), 'final' (full resolution).",
     ),
+    encoder: str = typer.Option(
+        "auto", "--encoder",
+        help="Video encoder: 'auto' (prefer GPU h264_nvenc, else libx264), 'nvenc' (force GPU), or 'libx264' (force CPU).",
+    ),
+    no_nvenc: bool = typer.Option(
+        False, "--no-nvenc",
+        help="Force the CPU encoder (libx264); shorthand for --encoder libx264. Use if h264_nvenc fails (e.g. old NVIDIA driver).",
+    ),
     start: int = typer.Option(None, "--start", help="First frame to render (inclusive)."),
     end: int = typer.Option(None, "--end", help="Last frame to render (exclusive)."),
     # --- Overlay options ---
@@ -457,6 +465,18 @@ def render(
             f"preset must be one of {list(PRESETS)}.", param_hint="'--preset'"
         )
 
+    encoder = encoder.lower()
+    if encoder not in ("auto", "nvenc", "libx264"):
+        raise typer.BadParameter(
+            "must be one of 'auto', 'nvenc', 'libx264'.", param_hint="'--encoder'"
+        )
+    if no_nvenc:
+        if encoder == "nvenc":
+            raise typer.BadParameter(
+                "conflicts with '--encoder nvenc'.", param_hint="'--no-nvenc'"
+            )
+        encoder = "libx264"
+
     # Resolve mode-specific defaults: overlay → everything on; tracklets → nothing on
     if tracklets:
         resolved_masks = draw_masks if draw_masks is not None else False
@@ -515,6 +535,7 @@ def render(
         trim=trim,
         skip_empty=skip_empty,
         min_confidence=min_confidence,
+        encoder=encoder,
         debug=debug,
     )
 
