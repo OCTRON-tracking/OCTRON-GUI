@@ -112,15 +112,6 @@ write_to = "octron/_version.py"
 version_scheme = "post-release"
 local_scheme = "no-local-version"
 
-# TODO: why cu128? can I set auto?
-[tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
 
 [tool.check-manifest]
 ignore = [
