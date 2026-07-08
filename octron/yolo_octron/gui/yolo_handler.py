@@ -857,16 +857,14 @@ class YoloHandler(QObject):
             show_info(f"Training on device: {self.device_label}")
 
         # Call the training function which yields progress info
-        for progress_info in self.yolo.train(
+        yield from self.yolo.train(
             device=self.device_label,
             imagesz=self.image_size_yolo,
             epochs=self.num_epochs_yolo,
             save_period=self.save_period,
             train_mode=self.w.train_mode,
             resume=self.resume_training,
-        ):
-            # Yield the progress info back to the GUI thread
-            yield progress_info
+        )
 
     def _update_training_progress(self, progress_info):
         """Handle training progress updates from the worker thread.
@@ -1246,7 +1244,7 @@ class YoloHandler(QObject):
 
         # Call the prediction function which yields progress info
         # self.videos_to_predict is a dict: {video_name: video_metadata_dict}
-        for progress_info in self.yolo.predict_batch(
+        yield from self.yolo.predict_batch(
             videos=self.videos_to_predict,
             model_path=self.model_predict_path,
             device=self.device_label,
@@ -1258,9 +1256,7 @@ class YoloHandler(QObject):
             conf_thresh=self.conf_thresh,
             opening_radius=self.mask_opening,
             overwrite=self.overwrite_predictions,
-        ):
-            # Yield the progress info back to the GUI thread
-            yield progress_info
+        )
 
     def _update_prediction_progress(self, progress_info):
         """Handle prediction progress updates from the worker thread.

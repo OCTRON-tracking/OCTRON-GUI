@@ -1,6 +1,6 @@
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 from napari.types import LayerData
 from napari.utils.notifications import (
@@ -9,7 +9,7 @@ from napari.utils.notifications import (
 
 # Define some types
 PathLike = str
-PathOrPaths = Union[PathLike, Sequence[PathLike]]
+PathOrPaths = PathLike | Sequence[PathLike]
 ReaderFunction = Callable[[PathOrPaths], list[LayerData]]
 
 import warnings

@@ -408,8 +408,7 @@ class MP4ToGifConverter(QMainWindow):
                     # Get frame count and duration
                     probe_result = subprocess.run(
                         probe_cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
+                        capture_output=True,
                         text=True,
                     )
                     probe_output = probe_result.stdout.strip().split("\n")
@@ -477,8 +476,7 @@ class MP4ToGifConverter(QMainWindow):
                 # Execute frame extraction
                 extract_result = subprocess.run(
                     extract_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                     check=True,
                 )
 
@@ -514,8 +512,7 @@ class MP4ToGifConverter(QMainWindow):
                 # Execute palette generation
                 palette_result = subprocess.run(
                     palette_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                     check=True,
                 )
 
@@ -537,8 +534,7 @@ class MP4ToGifConverter(QMainWindow):
                 # Execute GIF creation
                 gif_result = subprocess.run(
                     gif_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                     check=True,
                 )
 

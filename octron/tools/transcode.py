@@ -300,8 +300,7 @@ def transcode_one(
         subprocess.run(
             cmd,
             input=stack_bytes,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=True,
         )
     except subprocess.CalledProcessError as e:
