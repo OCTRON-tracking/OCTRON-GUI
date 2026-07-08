@@ -1,4 +1,4 @@
-name: Linting, manifest and tests
+name: Linting and tests
 
 on:
   push:
@@ -16,19 +16,13 @@ concurrency:
 
 jobs:
   linting:
-    name: Linting
+    name: Linting using pre-commit
     runs-on: ubuntu-latest
     steps:
       - uses: neuroinformatics-unit/actions/lint@v2
 
-  manifest:
-    name: Check Manifest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: neuroinformatics-unit/actions/check_manifest@v2
-
   test:
-    needs: [linting, manifest]
+    needs: [linting]
     name: Tests ${{ matrix.os }} py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
