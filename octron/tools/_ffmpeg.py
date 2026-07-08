@@ -1,5 +1,4 @@
-"""
-Shared ffmpeg helpers for OCTRON's video tools.
+"""Shared ffmpeg helpers for OCTRON's video tools.
 
 Centralises the H.264 encoder selection, codec-argument construction, and the
 even-dimension scaling filter so the transcode path (``octron/tools/transcode.py``
@@ -12,8 +11,6 @@ CLI, the GUI reader, and core.
 
 import shutil
 import subprocess
-import tempfile
-
 
 # Even-dimension + yuv420p filter.
 #
@@ -49,6 +46,7 @@ def detect_h264_encoder(prefer_hardware=True):
     RuntimeError
         If ffmpeg is not on PATH, or is present but exposes no usable H.264
         encoder (neither h264_nvenc nor libx264).
+
     """
     if shutil.which("ffmpeg") is None:
         raise RuntimeError(
@@ -57,11 +55,15 @@ def detect_h264_encoder(prefer_hardware=True):
     try:
         result = subprocess.run(
             ["ffmpeg", "-encoders", "-v", "quiet"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         text = result.stdout + result.stderr
         candidates = (
-            ["h264_nvenc", "libx264"] if prefer_hardware else ["libx264", "h264_nvenc"]
+            ["h264_nvenc", "libx264"]
+            if prefer_hardware
+            else ["libx264", "h264_nvenc"]
         )
         for name in candidates:
             if name in text:
@@ -96,6 +98,7 @@ def h264_codec_args(encoder, crf=23, preset="superfast"):
     -------
     list of str
         The ``-c:v ...`` argument list to splice into an ffmpeg command.
+
     """
     if encoder == "h264_nvenc":
         return ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", str(crf)]

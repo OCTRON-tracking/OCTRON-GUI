@@ -172,17 +172,17 @@ cython_debug/
 .pypirc
 
 
-# Extra 
+# Extra
 .DS_Store
 
 # VSCODE
 .vscode/*
 
-# SAM2 specific 
+# SAM2 specific
 # model files (can be downloaded with shell script )
-*.pt 
+*.pt
 
-# Ignore zarr arrays 
+# Ignore zarr arrays
 *.zarr*
 
 # Ignore zarr ZIP files

@@ -1,5 +1,4 @@
-"""
-Helpers for staging prediction output in a local cache directory and moving
+"""Helpers for staging prediction output in a local cache directory and moving
 completed results to their final destination.
 
 Used by YOLO_octron.predict_batch when a prediction cache directory is
@@ -37,6 +36,7 @@ def move_prediction_folder(src_dir, dst_dir) -> None:
     dst_dir : str or Path
         The final destination folder
         (e.g. <output>/octron_predictions/<video>_<tracker>).
+
     """
     src_dir = Path(src_dir)
     dst_dir = Path(dst_dir)

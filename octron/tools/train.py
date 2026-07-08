@@ -1,5 +1,4 @@
-"""
-OCTRON training pipeline.
+"""OCTRON training pipeline.
 
 Wraps the YOLO_octron model-loading and training steps into a single callable.
 By default, training data is prepared automatically via ``run_split()``.
@@ -8,7 +7,9 @@ Pass ``skip_split=True`` if ``octron split`` has already been run.
 
 from pathlib import Path
 
-_MODELS_YAML = Path(__file__).parent.parent / "yolo_octron" / "yolo_models.yaml"
+_MODELS_YAML = (
+    Path(__file__).parent.parent / "yolo_octron" / "yolo_models.yaml"
+)
 
 
 def run_training(
@@ -26,8 +27,7 @@ def run_training(
     val_fraction=0.15,
     seed=88,
 ):
-    """
-    Run the OCTRON/YOLO training pipeline.
+    """Run the OCTRON/YOLO training pipeline.
 
     By default this prepares and exports training data before training.
     Pass ``skip_split=True`` to skip that step when data is already up to date.
@@ -60,15 +60,18 @@ def run_training(
         Fraction of frames for validation (ignored when ``skip_split=True``).
     seed : int
         Random seed for the split (ignored when ``skip_split=True``).
+
     """
-    from octron.yolo_octron.yolo_octron import YOLO_octron
     from octron.test_gpu import auto_device
     from octron.tools.split import run_split
+    from octron.yolo_octron.yolo_octron import YOLO_octron
 
     # Unwrap enums to plain strings so they are never serialised as Python
     # object tags when written into YAML config files downstream.
-    train_mode = train_mode.value if hasattr(train_mode, 'value') else str(train_mode)
-    device = device.value if hasattr(device, 'value') else str(device)
+    train_mode = (
+        train_mode.value if hasattr(train_mode, "value") else str(train_mode)
+    )
+    device = device.value if hasattr(device, "value") else str(device)
 
     if device == "auto":
         device = auto_device()
@@ -107,7 +110,9 @@ def run_training(
         imagesz = state["imgsz"]
         yolo.load_model(state["checkpoint"], train_mode=train_mode)
     else:
-        print(f"Loading model: {model.value if hasattr(model, 'value') else model}...")
+        print(
+            f"Loading model: {model.value if hasattr(model, 'value') else model}..."
+        )
         yolo.load_model(model, train_mode=train_mode)
 
     # --- Step 6: train (core resolves a cached AutoBatch size for CUDA) ---
@@ -123,6 +128,8 @@ def run_training(
         epoch = progress.get("epoch", "?")
         total_epochs = progress.get("total_epochs", "?")
         remaining = progress.get("remaining_time", 0)
-        print(f"  Epoch {epoch}/{total_epochs} | ETA: {remaining:.0f}s", end="\r")
+        print(
+            f"  Epoch {epoch}/{total_epochs} | ETA: {remaining:.0f}s", end="\r"
+        )
     print()
     print("Training complete.")

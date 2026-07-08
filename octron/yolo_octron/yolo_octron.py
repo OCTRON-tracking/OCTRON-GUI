@@ -1,87 +1,89 @@
 # Main YOLO Octron class
 # We are using YOLO11 as the base class for YOLO Octron.
 # See also: https://docs.ultralytics.com/models/yolo11
-import os 
-import subprocess # Used to launch tensorboard
-import threading # For training to run in a separate thread
-import queue # For training progress updates
-import signal
 import gc
-import webbrowser # Used to launch tensorboard
-import time
-import random
-import sys
-import struct
 import importlib.util
+import json
+import os
+import queue  # For training progress updates
+import random
 import shutil
-from pathlib import Path
+import signal
+import struct
+import subprocess  # Used to launch tensorboard
+import sys
+import threading  # For training to run in a separate thread
+import time
+import webbrowser  # Used to launch tensorboard
 from datetime import datetime
-from PIL import Image
-import yaml
-import json 
-from tqdm import tqdm
-import numpy as np
-from natsort import natsorted
-import zarr 
-from skimage import measure, color
-from boxmot import create_tracker
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _get_version
+from pathlib import Path
+
 import napari
-from importlib.metadata import version as _get_version, PackageNotFoundError
+import numpy as np
+import yaml
+from boxmot import create_tracker
+from natsort import natsorted
+from skimage import measure
+from tqdm import tqdm
+
 try:
-    octron_version = _get_version('octron')
+    octron_version = _get_version("octron")
 except PackageNotFoundError:
     # Running from source without an installed distribution.
-    octron_version = 'no version'
+    octron_version = "no version"
 octron_base_path = Path(__file__).parent.parent.resolve()
-from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
-from octron.yolo_octron.helpers.polygons import (find_objects_in_mask, 
-                                                 watershed_mask,
-                                                 get_polygons,
-                                                 postprocess_mask,
-                                                 polygon_to_mask, # Only used for visualization
-)
+from loguru import logger
 
-
-from octron.yolo_octron.helpers.yolo_zarr import (create_prediction_store, 
-                                                  create_prediction_zarr
-)
 from octron.sam_octron.helpers.sam_zarr import mark_frames_annotated
-from octron.tracking.helpers.tracker_checks import (load_boxmot_trackers, 
-                                                    load_boxmot_tracker_config,
-                                                    resolve_tracker,
-                                                    list_available_trackers,
+from octron.tracking.helpers.tracker_checks import (
+    load_boxmot_tracker_config,
+    load_boxmot_trackers,
+    resolve_tracker,
+)
+from octron.yolo_octron.helpers.polygons import (
+    find_objects_in_mask,
+    get_polygons,
+    postprocess_mask,
+    watershed_mask,
 )
 from octron.yolo_octron.helpers.training import (
-    pick_random_frames,
     collect_labels,
+    pick_random_frames,
     train_test_val,
+)
+from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
+from octron.yolo_octron.helpers.yolo_zarr import (
+    create_prediction_store,
+    create_prediction_zarr,
 )
 
 from .helpers.yolo_results import YOLO_results
-from loguru import logger
 
-MIN_SIZE_RATIO_OBJECT_FRAME = 0.00001 # Minimum size ratio of an object to the whole image
-                                      # 0.00001: for a 1024x1024 image, this is ~ 11 pixels
-MIN_SIZE_RATIO_OBJECT_MAX = 0.01 # Minimum size ratio of an object to the largest object in the frame
+MIN_SIZE_RATIO_OBJECT_FRAME = (
+    0.00001  # Minimum size ratio of an object to the whole image
+)
+# 0.00001: for a 1024x1024 image, this is ~ 11 pixels
+MIN_SIZE_RATIO_OBJECT_MAX = (
+    0.01  # Minimum size ratio of an object to the largest object in the frame
+)
+
 
 class YOLO_octron:
-    """
-    YOLO11 segmentation model class for training with OCTRON data.
-    
+    """YOLO11 segmentation model class for training with OCTRON data.
+
     This class encapsulates the full pipeline for preparing annotation data from OCTRON,
     generating training datasets, and training YOLO11 models for segmentation tasks.
     It also contains visualization methods for (custom / trained) models.
-    
+
     """
-    
-    def __init__(self, 
-                 models_yaml_path=None,
-                 project_path = None,
-                 clean_training_dir=True
-                 ):
-        """
-        Initialize YOLO_octron with project and model paths.
-        
+
+    def __init__(
+        self, models_yaml_path=None, project_path=None, clean_training_dir=True
+    ):
+        """Initialize YOLO_octron with project and model paths.
+
         Parameters
         ----------
         models_yaml_path : str or Path
@@ -91,15 +93,16 @@ class YOLO_octron:
         clean_training_dir : bool
             Whether to clean the training directory if it is not empty.
             Default is True.
-            
+
         """
         self.clean_training_dir = clean_training_dir
         try:
             from ultralytics import settings
+
             self.yolo_settings = settings
         except ImportError:
             raise ImportError("YOLOv11 is required to run this class.")
-        
+
         # Set up internal variables
         self._project_path = None  # Use private variable for property
         self.training_path = None
@@ -111,89 +114,95 @@ class YOLO_octron:
         self.enable_watershed = False
         self.prune_empty_labels = True  # Updated by prepare_labels()
         self.train_mode = None  # Set by handler before directory setup ('segment' or 'detect')
-        
+
         if models_yaml_path is not None:
-            self.models_yaml_path = Path(models_yaml_path) 
+            self.models_yaml_path = Path(models_yaml_path)
             if not self.models_yaml_path.exists():
-                raise FileNotFoundError(f"Model YAML file not found: {self.models_yaml_path}")
+                raise FileNotFoundError(
+                    f"Model YAML file not found: {self.models_yaml_path}"
+                )
 
             # Check YOLO models, download if needed
-            self.models_dict = check_yolo_models(YOLO_BASE_URL=None,
-                                                models_yaml_path=self.models_yaml_path,
-                                                force_download=False
-                                                )
+            self.models_dict = check_yolo_models(
+                YOLO_BASE_URL=None,
+                models_yaml_path=self.models_yaml_path,
+                force_download=False,
+            )
         else:
-            logger.warning("No models YAML path provided. Model dictionary will be empty.")
-        
+            logger.warning(
+                "No models YAML path provided. Model dictionary will be empty."
+            )
+
         # If a project path was provided, set it through the property setter
         if project_path is not None:
             self.project_path = project_path  # Uses the property setter
-            
+
             # Setup training directories after project_path is validated
             self._setup_training_directories(self.clean_training_dir)
-    
-    def __repr__(self):
-        """
-        Return a string representation of the YOLO_octron object
 
-        """
+    def __repr__(self):
+        """Return a string representation of the YOLO_octron object"""
         pr = f"YOLO_octron(project_path={self.project_path})"
-        models = [f"{k}: seg={v['model_path_seg']}, detect={v['model_path_detect']}" for k, v in self.models_dict.items()]
+        models = [
+            f"{k}: seg={v['model_path_seg']}, detect={v['model_path_detect']}"
+            for k, v in self.models_dict.items()
+        ]
         return pr + f"\nModels: {models}"
-    
+
     @property
     def project_path(self):
-        """
-        Return the project path
-        """
+        """Return the project path"""
         return self._project_path
-    
+
     @project_path.setter
     def project_path(self, path):
-        """
-        Set the project path with validation
-        
+        """Set the project path with validation
+
         Parameters
         ----------
         path : str or Path
             Path to the OCTRON project directory
-            
+
         Raises
         ------
         FileNotFoundError
             If the path doesn't exist
         TypeError
             If the path is not a string or Path object
+
         """
         if path is None:
             self._project_path = None
             return
-            
+
         if isinstance(path, str):
             path = Path(path)
         elif not isinstance(path, Path):
-            raise TypeError(f"project_path must be a string or Path object, got {type(path)}") 
+            raise TypeError(
+                f"project_path must be a string or Path object, got {type(path)}"
+            )
         # Sanity checks
         if not path.exists():
             raise FileNotFoundError(f"Project path not found: {path}")
         if not path.is_dir():
-            raise NotADirectoryError(f"Project path must be a directory: {path}")
-            
+            raise NotADirectoryError(
+                f"Project path must be a directory: {path}"
+            )
+
         # Path is valid, set it
         self._project_path = path
         logger.info(f"Project path set to: {self._project_path.as_posix()}")
-        
+
         # Update dependent paths if they were previously set
         if self._project_path is not None:
-            self.training_path = self._project_path / 'model'
-            self.data_path = self.training_path / 'training_data'
+            self.training_path = self._project_path / "model"
+            self.data_path = self.training_path / "training_data"
             # Setup training directories after project_path is validated
             self._setup_training_directories(self.clean_training_dir)
 
     @property
     def config_path(self):
-        """
-        Path to the YOLO training config (``yolo_config.yaml``).
+        """Path to the YOLO training config (``yolo_config.yaml``).
 
         Derived from ``data_path`` when not explicitly set, so callers (CLI,
         GUI, programmatic) do not need to assign it manually after a split:
@@ -213,26 +222,32 @@ class YOLO_octron:
         self._config_path = Path(value) if value is not None else None
 
     def _setup_training_directories(self, clean_training_dir):
-        """
-        Setup folders for training. 
+        """Setup folders for training.
         This is called from the constructor and when the project path is set.
-        
+
         When clean_training_dir is True, only the training data directory is removed.
         The model checkpoint directory ('training/') is only removed when there is a
         mismatch between the existing train mode and the current train mode.
-        
+
         Parameters
         ----------
         clean_training_dir : bool
             Whether to clean the training data directory if it's not empty
+
         """
         if self._project_path is None:
-            raise ValueError("Project path must be set before setting up training directories")
-            
+            raise ValueError(
+                "Project path must be set before setting up training directories"
+            )
+
         # Setup folders for training
-        self.training_path = self._project_path / 'model'  # Path to all training and model output
-        self.data_path = self.training_path / 'training_data' # Path to training data
-        
+        self.training_path = (
+            self._project_path / "model"
+        )  # Path to all training and model output
+        self.data_path = (
+            self.training_path / "training_data"
+        )  # Path to training data
+
         # Folder checks
         try:
             self.training_path.mkdir(exist_ok=False)
@@ -241,57 +256,59 @@ class YOLO_octron:
                 # Check for train mode mismatch before cleaning
                 # Only remove the model checkpoint directory if the mode has changed
                 if self.train_mode is not None:
-                    existing_config_path = self.data_path / 'yolo_config.yaml'
+                    existing_config_path = self.data_path / "yolo_config.yaml"
                     if existing_config_path.exists():
-                        with open(existing_config_path, 'r') as f:
+                        with open(existing_config_path) as f:
                             existing_config = yaml.safe_load(f)
-                        existing_mode = existing_config.get('train_mode', 'segment')
+                        existing_mode = existing_config.get(
+                            "train_mode", "segment"
+                        )
                         if existing_mode != self.train_mode:
-                            model_subdir = self.training_path / 'training'
+                            model_subdir = self.training_path / "training"
                             if model_subdir.exists():
                                 shutil.rmtree(model_subdir)
-                                logger.warning(f"Train mode mismatch ({existing_mode} → {self.train_mode}): "
-                                               f"removed model checkpoint directory '{model_subdir.as_posix()}'")
+                                logger.warning(
+                                    f"Train mode mismatch ({existing_mode} → {self.train_mode}): "
+                                    f"removed model checkpoint directory '{model_subdir.as_posix()}'"
+                                )
                 # Only remove training data, preserving model checkpoints
                 if self.data_path.exists():
                     shutil.rmtree(self.data_path)
-                    logger.info(f'Cleaned training data directory "{self.data_path.as_posix()}"')
+                    logger.info(
+                        f'Cleaned training data directory "{self.data_path.as_posix()}"'
+                    )
 
-                    
-                    
-    ##### TRAINING DATA PREPARATION ###########################################################################    
-    def prepare_labels(self, 
-                       prune_empty_labels=True, 
-                       min_num_frames=5, 
-                       verbose=False, 
-                       ):
-        """ 
-        Using collect_labels(), this function finds all object organizer 
+    ##### TRAINING DATA PREPARATION ###########################################################################
+    def prepare_labels(
+        self,
+        prune_empty_labels=True,
+        min_num_frames=5,
+        verbose=False,
+    ):
+        """Using collect_labels(), this function finds all object organizer
         .json files from OCTRON and parses them to extract labels.
         Check collect_labels() function for input arguments.
         """
-        
         self.prune_empty_labels = prune_empty_labels
-        self.label_dict = collect_labels(self.project_path, 
-                                         prune_empty_labels=prune_empty_labels, 
-                                         min_num_frames=min_num_frames, 
-                                         verbose=verbose
-                                        )    
+        self.label_dict = collect_labels(
+            self.project_path,
+            prune_empty_labels=prune_empty_labels,
+            min_num_frames=min_num_frames,
+            verbose=verbose,
+        )
         logger.debug(f"Found {len(self.label_dict)} organizer files")
-    
-    
+
     def prepare_polygons(self):
-        """
-        Calculate polygons for each mask in each frame and label in the label_dict.
+        """Calculate polygons for each mask in each frame and label in the label_dict.
         Optional watershedding is performed on the masks,
         and the polygons are extracted from the resulting labels.
-        Whether watershedding is performed is determined by the 
+        Whether watershedding is performed is determined by the
         enable_watershed attribute in this class.
 
         I am doing some kind of "optimal" watershedding here,
         by determining the median object diameter from a random subset of masks.
         This is then used to determine the min peak distance for the watershedding.
-        
+
         Parameters
         ----------
         label_dict : dict : output from collect_labels()
@@ -308,7 +325,7 @@ class YOLO_octron:
                                 masks (list of zarr arrays), # Mask zarr arrays
                                 color (list) # Color of the label (RGBA, [0,1])
                     video: FastVideoReader object
-                    
+
         Creates
         -------
         label_dict : dict : Dictionary containing project subfolders,
@@ -325,7 +342,7 @@ class YOLO_octron:
                                 polygons (dict) # Polygons for each frame index
                                 color (list) # Color of the label (RGBA, [0,1])
                     video: FastVideoReader object
-        
+
         Yields
         ------
         no_entry : int
@@ -338,24 +355,25 @@ class YOLO_octron:
             Current frame number being processed
         total_frames : int
             Total number of frames for the current label
-            
-        
-        """ 
-        
+
+
+        """
         if self.label_dict is None:
-            raise ValueError("No labels found. Please run prepare_labels() first.")
+            raise ValueError(
+                "No labels found. Please run prepare_labels() first."
+            )
 
         logger.debug(f"Watershed: {self.enable_watershed}")
-        for no_entry, labels in enumerate(self.label_dict.values(), start=1):  
+        for no_entry, labels in enumerate(self.label_dict.values(), start=1):
             min_area = None
 
             for entry in labels:
-                if entry == 'video' or entry == 'video_file_path':
+                if entry == "video" or entry == "video_file_path":
                     continue
-                label = labels[entry]['label']
-                frames = labels[entry]['frames']
-                mask_arrays = labels[entry]['masks'] # zarr array
-                
+                label = labels[entry]["label"]
+                frames = labels[entry]["frames"]
+                mask_arrays = labels[entry]["masks"]  # zarr array
+
                 if self.enable_watershed:
                     # On a subset of masks, determine object properties
                     random_frames = pick_random_frames(frames, n=25)
@@ -368,8 +386,16 @@ class YOLO_octron:
                             else:
                                 if min_area is None:
                                     # Determine area threshold once
-                                    min_area = MIN_SIZE_RATIO_OBJECT_FRAME*sample_mask.shape[0]*sample_mask.shape[1]
-                                sample_labeled = measure.label(sample_mask > 0, background=0, connectivity=2)
+                                    min_area = (
+                                        MIN_SIZE_RATIO_OBJECT_FRAME
+                                        * sample_mask.shape[0]
+                                        * sample_mask.shape[1]
+                                    )
+                                sample_labeled = measure.label(
+                                    sample_mask > 0,
+                                    background=0,
+                                    connectivity=2,
+                                )
                                 regions = measure.regionprops(sample_labeled)
                                 for r_ in regions:
                                     if r_.area < min_area:
@@ -377,143 +403,188 @@ class YOLO_octron:
                                     # Choosing feret diameter as a measure of object size
                                     # See https://en.wikipedia.org/wiki/Feret_diameter
                                     # and https://scikit-image.org/docs/stable/api/skimage.measure.html
-                                    # "Maximum Feret's diameter computed as the longest distance between 
+                                    # "Maximum Feret's diameter computed as the longest distance between
                                     # points around a region's convex hull contour
                                     # as determined by find_contours."
                                     obj_diameters.append(r_.feret_diameter_max)
-                                    
+
                     # Now we can make assumptions about the median diameter of the objects
-                    # I use this for "optimal" watershed parameters 
+                    # I use this for "optimal" watershed parameters
                     median_obj_diameter = np.nanmedian(obj_diameters)
                     if np.isnan(median_obj_diameter):
-                        median_obj_diameter = 5 # Pretty arbitrary, but should work for most cases
+                        median_obj_diameter = 5  # Pretty arbitrary, but should work for most cases
                     if median_obj_diameter < 1:
                         median_obj_diameter = 5
-                        
+
                 ##################################################################################
-                polys = {} # Collected polygons over frame indices
-                for f_no, f in tqdm(enumerate(frames, start=1), 
-                            desc=f'Polygons for label {label}', 
-                            total=len(frames),
-                            unit='frames',
-                            leave=True
-                            ):    
-                    mask_polys = [] # List of polygons for the current frame
+                polys = {}  # Collected polygons over frame indices
+                for f_no, f in tqdm(
+                    enumerate(frames, start=1),
+                    desc=f"Polygons for label {label}",
+                    total=len(frames),
+                    unit="frames",
+                    leave=True,
+                ):
+                    mask_polys = []  # List of polygons for the current frame
                     for mask_array in mask_arrays:
                         mask_raw = mask_array[f]
-                        # Determine area threshold 
-                        min_area = MIN_SIZE_RATIO_OBJECT_FRAME*mask_raw.shape[0]*mask_raw.shape[1]
+                        # Determine area threshold
+                        min_area = (
+                            MIN_SIZE_RATIO_OBJECT_FRAME
+                            * mask_raw.shape[0]
+                            * mask_raw.shape[1]
+                        )
                         # Split ID-encoded multi-object masks into per-ID binary sub-masks.
                         # ID-encoded masks have values > 1 (each unique positive int = one object).
                         # Legacy binary masks (0/1) pass through unchanged.
                         positive_ids = np.unique(mask_raw)
                         positive_ids = positive_ids[positive_ids > 0]
                         if len(positive_ids) > 1 or np.any(positive_ids > 1):
-                            sub_masks = [(mask_raw == oid).astype(np.uint8) for oid in positive_ids]
+                            sub_masks = [
+                                (mask_raw == oid).astype(np.uint8)
+                                for oid in positive_ids
+                            ]
                         else:
-                            sub_masks = [np.clip(mask_raw, 0, 1).astype(np.uint8)]
+                            sub_masks = [
+                                np.clip(mask_raw, 0, 1).astype(np.uint8)
+                            ]
                         for mask_current_array in sub_masks:
                             if self.enable_watershed:
                                 # Watershed
                                 try:
-                                    _, water_masks = watershed_mask(mask_current_array,
-                                                                    footprint_diameter=median_obj_diameter,
-                                                                    min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,  
-                                                                    plot=False
-                                                                )
+                                    _, water_masks = watershed_mask(
+                                        mask_current_array,
+                                        footprint_diameter=median_obj_diameter,
+                                        min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,
+                                        plot=False,
+                                    )
                                 except AssertionError:
                                     # The mask is empty at this frame or the object spans the whole frame
                                     continue
                                 # Loop over watershedded masks
                                 for mask in water_masks:
                                     try:
-                                        mask_polys.append(get_polygons(mask)) 
+                                        mask_polys.append(get_polygons(mask))
                                     except AssertionError:
                                         # The mask is empty at this frame.
-                                        # This happens if there is more than one mask 
-                                        # zarr array (because there are multiple instances of a label), 
+                                        # This happens if there is more than one mask
+                                        # zarr array (because there are multiple instances of a label),
                                         # and the current label is not present in the current mask array.
-                                        pass    
+                                        pass
                             else:
                                 # No watershedding
-                                mask_labeled = np.asarray(measure.label(mask_current_array))
+                                mask_labeled = np.asarray(
+                                    measure.label(mask_current_array)
+                                )
                                 unique_labels = np.unique(mask_labeled)
-                                assert len(unique_labels) >= 1, f"Labeling failed for {label} in frame {f_no}"
+                                assert len(unique_labels) >= 1, (
+                                    f"Labeling failed for {label} in frame {f_no}"
+                                )
                                 # Get new region props to filter out small-ish regions
                                 props = measure.regionprops_table(
-                                        mask_labeled,
-                                        properties=('area','label')
-                                        )
-                                if not len(props['area']): 
+                                    mask_labeled, properties=("area", "label")
+                                )
+                                if not len(props["area"]):
                                     continue
                                 # Filter out small objects by setting them to 0
-                                # and those that are smaller than a certain size ratio 
+                                # and those that are smaller than a certain size ratio
                                 # smaller than the max object size
-                                max_area = np.percentile(props['area'], 99.)
-                                for i, area in enumerate(props['area']):
+                                max_area = np.percentile(props["area"], 99.0)
+                                for i, area in enumerate(props["area"]):
                                     if area < min_area:
-                                        mask_labeled[mask_labeled == props['label'][i]] = 0          
-                                    if area < MIN_SIZE_RATIO_OBJECT_MAX*max_area:
-                                        mask_labeled[mask_labeled == props['label'][i]] = 0                              
+                                        mask_labeled[
+                                            mask_labeled == props["label"][i]
+                                        ] = 0
+                                    if (
+                                        area
+                                        < MIN_SIZE_RATIO_OBJECT_MAX * max_area
+                                    ):
+                                        mask_labeled[
+                                            mask_labeled == props["label"][i]
+                                        ] = 0
                                 if np.sum(mask_labeled) == 0:
                                     # No objects found after filtering
                                     continue
                                 unique_labels = np.unique(mask_labeled)
                                 for l in unique_labels:
                                     if l == 0:
-                                        # Background 
+                                        # Background
                                         continue
                                     else:
                                         # Re-initialize the mask
-                                        mask_current_array = np.zeros_like(mask_current_array)
-                                        mask_current_array[mask_labeled == l] = 1
-                                        mask_polys.append(get_polygons(mask_current_array))
-                                    
-                            
+                                        mask_current_array = np.zeros_like(
+                                            mask_current_array
+                                        )
+                                        mask_current_array[
+                                            mask_labeled == l
+                                        ] = 1
+                                        mask_polys.append(
+                                            get_polygons(mask_current_array)
+                                        )
+
                     polys[f] = mask_polys
                     # Yield, to update the progress bar
-                    yield((no_entry, len(self.label_dict), label, f_no, len(frames)))  
-                     
-                labels[entry]['polygons'] = polys
-            
+                    yield (
+                        (
+                            no_entry,
+                            len(self.label_dict),
+                            label,
+                            f_no,
+                            len(frames),
+                        )
+                    )
+
+                labels[entry]["polygons"] = polys
+
             # Prune frames that produced no valid polygons.
             # When prune_empty_labels is True, use cross-label intersection
             # to keep frame sets synchronized (prevents train/val/test data leakage).
             # Otherwise, prune each label independently.
-            label_entries = [e for e in labels if e not in ('video', 'video_file_path')]
+            label_entries = [
+                e for e in labels if e not in ("video", "video_file_path")
+            ]
             if self.prune_empty_labels:
                 valid_per_label = []
                 for entry in label_entries:
-                    polys = labels[entry].get('polygons', {})
-                    valid = {int(f) for f in labels[entry]['frames']
-                             if len(polys.get(f, [])) > 0}
+                    polys = labels[entry].get("polygons", {})
+                    valid = {
+                        int(f)
+                        for f in labels[entry]["frames"]
+                        if len(polys.get(f, [])) > 0
+                    }
                     valid_per_label.append(valid)
                 if valid_per_label:
-                    common_valid = np.array(sorted(set.intersection(*valid_per_label)))
+                    common_valid = np.array(
+                        sorted(set.intersection(*valid_per_label))
+                    )
                     for entry in label_entries:
-                        old_count = len(labels[entry]['frames'])
+                        old_count = len(labels[entry]["frames"])
                         if len(common_valid) < old_count:
                             n_dropped = old_count - len(common_valid)
-                            label_name = labels[entry]['label']
-                            print(f"Warning: {n_dropped} frame(s) dropped for label "
-                                  f"'{label_name}' (empty polygons in at least one label)")
-                        labels[entry]['frames'] = common_valid
+                            label_name = labels[entry]["label"]
+                            print(
+                                f"Warning: {n_dropped} frame(s) dropped for label "
+                                f"'{label_name}' (empty polygons in at least one label)"
+                            )
+                        labels[entry]["frames"] = common_valid
             else:
                 for entry in label_entries:
-                    frames = labels[entry]['frames']
-                    polys = labels[entry].get('polygons', {})
-                    valid_frames = np.array([f for f in frames
-                                             if len(polys.get(f, [])) > 0])
+                    frames = labels[entry]["frames"]
+                    polys = labels[entry].get("polygons", {})
+                    valid_frames = np.array(
+                        [f for f in frames if len(polys.get(f, [])) > 0]
+                    )
                     if len(valid_frames) < len(frames):
                         n_dropped = len(frames) - len(valid_frames)
-                        label_name = labels[entry]['label']
-                        print(f"Warning: {n_dropped} frame(s) for label '{label_name}' "
-                              f"had no valid polygons and were excluded")
-                        labels[entry]['frames'] = valid_frames
-    
+                        label_name = labels[entry]["label"]
+                        print(
+                            f"Warning: {n_dropped} frame(s) for label '{label_name}' "
+                            f"had no valid polygons and were excluded"
+                        )
+                        labels[entry]["frames"] = valid_frames
+
     def prepare_bboxes(self):
-        """
-        Calculate bounding boxes for each mask in each frame and label in the label_dict.
+        """Calculate bounding boxes for each mask in each frame and label in the label_dict.
         Optional watershedding is performed on the masks to separate touching instances
         (same logic as prepare_polygons). The bounding box for each object is extracted
         as normalized (x_center, y_center, width, height).
@@ -536,23 +607,23 @@ class YOLO_octron:
             Current frame number being processed
         total_frames : int
             Total number of frames for the current label
+
         """
-
-       
-
         if self.label_dict is None:
-            raise ValueError("No labels found. Please run prepare_labels() first.")
+            raise ValueError(
+                "No labels found. Please run prepare_labels() first."
+            )
 
         logger.debug(f"Watershed: {self.enable_watershed}")
         for no_entry, labels in enumerate(self.label_dict.values(), start=1):
             min_area = None
 
             for entry in labels:
-                if entry == 'video' or entry == 'video_file_path':
+                if entry == "video" or entry == "video_file_path":
                     continue
-                label = labels[entry]['label']
-                frames = labels[entry]['frames']
-                mask_arrays = labels[entry]['masks']  # zarr arrays
+                label = labels[entry]["label"]
+                frames = labels[entry]["frames"]
+                mask_arrays = labels[entry]["masks"]  # zarr arrays
 
                 if self.enable_watershed:
                     # On a subset of masks, determine object properties
@@ -565,8 +636,16 @@ class YOLO_octron:
                                 continue
                             else:
                                 if min_area is None:
-                                    min_area = MIN_SIZE_RATIO_OBJECT_FRAME * sample_mask.shape[0] * sample_mask.shape[1]
-                                sample_labeled = measure.label(sample_mask > 0, background=0, connectivity=2)
+                                    min_area = (
+                                        MIN_SIZE_RATIO_OBJECT_FRAME
+                                        * sample_mask.shape[0]
+                                        * sample_mask.shape[1]
+                                    )
+                                sample_labeled = measure.label(
+                                    sample_mask > 0,
+                                    background=0,
+                                    connectivity=2,
+                                )
                                 regions = measure.regionprops(sample_labeled)
                                 for r_ in regions:
                                     if r_.area < min_area:
@@ -581,11 +660,13 @@ class YOLO_octron:
 
                 ##################################################################################
                 bboxes_dict = {}  # frame_id -> list of bbox tuples
-                for f_no, f in tqdm(enumerate(frames, start=1),
-                                    desc=f'Bboxes for label {label}',
-                                    total=len(frames),
-                                    unit='frames',
-                                    leave=True):
+                for f_no, f in tqdm(
+                    enumerate(frames, start=1),
+                    desc=f"Bboxes for label {label}",
+                    total=len(frames),
+                    unit="frames",
+                    leave=True,
+                ):
                     frame_bboxes = []
                     for mask_array in mask_arrays:
                         mask_raw = mask_array[f]
@@ -595,93 +676,140 @@ class YOLO_octron:
                         positive_ids = np.unique(mask_raw)
                         positive_ids = positive_ids[positive_ids > 0]
                         if len(positive_ids) > 1 or np.any(positive_ids > 1):
-                            sub_masks = [(mask_raw == oid).astype(np.uint8) for oid in positive_ids]
+                            sub_masks = [
+                                (mask_raw == oid).astype(np.uint8)
+                                for oid in positive_ids
+                            ]
                         else:
-                            sub_masks = [np.clip(mask_raw, 0, 1).astype(np.uint8)]
+                            sub_masks = [
+                                np.clip(mask_raw, 0, 1).astype(np.uint8)
+                            ]
                         for mask_current in sub_masks:
                             if self.enable_watershed:
                                 try:
-                                    _, water_masks = watershed_mask(mask_current,
-                                                                    footprint_diameter=median_obj_diameter,
-                                                                    min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,
-                                                                    plot=False)
+                                    _, water_masks = watershed_mask(
+                                        mask_current,
+                                        footprint_diameter=median_obj_diameter,
+                                        min_size_ratio=MIN_SIZE_RATIO_OBJECT_MAX,
+                                        plot=False,
+                                    )
                                 except AssertionError:
                                     continue
                                 for mask in water_masks:
-                                    mask_labeled = np.asarray(measure.label(mask))
+                                    mask_labeled = np.asarray(
+                                        measure.label(mask)
+                                    )
                                     props = measure.regionprops(mask_labeled)
                                     for region in props:
                                         if region.area < min_area:
                                             continue
-                                        min_row, min_col, max_row, max_col = region.bbox
+                                        min_row, min_col, max_row, max_col = (
+                                            region.bbox
+                                        )
                                         bbox_w = (max_col - min_col) / w
                                         bbox_h = (max_row - min_row) / h
-                                        x_center = (min_col + max_col) / 2.0 / w
-                                        y_center = (min_row + max_row) / 2.0 / h
-                                        frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
+                                        x_center = (
+                                            (min_col + max_col) / 2.0 / w
+                                        )
+                                        y_center = (
+                                            (min_row + max_row) / 2.0 / h
+                                        )
+                                        frame_bboxes.append(
+                                            (
+                                                x_center,
+                                                y_center,
+                                                bbox_w,
+                                                bbox_h,
+                                            )
+                                        )
                             else:
-                                mask_labeled = np.asarray(measure.label(mask_current))
+                                mask_labeled = np.asarray(
+                                    measure.label(mask_current)
+                                )
                                 props = measure.regionprops(mask_labeled)
                                 if not props:
                                     continue
 
                                 areas = [r.area for r in props]
-                                max_area = np.percentile(areas, 99.)
+                                max_area = np.percentile(areas, 99.0)
 
                                 for region in props:
                                     if region.area < min_area:
                                         continue
-                                    if region.area < MIN_SIZE_RATIO_OBJECT_MAX * max_area:
+                                    if (
+                                        region.area
+                                        < MIN_SIZE_RATIO_OBJECT_MAX * max_area
+                                    ):
                                         continue
-                                    min_row, min_col, max_row, max_col = region.bbox
+                                    min_row, min_col, max_row, max_col = (
+                                        region.bbox
+                                    )
                                     bbox_w = (max_col - min_col) / w
                                     bbox_h = (max_row - min_row) / h
                                     x_center = (min_col + max_col) / 2.0 / w
                                     y_center = (min_row + max_row) / 2.0 / h
-                                    frame_bboxes.append((x_center, y_center, bbox_w, bbox_h))
+                                    frame_bboxes.append(
+                                        (x_center, y_center, bbox_w, bbox_h)
+                                    )
 
                     bboxes_dict[f] = frame_bboxes
-                    yield (no_entry, len(self.label_dict), label, f_no, len(frames))
+                    yield (
+                        no_entry,
+                        len(self.label_dict),
+                        label,
+                        f_no,
+                        len(frames),
+                    )
 
-                labels[entry]['bboxes'] = bboxes_dict
-            
+                labels[entry]["bboxes"] = bboxes_dict
+
             # Prune frames that produced no valid bounding boxes.
             # Same cross-label vs per-label logic as prepare_polygons.
-            label_entries = [e for e in labels if e not in ('video', 'video_file_path')]
+            label_entries = [
+                e for e in labels if e not in ("video", "video_file_path")
+            ]
             if self.prune_empty_labels:
                 valid_per_label = []
                 for entry in label_entries:
-                    bboxes = labels[entry].get('bboxes', {})
-                    valid = {int(f) for f in labels[entry]['frames']
-                             if len(bboxes.get(f, [])) > 0}
+                    bboxes = labels[entry].get("bboxes", {})
+                    valid = {
+                        int(f)
+                        for f in labels[entry]["frames"]
+                        if len(bboxes.get(f, [])) > 0
+                    }
                     valid_per_label.append(valid)
                 if valid_per_label:
-                    common_valid = np.array(sorted(set.intersection(*valid_per_label)))
+                    common_valid = np.array(
+                        sorted(set.intersection(*valid_per_label))
+                    )
                     for entry in label_entries:
-                        old_count = len(labels[entry]['frames'])
+                        old_count = len(labels[entry]["frames"])
                         if len(common_valid) < old_count:
                             n_dropped = old_count - len(common_valid)
-                            label_name = labels[entry]['label']
-                            print(f"Warning: {n_dropped} frame(s) dropped for label "
-                                  f"'{label_name}' (empty bboxes in at least one label)")
-                        labels[entry]['frames'] = common_valid
+                            label_name = labels[entry]["label"]
+                            print(
+                                f"Warning: {n_dropped} frame(s) dropped for label "
+                                f"'{label_name}' (empty bboxes in at least one label)"
+                            )
+                        labels[entry]["frames"] = common_valid
             else:
                 for entry in label_entries:
-                    frames = labels[entry]['frames']
-                    bboxes = labels[entry].get('bboxes', {})
-                    valid_frames = np.array([f for f in frames
-                                             if len(bboxes.get(f, [])) > 0])
+                    frames = labels[entry]["frames"]
+                    bboxes = labels[entry].get("bboxes", {})
+                    valid_frames = np.array(
+                        [f for f in frames if len(bboxes.get(f, [])) > 0]
+                    )
                     if len(valid_frames) < len(frames):
                         n_dropped = len(frames) - len(valid_frames)
-                        label_name = labels[entry]['label']
-                        print(f"Warning: {n_dropped} frame(s) for label '{label_name}' "
-                              f"had no valid bounding boxes and were excluded")
-                        labels[entry]['frames'] = valid_frames
-
+                        label_name = labels[entry]["label"]
+                        print(
+                            f"Warning: {n_dropped} frame(s) for label '{label_name}' "
+                            f"had no valid bounding boxes and were excluded"
+                        )
+                        labels[entry]["frames"] = valid_frames
 
     def prepare_geometry(self):
-        """
-        Generate training geometry, dispatching on ``self.train_mode``.
+        """Generate training geometry, dispatching on ``self.train_mode``.
 
         Runs :meth:`prepare_bboxes` for ``'detect'`` and :meth:`prepare_polygons`
         otherwise (``'segment'``), so CLI and GUI select geometry once, here,
@@ -689,15 +817,14 @@ class YOLO_octron:
         ``(no_entry, total, label, frame_no, total_frames)`` as the underlying
         method.
         """
-        if self.train_mode == 'detect':
+        if self.train_mode == "detect":
             yield from self.prepare_bboxes()
         else:
             yield from self.prepare_polygons()
 
     @staticmethod
     def _validate_split_fractions(training_fraction, validation_fraction):
-        """
-        Validate train/val split fractions (shared guard for core and callers).
+        """Validate train/val split fractions (shared guard for core and callers).
 
         The test split is the remainder, so the two fractions must leave room
         for it.  Raises ``ValueError`` on invalid input.
@@ -717,46 +844,48 @@ class YOLO_octron:
                 f"{validation_fraction} = {training_fraction + validation_fraction}"
             )
 
-    def prepare_split(self,
-                      training_fraction=0.7,
-                      validation_fraction=0.15,
-                      random_seed=88,
-                      verbose=False,
-                     ):
-        """
-        Using train_test_val(), this function splits the frame indices 
+    def prepare_split(
+        self,
+        training_fraction=0.7,
+        validation_fraction=0.15,
+        random_seed=88,
+        verbose=False,
+    ):
+        """Using train_test_val(), this function splits the frame indices
         into training, testing, and validation sets, based on the fractions provided.
         ``random_seed`` controls the shuffling so splits are reproducible.
         """
         self._validate_split_fractions(training_fraction, validation_fraction)
         if self.label_dict is None:
-            raise ValueError("No labels found. Please run prepare_labels() first.")
-        
+            raise ValueError(
+                "No labels found. Please run prepare_labels() first."
+            )
+
         for labels in self.label_dict.values():
             for entry in labels:
-                if entry == 'video' or entry == 'video_file_path':
-                    continue    
+                if entry == "video" or entry == "video_file_path":
+                    continue
                 # label = labels[entry]['label']
-                frames = labels[entry]['frames']   
-                split_dict = train_test_val(frames, 
-                                            training_fraction=training_fraction,
-                                            validation_fraction=validation_fraction,
-                                            random_seed=random_seed,
-                                            verbose=verbose,
-                                            )
+                frames = labels[entry]["frames"]
+                split_dict = train_test_val(
+                    frames,
+                    training_fraction=training_fraction,
+                    validation_fraction=validation_fraction,
+                    random_seed=random_seed,
+                    verbose=verbose,
+                )
 
-                labels[entry]['frames_split'] = split_dict
-        
-    
-    def create_training_data_segment(self,
-                                    verbose=False,
-                                    ):
-        """
-        Create training data for YOLO segmentation.
+                labels[entry]["frames_split"] = split_dict
+
+    def create_training_data_segment(
+        self,
+        verbose=False,
+    ):
+        """Create training data for YOLO segmentation.
         This function exports the training data to the data_path folder.
         The training data consists of images and corresponding label text files.
         The label text files contain the label ID and normalized polygon coordinates.
-        
+
         Parameters
         ----------
         verbose : bool
@@ -776,95 +905,126 @@ class YOLO_octron:
             Current frame number being processed
         total_frames : int
             Total number of frames for the current label
-                     
-        
+
+
         """
         if self.data_path is None:
-            raise ValueError("No data path set. Please set 'project_path' first.")
+            raise ValueError(
+                "No data path set. Please set 'project_path' first."
+            )
         if self.training_path is None:
-            raise ValueError("No training path set. Please set 'project_path' first.")
+            raise ValueError(
+                "No training path set. Please set 'project_path' first."
+            )
         if self.label_dict is None:
-            raise ValueError("No labels found. Please run prepare_labels() first.")
-        
+            raise ValueError(
+                "No labels found. Please run prepare_labels() first."
+            )
+
         try:
             from PIL import Image
         except ModuleNotFoundError:
-            logger.error('Please install PIL first, via pip install pillow')
+            logger.error("Please install PIL first, via pip install pillow")
             return
-        
+
         # Completeness checks
-        for labels in self.label_dict.values(): 
+        for labels in self.label_dict.values():
             for entry in labels:
-                if entry == 'video' or entry == 'video_file_path':
+                if entry == "video" or entry == "video_file_path":
                     continue
-                assert 'frames' in labels[entry], "No frame indices (frames) found in labels"
-                assert 'polygons' in labels[entry], "No polygons found in labels, run prepare_polygons() first"
-                assert 'frames_split' in labels[entry], "No data split found in labels, run prepare_split() first"  
+                assert "frames" in labels[entry], (
+                    "No frame indices (frames) found in labels"
+                )
+                assert "polygons" in labels[entry], (
+                    "No polygons found in labels, run prepare_polygons() first"
+                )
+                assert "frames_split" in labels[entry], (
+                    "No data split found in labels, run prepare_split() first"
+                )
 
         # Create the training root directory
         # If it already exists and overwrite is enabled, delete it and create a new one
         if self.data_path.exists() and self.clean_training_dir:
             shutil.rmtree(self.data_path)
-            logger.info(f"Removed existing training data directory '{self.data_path.as_posix()}'")
+            logger.info(
+                f"Removed existing training data directory '{self.data_path.as_posix()}'"
+            )
         if self.data_path.exists() and not self.clean_training_dir:
-            logger.info(f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory.")
+            logger.info(
+                f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory."
+            )
             # Remove any model subdirectories
-            if self.training_path / 'training' in self.training_path.glob('*'):
-                shutil.rmtree(self.training_path / 'training')
-                logger.info(f"Removed existing model subdirectory '{self.training_path / 'training'}'")
+            if self.training_path / "training" in self.training_path.glob("*"):
+                shutil.rmtree(self.training_path / "training")
+                logger.info(
+                    f"Removed existing model subdirectory '{self.training_path / 'training'}'"
+                )
             return
         if not self.data_path.exists():
             self.data_path.mkdir(parents=True, exist_ok=False)
-            logger.info(f"Created training data directory '{self.data_path.as_posix()}'")
-
+            logger.info(
+                f"Created training data directory '{self.data_path.as_posix()}'"
+            )
 
         # Create subdirectories for train, val, and test
         # If they already exist, delete them and create new ones
-        for split in ['train', 'val', 'test']:
+        for split in ["train", "val", "test"]:
             path_to_split = self.data_path / split
             try:
                 path_to_split.mkdir(exist_ok=False)
             except FileExistsError:
-                shutil.rmtree(path_to_split)    
+                shutil.rmtree(path_to_split)
                 path_to_split.mkdir()
 
         #######################################################################################################
         # Export the training data
-        
-        for no_entry, (path, labels) in enumerate(self.label_dict.items(), start=1):  
-            path_prefix = Path(path).name   
-            video_data = labels.pop('video')
-            _ = labels.pop('video_file_path')
-            for entry in tqdm(labels,
-                            total=len(labels),
-                            position=0,
-                            unit='labels',
-                            leave=True,
-                            desc=f'Exporting {len(labels)} label(s)'
-                            ):
+
+        for no_entry, (path, labels) in enumerate(
+            self.label_dict.items(), start=1
+        ):
+            path_prefix = Path(path).name
+            video_data = labels.pop("video")
+            _ = labels.pop("video_file_path")
+            for entry in tqdm(
+                labels,
+                total=len(labels),
+                position=0,
+                unit="labels",
+                leave=True,
+                desc=f"Exporting {len(labels)} label(s)",
+            ):
                 current_label_id = entry
-                label = labels[entry]['label']  
-                # Extract the size of the masks for normalization later on 
-                for m in labels[entry]['masks']:
-                    assert m.shape == labels[entry]['masks'][0].shape, f'All masks should have the same shape'
-                _, mask_height, mask_width = labels[entry]['masks'][0].shape
-                
-                for split in ['train', 'val', 'test']:
-                    current_indices = labels[entry]['frames_split'][split]
-                    for frame_no, frame_id in tqdm(enumerate(current_indices),
-                                                    total=len(current_indices), 
-                                                    desc=f'Exporting {split} frames', 
-                                                    position=1,    
-                                                    unit='frames',
-                                                    leave=False,
-                                                    ):
+                label = labels[entry]["label"]
+                # Extract the size of the masks for normalization later on
+                for m in labels[entry]["masks"]:
+                    assert m.shape == labels[entry]["masks"][0].shape, (
+                        "All masks should have the same shape"
+                    )
+                _, mask_height, mask_width = labels[entry]["masks"][0].shape
+
+                for split in ["train", "val", "test"]:
+                    current_indices = labels[entry]["frames_split"][split]
+                    for frame_no, frame_id in tqdm(
+                        enumerate(current_indices),
+                        total=len(current_indices),
+                        desc=f"Exporting {split} frames",
+                        position=1,
+                        unit="frames",
+                        leave=False,
+                    ):
                         frame = video_data[frame_id]
-                        image_output_path = self.data_path / split / f'{path_prefix}_{frame_id}.png'
+                        image_output_path = (
+                            self.data_path
+                            / split
+                            / f"{path_prefix}_{frame_id}.png"
+                        )
                         if not image_output_path.exists():
                             # Convert to uint8 if needed
                             if frame.dtype != np.uint8:
                                 if frame.max() <= 1.0:
-                                    frame_uint8 = (frame * 255).astype(np.uint8)
+                                    frame_uint8 = (frame * 255).astype(
+                                        np.uint8
+                                    )
                                 else:
                                     frame_uint8 = frame.astype(np.uint8)
                             else:
@@ -875,30 +1035,48 @@ class YOLO_octron:
                             img.save(
                                 image_output_path,
                                 format="PNG",
-                                compress_level=0, # 0-9, lower means higher quality
+                                compress_level=0,  # 0-9, lower means higher quality
                                 optimize=True,
                             )
-                        
+
                         # Create the label text file with the correct format
-                        with open(self.data_path / split / f'{path_prefix}_{frame_id}.txt', 'a') as f:
-                            for polygon in labels[entry]['polygons'][frame_id]:
-                                f.write(f'{current_label_id}')
+                        with open(
+                            self.data_path
+                            / split
+                            / f"{path_prefix}_{frame_id}.txt",
+                            "a",
+                        ) as f:
+                            for polygon in labels[entry]["polygons"][frame_id]:
+                                f.write(f"{current_label_id}")
                                 # Write each coordinate pair as normalized coordinate to txt
                                 for point in polygon:
-                                    f.write(f' {point[0]/mask_width} {point[1]/mask_height}')
-                                f.write('\n')
-                                
+                                    f.write(
+                                        f" {point[0] / mask_width} {point[1] / mask_height}"
+                                    )
+                                f.write("\n")
+
                         # Yield, to update the progress bar
-                        yield((no_entry, len(self.label_dict), label, split, frame_no, len(current_indices)))  
-                        
-        logger.info(f"Segmentation training data exported to {self.data_path.as_posix()}")
+                        yield (
+                            (
+                                no_entry,
+                                len(self.label_dict),
+                                label,
+                                split,
+                                frame_no,
+                                len(current_indices),
+                            )
+                        )
+
+        logger.info(
+            f"Segmentation training data exported to {self.data_path.as_posix()}"
+        )
         return
 
-    def create_training_data_detect(self,
-                                   verbose=False,
-                                   ):
-        """
-        Create training data for YOLO detection (bbox-only).
+    def create_training_data_detect(
+        self,
+        verbose=False,
+    ):
+        """Create training data for YOLO detection (bbox-only).
         Same image export as create_training_data_segment(), but writes label files
         in the YOLO detection format: `class x_center y_center width height`
         (all values normalized to [0, 1]).
@@ -922,45 +1100,66 @@ class YOLO_octron:
             Current frame number being processed
         total_frames : int
             Total number of frames for the current label
+
         """
         if self.data_path is None:
-            raise ValueError("No data path set. Please set 'project_path' first.")
+            raise ValueError(
+                "No data path set. Please set 'project_path' first."
+            )
         if self.training_path is None:
-            raise ValueError("No training path set. Please set 'project_path' first.")
+            raise ValueError(
+                "No training path set. Please set 'project_path' first."
+            )
         if self.label_dict is None:
-            raise ValueError("No labels found. Please run prepare_labels() first.")
+            raise ValueError(
+                "No labels found. Please run prepare_labels() first."
+            )
 
         try:
             from PIL import Image
         except ModuleNotFoundError:
-            logger.error('Please install PIL first, via pip install pillow')
+            logger.error("Please install PIL first, via pip install pillow")
             return
 
         # Completeness checks
         for labels in self.label_dict.values():
             for entry in labels:
-                if entry == 'video' or entry == 'video_file_path':
+                if entry == "video" or entry == "video_file_path":
                     continue
-                assert 'frames' in labels[entry], "No frame indices (frames) found in labels"
-                assert 'bboxes' in labels[entry], "No bboxes found in labels, run prepare_bboxes() first"
-                assert 'frames_split' in labels[entry], "No data split found in labels, run prepare_split() first"
+                assert "frames" in labels[entry], (
+                    "No frame indices (frames) found in labels"
+                )
+                assert "bboxes" in labels[entry], (
+                    "No bboxes found in labels, run prepare_bboxes() first"
+                )
+                assert "frames_split" in labels[entry], (
+                    "No data split found in labels, run prepare_split() first"
+                )
 
         # Create the training root directory
         if self.data_path.exists() and self.clean_training_dir:
             shutil.rmtree(self.data_path)
-            logger.info(f"Removed existing training data directory '{self.data_path.as_posix()}'")
+            logger.info(
+                f"Removed existing training data directory '{self.data_path.as_posix()}'"
+            )
         if self.data_path.exists() and not self.clean_training_dir:
-            logger.info(f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory.")
-            if self.training_path / 'training' in self.training_path.glob('*'):
-                shutil.rmtree(self.training_path / 'training')
-                logger.info(f"Removed existing model subdirectory '{self.training_path / 'training'}'")
+            logger.info(
+                f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory."
+            )
+            if self.training_path / "training" in self.training_path.glob("*"):
+                shutil.rmtree(self.training_path / "training")
+                logger.info(
+                    f"Removed existing model subdirectory '{self.training_path / 'training'}'"
+                )
             return
         if not self.data_path.exists():
             self.data_path.mkdir(parents=True, exist_ok=False)
-            logger.info(f"Created training data directory '{self.data_path.as_posix()}'")
+            logger.info(
+                f"Created training data directory '{self.data_path.as_posix()}'"
+            )
 
         # Create subdirectories for train, val, and test
-        for split in ['train', 'val', 'test']:
+        for split in ["train", "val", "test"]:
             path_to_split = self.data_path / split
             try:
                 path_to_split.mkdir(exist_ok=False)
@@ -971,33 +1170,45 @@ class YOLO_octron:
         #######################################################################################################
         # Export the training data (detection format)
 
-        for no_entry, (path, labels) in enumerate(self.label_dict.items(), start=1):
+        for no_entry, (path, labels) in enumerate(
+            self.label_dict.items(), start=1
+        ):
             path_prefix = Path(path).name
-            video_data = labels.pop('video')
-            _ = labels.pop('video_file_path')
-            for entry in tqdm(labels,
-                              total=len(labels),
-                              position=0,
-                              unit='labels',
-                              leave=True,
-                              desc=f'Exporting {len(labels)} label(s)'):
+            video_data = labels.pop("video")
+            _ = labels.pop("video_file_path")
+            for entry in tqdm(
+                labels,
+                total=len(labels),
+                position=0,
+                unit="labels",
+                leave=True,
+                desc=f"Exporting {len(labels)} label(s)",
+            ):
                 current_label_id = entry
-                label = labels[entry]['label']
+                label = labels[entry]["label"]
 
-                for split in ['train', 'val', 'test']:
-                    current_indices = labels[entry]['frames_split'][split]
-                    for frame_no, frame_id in tqdm(enumerate(current_indices),
-                                                    total=len(current_indices),
-                                                    desc=f'Exporting {split} frames',
-                                                    position=1,
-                                                    unit='frames',
-                                                    leave=False):
+                for split in ["train", "val", "test"]:
+                    current_indices = labels[entry]["frames_split"][split]
+                    for frame_no, frame_id in tqdm(
+                        enumerate(current_indices),
+                        total=len(current_indices),
+                        desc=f"Exporting {split} frames",
+                        position=1,
+                        unit="frames",
+                        leave=False,
+                    ):
                         frame = video_data[frame_id]
-                        image_output_path = self.data_path / split / f'{path_prefix}_{frame_id}.png'
+                        image_output_path = (
+                            self.data_path
+                            / split
+                            / f"{path_prefix}_{frame_id}.png"
+                        )
                         if not image_output_path.exists():
                             if frame.dtype != np.uint8:
                                 if frame.max() <= 1.0:
-                                    frame_uint8 = (frame * 255).astype(np.uint8)
+                                    frame_uint8 = (frame * 255).astype(
+                                        np.uint8
+                                    )
                                 else:
                                     frame_uint8 = frame.astype(np.uint8)
                             else:
@@ -1012,19 +1223,34 @@ class YOLO_octron:
 
                         # Write label file in YOLO detection format:
                         # class x_center y_center width height (all normalized)
-                        with open(self.data_path / split / f'{path_prefix}_{frame_id}.txt', 'a') as f:
-                            for bbox in labels[entry]['bboxes'][frame_id]:
+                        with open(
+                            self.data_path
+                            / split
+                            / f"{path_prefix}_{frame_id}.txt",
+                            "a",
+                        ) as f:
+                            for bbox in labels[entry]["bboxes"][frame_id]:
                                 x_center, y_center, bbox_w, bbox_h = bbox
-                                f.write(f'{current_label_id} {x_center} {y_center} {bbox_w} {bbox_h}\n')
+                                f.write(
+                                    f"{current_label_id} {x_center} {y_center} {bbox_w} {bbox_h}\n"
+                                )
 
-                        yield (no_entry, len(self.label_dict), label, split, frame_no, len(current_indices))
+                        yield (
+                            no_entry,
+                            len(self.label_dict),
+                            label,
+                            split,
+                            frame_no,
+                            len(current_indices),
+                        )
 
-        logger.info(f"Detection training data exported to {self.data_path.as_posix()}")
+        logger.info(
+            f"Detection training data exported to {self.data_path.as_posix()}"
+        )
         return
 
     def create_training_data(self, verbose=False):
-        """
-        Export training data, dispatching on ``self.train_mode``.
+        """Export training data, dispatching on ``self.train_mode``.
 
         Runs :meth:`create_training_data_detect` for ``'detect'`` and
         :meth:`create_training_data_segment` otherwise (``'segment'``), so CLI and
@@ -1033,20 +1259,20 @@ class YOLO_octron:
         ``(no_entry, total, label, split, frame_no, total_frames)`` as the
         underlying method.
         """
-        if self.train_mode == 'detect':
+        if self.train_mode == "detect":
             yield from self.create_training_data_detect(verbose=verbose)
         else:
             yield from self.create_training_data_segment(verbose=verbose)
 
-    def write_yolo_config(self,
-                         train_path="train",
-                         val_path="val",
-                         test_path="test",
-                         train_mode="segment",
-                        ):
-        """
-        Write the YOLO configuration file for training.
-        
+    def write_yolo_config(
+        self,
+        train_path="train",
+        val_path="val",
+        test_path="test",
+        train_mode="segment",
+    ):
+        """Write the YOLO configuration file for training.
+
         Parameters
         ----------
         train_path : str
@@ -1057,39 +1283,49 @@ class YOLO_octron:
             Path to test data (subfolder of self.data_path)
         train_mode : str
             Training mode, either 'segment' or 'detect'.
-            
+
         """
         if self.label_dict is None:
             raise ValueError("No labels found.")
-        
+
         dataset_path = self.data_path
-        assert dataset_path is not None, f"Data path not set. Please set 'project_path' first."
-        assert dataset_path.exists(), f'Dataset path not found at {dataset_path}'
-        assert dataset_path.is_dir(), f'Dataset path should be a directory, but found a file at {dataset_path}' 
-        
-        if len(list(dataset_path.glob('*'))) <= 1:
+        assert dataset_path is not None, (
+            "Data path not set. Please set 'project_path' first."
+        )
+        assert dataset_path.exists(), (
+            f"Dataset path not found at {dataset_path}"
+        )
+        assert dataset_path.is_dir(), (
+            f"Dataset path should be a directory, but found a file at {dataset_path}"
+        )
+
+        if len(list(dataset_path.glob("*"))) <= 1:
             raise FileNotFoundError(
                 f"No training data found in {dataset_path.as_posix()}. Please generate training data first."
-                )
-        if (not (dataset_path / "train").exists() 
-            or not (dataset_path / "val").exists() 
+            )
+        if (
+            not (dataset_path / "train").exists()
+            or not (dataset_path / "val").exists()
             or not (dataset_path / "test").exists()
-            ):
+        ):
             raise FileNotFoundError(
-                f"Training data not found (train/val/test). Please generate training data first."
-                )   
-        
+                "Training data not found (train/val/test). Please generate training data first."
+            )
+
         # Get label names from the object organizer
         label_id_label_dict = {}
         for labels in self.label_dict.values():
             for entry in labels:
-                if entry == 'video' or entry == 'video_file_path':
-                    continue   
+                if entry == "video" or entry == "video_file_path":
+                    continue
                 if entry in label_id_label_dict:
-                    assert label_id_label_dict[entry] == labels[entry]['label'],\
+                    assert (
+                        label_id_label_dict[entry] == labels[entry]["label"]
+                    ), (
                         f"Label mismatch for {entry}: {label_id_label_dict[entry]} vs {labels[entry]['label']}"
+                    )
                 else:
-                    label_id_label_dict[entry] = labels[entry]['label']
+                    label_id_label_dict[entry] = labels[entry]["label"]
 
         ######## Write the YAML config
         self.config_path = dataset_path / "yolo_config.yaml"
@@ -1103,20 +1339,20 @@ class YOLO_octron:
             "names": label_id_label_dict,
             "train_mode": train_mode,
         }
-        header = "# OCTRON training config\n# Last edited on {}\n\n".format(datetime.now())
-        
+        header = (
+            f"# OCTRON training config\n# Last edited on {datetime.now()}\n\n"
+        )
+
         # Write to file
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path, "w") as f:
             f.write(header)
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        
-        logger.info(f"YOLO config saved to '{self.config_path.as_posix()}'")
 
+        logger.info(f"YOLO config saved to '{self.config_path.as_posix()}'")
 
     ##### TRAINING AND INFERENCE ############################################################################
     def resolve_model_name(self, model_name):
-        """
-        Resolve a model name to its canonical key in ``self.models_dict``.
+        """Resolve a model name to its canonical key in ``self.models_dict``.
 
         Matching is case-insensitive (e.g. 'yolo11m' -> 'YOLO11m'), and enum
         members (with a ``.value``, such as Typer choices) are accepted.
@@ -1125,17 +1361,23 @@ class YOLO_octron:
         -------
         str or None
             The canonical models_dict key, or None if there is no match.
+
         """
-        model_str = model_name.value if hasattr(model_name, 'value') else str(model_name)
+        model_str = (
+            model_name.value
+            if hasattr(model_name, "value")
+            else str(model_name)
+        )
         if model_str in self.models_dict:
             return model_str
         model_lower = model_str.lower()
-        return next((k for k in self.models_dict if k.lower() == model_lower), None)
+        return next(
+            (k for k in self.models_dict if k.lower() == model_lower), None
+        )
 
-    def load_model(self, model_name_path, train_mode='segment'):
-        """
-        Load the YOLO model
-        
+    def load_model(self, model_name_path, train_mode="segment"):
+        """Load the YOLO model
+
         Parameters
         ----------
         model_name_path : str or Path
@@ -1145,29 +1387,31 @@ class YOLO_octron:
         train_mode : str
             'segment' or 'detect'. Determines which model variant to load
             from models_dict (model_path_seg vs model_path_detect).
-        
+
         Returns
         -------
         model : YOLO
             Loaded YOLO model
+
         """
-         
         # Configure YOLO settings
-        if not hasattr(self, 'training_path') or self.training_path is None:
+        if not hasattr(self, "training_path") or self.training_path is None:
             pass
         else:
-            self.yolo_settings.update({
-                'sync': False,
-                'hub': False,
-                'tensorboard': True,
-                'runs_dir': self.training_path.as_posix()
-            })
-        from ultralytics import YOLO   
-        
+            self.yolo_settings.update(
+                {
+                    "sync": False,
+                    "hub": False,
+                    "tensorboard": True,
+                    "runs_dir": self.training_path.as_posix(),
+                }
+            )
+        from ultralytics import YOLO
+
         # Load specified model
         try:
             assert Path(model_name_path).exists()
-            # If this path exists, load this model, otherwise 
+            # If this path exists, load this model, otherwise
             # assume that this models is part of the models_dict
         except AssertionError:
             # Not a file on disk — resolve the catalog name case-insensitively
@@ -1178,21 +1422,29 @@ class YOLO_octron:
                     f"Unknown model '{model_name_path}': not an existing file and "
                     f"not in the model catalog. Available: {sorted(self.models_dict)}"
                 )
-            model_key = 'model_path_detect' if train_mode == 'detect' else 'model_path_seg'
+            model_key = (
+                "model_path_detect"
+                if train_mode == "detect"
+                else "model_path_seg"
+            )
             model_filename = self.models_dict[resolved][model_key]
             # Weights are loaded from the per-user cache (see config.get_yolo_models_dir),
             # where check_yolo_models downloads them.
             from octron import config as _octron_config
-            model_name_path = _octron_config.get_yolo_models_dir() / model_filename
-            
+
+            model_name_path = (
+                _octron_config.get_yolo_models_dir() / model_filename
+            )
+
         model = YOLO(model_name_path)
-        logger.info(f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})")
+        logger.info(
+            f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})"
+        )
         self.model = model
         return model
 
     def _read_checkpoint_state(self, checkpoint_path):
-        """
-        Read a training checkpoint and return ``(epoch, imgsz, error)``.
+        """Read a training checkpoint and return ``(epoch, imgsz, error)``.
 
         Parameters
         ----------
@@ -1210,21 +1462,33 @@ class YOLO_octron:
             training images. None when recovery failed.
         error : str or None
             None on success, else a human-readable reason.
+
         """
         import torch
+
         try:
-            ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+            ckpt = torch.load(
+                checkpoint_path, map_location="cpu", weights_only=False
+            )
         except Exception as e:
-            return None, None, f"Could not read checkpoint '{checkpoint_path}': {e}"
-        epoch = ckpt.get('epoch', -1)
-        train_args = ckpt.get('train_args', {}) or {}
-        if 'imgsz' not in train_args:
-            return epoch, None, (
-                "Checkpoint does not contain image size info. Cannot continue from checkpoint."
+            return (
+                None,
+                None,
+                f"Could not read checkpoint '{checkpoint_path}': {e}",
+            )
+        epoch = ckpt.get("epoch", -1)
+        train_args = ckpt.get("train_args", {}) or {}
+        if "imgsz" not in train_args:
+            return (
+                epoch,
+                None,
+                (
+                    "Checkpoint does not contain image size info. Cannot continue from checkpoint."
+                ),
             )
         # ultralytics stores imgsz as an int or occasionally as a list
         # (e.g. [640]) depending on version — handle both.
-        raw_imgsz = train_args['imgsz']
+        raw_imgsz = train_args["imgsz"]
         if isinstance(raw_imgsz, (list, tuple)):
             raw_imgsz = raw_imgsz[0]
         try:
@@ -1245,8 +1509,7 @@ class YOLO_octron:
         return epoch, imgsz, None
 
     def resolve_resume_state(self, resume=False, overwrite=False):
-        """
-        Decide how to (re)start training: fresh, resume, or init-from-checkpoint.
+        """Decide how to (re)start training: fresh, resume, or init-from-checkpoint.
 
         Centralises the resume/overwrite decision so the CLI and GUI behave
         identically. ``overwrite`` always wins (train from scratch). A strict
@@ -1270,43 +1533,57 @@ class YOLO_octron:
             ``checkpoint`` : Path to ``last.pt`` for resume/init, else None.
             ``imgsz`` : int recovered from the checkpoint for resume/init, else None.
             ``message`` : human-readable explanation for logs/UI.
+
         """
-        training_dir = self.training_path / 'training'
-        best_pt = training_dir / 'weights' / 'best.pt'
-        last_pt = training_dir / 'weights' / 'last.pt'
+        training_dir = self.training_path / "training"
+        best_pt = training_dir / "weights" / "best.pt"
+        last_pt = training_dir / "weights" / "last.pt"
 
         # Overwrite always wins over resume/existing state: train from scratch.
         if overwrite:
             return {
-                'action': 'fresh', 'checkpoint': None, 'imgsz': None,
-                'message': 'Overwrite requested: training a new model from scratch.',
+                "action": "fresh",
+                "checkpoint": None,
+                "imgsz": None,
+                "message": "Overwrite requested: training a new model from scratch.",
             }
 
         if resume:
             if not last_pt.exists():
                 return {
-                    'action': 'fresh', 'checkpoint': None, 'imgsz': None,
-                    'message': (
-                        'Resume requested but no interrupted run (last.pt) found; '
-                        'starting fresh.'
+                    "action": "fresh",
+                    "checkpoint": None,
+                    "imgsz": None,
+                    "message": (
+                        "Resume requested but no interrupted run (last.pt) found; "
+                        "starting fresh."
                     ),
                 }
             epoch, imgsz, error = self._read_checkpoint_state(last_pt)
             if error is not None:
-                return {'action': 'error', 'checkpoint': last_pt, 'imgsz': None, 'message': error}
+                return {
+                    "action": "error",
+                    "checkpoint": last_pt,
+                    "imgsz": None,
+                    "message": error,
+                }
             if epoch == -1:
                 # Completed run: strict resume is not possible, but we can continue
                 # training by initialising a new run from last.pt.
                 return {
-                    'action': 'init_from_checkpoint', 'checkpoint': last_pt, 'imgsz': imgsz,
-                    'message': (
+                    "action": "init_from_checkpoint",
+                    "checkpoint": last_pt,
+                    "imgsz": imgsz,
+                    "message": (
                         f"Checkpoint '{last_pt.name}' is from a completed run; initialising a "
                         f"new run from it (imgsz={imgsz}) rather than a strict resume."
                     ),
                 }
             return {
-                'action': 'resume', 'checkpoint': last_pt, 'imgsz': imgsz,
-                'message': (
+                "action": "resume",
+                "checkpoint": last_pt,
+                "imgsz": imgsz,
+                "message": (
                     f"Resuming interrupted run from '{last_pt.name}' "
                     f"(epoch {epoch}, imgsz={imgsz})."
                 ),
@@ -1315,20 +1592,23 @@ class YOLO_octron:
         # Neither resume nor overwrite: refuse if a finished model already exists.
         if best_pt.exists():
             return {
-                'action': 'completed', 'checkpoint': best_pt, 'imgsz': None,
-                'message': (
+                "action": "completed",
+                "checkpoint": best_pt,
+                "imgsz": None,
+                "message": (
                     f"A trained model already exists at '{best_pt}'. Use overwrite to "
                     f"retrain from scratch, or resume to continue training."
                 ),
             }
         return {
-            'action': 'fresh', 'checkpoint': None, 'imgsz': None,
-            'message': 'No existing model found; training a new model from scratch.',
+            "action": "fresh",
+            "checkpoint": None,
+            "imgsz": None,
+            "message": "No existing model found; training a new model from scratch.",
         }
 
     def _resolve_batch_size(self, imgsz, device):
-        """
-        Return a training batch size, caching AutoBatch results for CUDA.
+        """Return a training batch size, caching AutoBatch results for CUDA.
 
         AutoBatch (CUDA memory profiling) runs only for device='cuda';
         CUDA results are cached at <project>/model/autobatch_cache.json keyed by model
@@ -1340,20 +1620,25 @@ class YOLO_octron:
         larger than the sizes that just failed - so that case is replaced with
         a safe batch of 1 and not cached.
         """
-        if device != 'cuda':
+        if device != "cuda":
             # Avoid CUDA-only AutoBatch profiling on CPU/MPS; let ultralytics
             # pick a safe default for these devices.
             return -1
-        _SAFE_BATCH = 1            # guaranteed-to-fit fallback when profiling fails
-        _ULTRA_DEFAULT_BATCH = 16  # what ultralytics returns when AutoBatch fails
+        _SAFE_BATCH = 1  # guaranteed-to-fit fallback when profiling fails
+        _ULTRA_DEFAULT_BATCH = (
+            16  # what ultralytics returns when AutoBatch fails
+        )
         import torch
+
         try:
             gpu_name = torch.cuda.get_device_name(0)
         except Exception:
-            gpu_name = 'cuda'
+            gpu_name = "cuda"
         # Warn early when the image size is large for the available VRAM.
         try:
-            total_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+            total_gb = torch.cuda.get_device_properties(0).total_memory / (
+                1024**3
+            )
         except Exception:
             total_gb = None
         if total_gb is not None and imgsz >= 1024 and total_gb < 12:
@@ -1363,7 +1648,7 @@ class YOLO_octron:
             )
         arch = self.model.model.__class__.__name__
         cache_key = f"{arch}_{imgsz}_cuda_{gpu_name}"
-        cache_path = self.training_path / 'autobatch_cache.json'
+        cache_path = self.training_path / "autobatch_cache.json"
         cache = {}
         if cache_path.exists():
             try:
@@ -1373,14 +1658,21 @@ class YOLO_octron:
                 cache = {}
         if cache_key in cache:
             batch = cache[cache_key]
-            logger.info(f"AutoBatch: using cached batch size {batch} for {gpu_name} (imgsz={imgsz})")
+            logger.info(
+                f"AutoBatch: using cached batch size {batch} for {gpu_name} (imgsz={imgsz})"
+            )
             return batch
-        logger.info("AutoBatch: running batch size search (result will be cached) ...")
+        logger.info(
+            "AutoBatch: running batch size search (result will be cached) ..."
+        )
         try:
             from ultralytics.utils.autobatch import check_train_batch_size
+
             # Profile on the GPU so AutoBatch measures real CUDA memory.
-            self.model.model.to('cuda')
-            batch = check_train_batch_size(self.model.model, imgsz=imgsz, amp=True)
+            self.model.model.to("cuda")
+            batch = check_train_batch_size(
+                self.model.model, imgsz=imgsz, amp=True
+            )
         except Exception as e:
             logger.warning(
                 f"AutoBatch search failed ({e}); using a safe batch size of {_SAFE_BATCH}."
@@ -1389,7 +1681,10 @@ class YOLO_octron:
         # ultralytics swallows a profiling OOM and returns its default batch
         # (16), which is larger than the sizes that just failed. On a small GPU
         # treat that as a failed search: use a safe batch of 1 and don't cache.
-        if not batch or (batch == _ULTRA_DEFAULT_BATCH and (total_gb is None or total_gb < 12)):
+        if not batch or (
+            batch == _ULTRA_DEFAULT_BATCH
+            and (total_gb is None or total_gb < 12)
+        ):
             logger.warning(
                 f"AutoBatch could not find a fitting batch size for imgsz={imgsz} on {gpu_name} "
                 f"(profiling likely ran out of memory); using a safe batch size of {_SAFE_BATCH}. "
@@ -1399,50 +1694,52 @@ class YOLO_octron:
         cache[cache_key] = batch
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_path, 'w') as f:
+            with open(cache_path, "w") as f:
                 json.dump(cache, f)
-            logger.info(f"AutoBatch: batch size {batch} cached to {cache_path.as_posix()}")
+            logger.info(
+                f"AutoBatch: batch size {batch} cached to {cache_path.as_posix()}"
+            )
         except Exception as e:
             logger.warning(f"Could not write AutoBatch cache: {e}")
         return batch
 
     def load_model_args(self, model_name_path):
-        """
-        Load the YOLO model args.yaml (model training settings).
-        This file is supposed to be one level up of the "weights" folder for 
+        """Load the YOLO model args.yaml (model training settings).
+        This file is supposed to be one level up of the "weights" folder for
         custom trained models.
-        
+
         Parameters
         ----------
         model_name_path : str or Path
             Path to the model to load, or name of the model to load
-        
+
         Returns
         -------
         args : dict
             Dictionary containing the model arguments
             Returns None if the args.yaml file is not found
-            
+
         """
         model_name_path = Path(model_name_path)
-                
-        assert model_name_path.exists(), f"Model path {model_name_path} does not exist."
+
+        assert model_name_path.exists(), (
+            f"Model path {model_name_path} does not exist."
+        )
         model_parent_path = model_name_path.parent.parent
-        args = list(model_parent_path.glob('args.yaml'))
-        if len(args) > 0: 
-            args = args[0]  
+        args = list(model_parent_path.glob("args.yaml"))
+        if len(args) > 0:
+            args = args[0]
             # Read yaml as dict
-            with open(args, 'r') as f:
+            with open(args) as f:
                 args = yaml.safe_load(f)
-        else: 
+        else:
             args = None
-        
+
         return args
 
     @staticmethod
     def _find_train_image_size(data_path, max_samples=500):
-        """
-        Find whether rectangular or square training images are used.
+        """Find whether rectangular or square training images are used.
         This determines the rect parameter and the correct imgsz for YOLO training.
 
         Samples up to *max_samples* images across all subdirectories so that
@@ -1462,22 +1759,25 @@ class YOLO_octron:
             (non-square) batches when height > width.
             TODO: Re-evaluate this with updates of ultralytics. Current version: 8.4.48
             (As of 8.4.48, the rect=portrait/square crash bug is still present.)
+
         """
         data_path = Path(data_path)
         assert data_path.exists(), f"Data path {data_path} does not exist."
-        png_files = list(data_path.glob('**/*.png'))
+        png_files = list(data_path.glob("**/*.png"))
         if len(png_files) == 0:
-            raise FileNotFoundError(f"No .png files found in {data_path.as_posix()}")
-        logger.debug(f'Found {len(png_files)} png files')
+            raise FileNotFoundError(
+                f"No .png files found in {data_path.as_posix()}"
+            )
+        logger.debug(f"Found {len(png_files)} png files")
         samples = random.sample(png_files, min(max_samples, len(png_files)))
 
         widths, heights = [], []
         for fpath in samples:
             # Read width/height directly from PNG IHDR chunk (bytes 16-23)
             # PIL.Image.open() per file is very slow for large datasets.
-            with open(fpath, 'rb') as f:
+            with open(fpath, "rb") as f:
                 f.seek(16)
-                w, h = struct.unpack('>II', f.read(8))
+                w, h = struct.unpack(">II", f.read(8))
             widths.append(w)
             heights.append(h)
 
@@ -1498,18 +1798,18 @@ class YOLO_octron:
 
         return avg_h, avg_w, rect, uniform_aspect_ratio
 
-    def train(self,
-              device='cpu',
-              imagesz = 640,
-              epochs=30,
-              save_period=15,
-              train_mode='segment',
-              resume=False,
-              batch=-1,
-              ):
-        """
-        Train the YOLO model with epoch progress updates
-        
+    def train(
+        self,
+        device="cpu",
+        imagesz=640,
+        epochs=30,
+        save_period=15,
+        train_mode="segment",
+        resume=False,
+        batch=-1,
+    ):
+        """Train the YOLO model with epoch progress updates
+
         Parameters
         ----------
         device : str
@@ -1525,7 +1825,7 @@ class YOLO_octron:
         resume : bool
             If True, resume training from the loaded checkpoint (last.pt).
             Most training parameters are restored from the checkpoint.
-            
+
         Yields
         ------
         dict
@@ -1534,68 +1834,86 @@ class YOLO_octron:
             - total_epochs: Total number of epochs
             - epoch_time: Time taken for current epoch
             - estimated_finish_time: Estimated finish time
+
         """
         if self.model is None:
-            raise RuntimeError('😵 No model loaded!')
-        if not hasattr(self.model, 'train') or self.model.train is None:
-            # This happens if a non YOLO compliant model is loaded somehow 
-            raise AttributeError('The loaded model does not have a "train()" method.')
-            
+            raise RuntimeError("😵 No model loaded!")
+        if not hasattr(self.model, "train") or self.model.train is None:
+            # This happens if a non YOLO compliant model is loaded somehow
+            raise AttributeError(
+                'The loaded model does not have a "train()" method.'
+            )
+
         # Clear any existing callbacks
-        if hasattr(self.model, 'callbacks'):
-            for callback_name in ['on_fit_epoch_end', 'on_train_start', 'on_train_end']:
+        if hasattr(self.model, "callbacks"):
+            for callback_name in [
+                "on_fit_epoch_end",
+                "on_train_start",
+                "on_train_end",
+            ]:
                 if callback_name in self.model.callbacks:
                     self.model.callbacks.pop(callback_name, None)
-                    
+
         # Setup a queue to receive yielded values from the callback
         progress_queue = queue.Queue()
-        
+
         # Track last epoch seen to avoid duplicates
         last_epoch_reported = -1
         final_total_epochs = None
-        
+
         # Internal callback to capture training progress
         def _on_fit_epoch_end(trainer):
             nonlocal last_epoch_reported
             nonlocal final_total_epochs
             current_epoch = trainer.epoch + 1
-            
+
             # Skip if we already reported this epoch (prevents duplicates)
             if current_epoch <= last_epoch_reported:
                 return
-                
+
             last_epoch_reported = current_epoch
-            
+
             # Calculate progress information
             epoch_time = trainer.epoch_time
-            total_epochs_current = final_total_epochs if final_total_epochs is not None else epochs
-            remaining_time = epoch_time * (total_epochs_current - current_epoch)
+            total_epochs_current = (
+                final_total_epochs
+                if final_total_epochs is not None
+                else epochs
+            )
+            remaining_time = epoch_time * (
+                total_epochs_current - current_epoch
+            )
             finish_time = time.time() + remaining_time
-            
+
             # Put the information in the queue
-            progress_queue.put({
-                'epoch': current_epoch,
-                'total_epochs': total_epochs_current,
-                'epoch_time': epoch_time,
-                'remaining_time': remaining_time,
-                'finish_time': finish_time,
-            })
+            progress_queue.put(
+                {
+                    "epoch": current_epoch,
+                    "total_epochs": total_epochs_current,
+                    "epoch_time": epoch_time,
+                    "remaining_time": remaining_time,
+                    "finish_time": finish_time,
+                }
+            )
 
         # Callback to capture final epoch count on training end (handles early stopping)
         def _on_train_end(trainer):
             nonlocal final_total_epochs
             final_total_epochs = trainer.epoch + 1
             try:
-                epoch_time = getattr(trainer, 'epoch_time', None)
+                epoch_time = getattr(trainer, "epoch_time", None)
             except Exception:
                 epoch_time = None
-            progress_queue.put({
-                'epoch': final_total_epochs,
-                'total_epochs': final_total_epochs,
-                'epoch_time': epoch_time,
-                'remaining_time': 0,
-                'finish_time': time.time(),
-            })
+            progress_queue.put(
+                {
+                    "epoch": final_total_epochs,
+                    "total_epochs": final_total_epochs,
+                    "epoch_time": epoch_time,
+                    "remaining_time": 0,
+                    "finish_time": time.time(),
+                }
+            )
+
         # Remove any stale ultralytics disk-cache .npy files
         # data directory before starting.  ultralytics cache='disk' writes
         # <stem>.npy files alongside source images, and BaseDataset.load_image
@@ -1603,7 +1921,7 @@ class YOLO_octron:
         # is not set — instead of reading the actual image file.  Purging them
         # here ensures a clean cache rebuild each training run.
         if self.data_path and self.data_path.exists():
-            stale_npy = list(self.data_path.glob('**/*.npy'))
+            stale_npy = list(self.data_path.glob("**/*.npy"))
             if stale_npy:
                 logger.warning(
                     f"Found {len(stale_npy)} stale .npy cache file(s) in training data "
@@ -1614,17 +1932,19 @@ class YOLO_octron:
 
         self.model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
         self.model.add_callback("on_train_end", _on_train_end)
-        
+
         if self.config_path is None or not self.config_path.exists():
-            raise FileNotFoundError(
-                "No configuration .yaml file found."
+            raise FileNotFoundError("No configuration .yaml file found.")
+        if device not in ["cpu", "cuda", "mps"]:
+            raise ValueError(f"Invalid device: {device}")
+        if device == "mps":
+            logger.warning(
+                "MPS is not yet fully supported in PyTorch. Use at your own risk."
             )
-        if device not in ['cpu', 'cuda', 'mps']:
-            raise ValueError(f"Invalid device: {device}")   
-        if device == 'mps':
-            logger.warning("MPS is not yet fully supported in PyTorch. Use at your own risk.")
-        
-        assert imagesz > 0 and imagesz % 32 == 0, 'YOLO image size must be a positive multiple of 32'
+
+        assert imagesz > 0 and imagesz % 32 == 0, (
+            "YOLO image size must be a positive multiple of 32"
+        )
 
         # Resolve a cached AutoBatch size for CUDA when the caller left batch at
         # the -1 sentinel. CPU/MPS keep -1 so ultralytics applies its own safe
@@ -1635,18 +1955,24 @@ class YOLO_octron:
         # Start training in a separate thread
         training_complete = threading.Event()
         training_error = None
-        
+
         def run_training():
             # https://docs.ultralytics.com/modes/train/#resuming-interrupted-trainings
             # overlap_mask - https://github.com/ultralytics/ultralytics/issues/3213#issuecomment-2799841153
             nonlocal training_error
             try:
-                img_height, img_width, rect, uniform_aspect_ratio = self._find_train_image_size(self.data_path)
+                img_height, img_width, rect, uniform_aspect_ratio = (
+                    self._find_train_image_size(self.data_path)
+                )
                 # Start training
                 logger.info(f"Starting training for {epochs} epochs...")
-                logger.info(f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)")
+                logger.info(
+                    f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)"
+                )
                 logger.info(f"Using device: {device}")
-                logger.info("################################################################")
+                logger.info(
+                    "################################################################"
+                )
                 # copy_paste and mixup crash when rect=True AND the dataset contains
                 # landscape images with different aspect ratios: ultralytics creates one
                 # batch shape group per distinct ratio, and mixing images across groups
@@ -1657,19 +1983,25 @@ class YOLO_octron:
                 # (As of 8.4.48, this crash is still present — no upstream fix found.)
                 mixed_rect = rect and not uniform_aspect_ratio
                 if mixed_rect:
-                    logger.warning("Mixed landscape aspect ratios detected — disabling copy_paste and "
-                                   "mixup to prevent batch shape mismatches (rect=True).")
+                    logger.warning(
+                        "Mixed landscape aspect ratios detected — disabling copy_paste and "
+                        "mixup to prevent batch shape mismatches (rect=True)."
+                    )
                 mixup_prob = 0.0 if mixed_rect else 0.25
                 copy_paste_prob = 0.0 if mixed_rect else 0.25
                 # Build training kwargs — shared between segment and detect
                 train_kwargs = dict(
-                    data=self.config_path.as_posix() if self.config_path is not None else '',
-                    name='training',
-                    project=self.training_path.as_posix() if self.training_path is not None else '',
+                    data=self.config_path.as_posix()
+                    if self.config_path is not None
+                    else "",
+                    name="training",
+                    project=self.training_path.as_posix()
+                    if self.training_path is not None
+                    else "",
                     mode=train_mode,
                     device=device,
-                    optimizer='auto',
-                    rect=rect, # if square training images then rect=False
+                    optimizer="auto",
+                    rect=rect,  # if square training images then rect=False
                     amp=True,
                     cos_lr=True,
                     fraction=1.0,
@@ -1679,14 +2011,14 @@ class YOLO_octron:
                     patience=100,
                     plots=True,
                     batch=batch,
-                    cache='disk', # for fast access
+                    cache="disk",  # for fast access
                     save=True,
                     save_period=save_period,
                     exist_ok=True,
                     nms=False,
-                    max_det=2000, # Increasing this for dense scenes - I think it might affect val too
+                    max_det=2000,  # Increasing this for dense scenes - I think it might affect val too
                     # Augmentation
-                    hsv_v=.25,
+                    hsv_v=0.25,
                     hsv_s=0.25,
                     hsv_h=0.25,
                     degrees=180,
@@ -1694,35 +2026,35 @@ class YOLO_octron:
                     perspective=0,
                     scale=0.25,
                     shear=2,
-                    flipud=.5,
-                    fliplr=.5,
+                    flipud=0.5,
+                    fliplr=0.5,
                     mosaic=0.25,
                     mixup=mixup_prob,
                     copy_paste=copy_paste_prob,
-                    copy_paste_mode='mixup',
-                    erasing=0.,
+                    copy_paste_mode="mixup",
+                    erasing=0.0,
                 )
                 # Segmentation-specific parameters
-                if train_mode == 'segment':
+                if train_mode == "segment":
                     # mask_ratio=1 matches the YOLO26 prototype head's design
                     # There seem to still be issues with this in ultralytics.
-                    # Issue to watch: 
-                    # https://github.com/ultralytics/ultralytics/issues/20200#issuecomment-3130376932                    
-                    train_kwargs['mask_ratio'] = 1
-                    train_kwargs['overlap_mask'] = True
-                    
+                    # Issue to watch:
+                    # https://github.com/ultralytics/ultralytics/issues/20200#issuecomment-3130376932
+                    train_kwargs["mask_ratio"] = 1
+                    train_kwargs["overlap_mask"] = True
+
                 self.model.train(**train_kwargs)
             except Exception as e:
                 training_error = e
             finally:
                 # Signal that training is complete
                 training_complete.set()
-        
+
         # Start training thread
         training_thread = threading.Thread(target=run_training)
         training_thread.daemon = True
         training_thread.start()
-        
+
         try:
             # Monitor progress queue and yield updates until training completes
             while not training_complete.is_set() or not progress_queue.empty():
@@ -1734,22 +2066,20 @@ class YOLO_octron:
                 except queue.Empty:
                     # No progress info available yet, continue waiting
                     pass
-                    
+
             # If there was an error in the training thread, raise it
             if training_error:
                 raise training_error
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
-            
-    
+
     def launch_tensorboard(self):
-        """
-        Check if TensorBoard is installed, launch it with the training directory,
+        """Check if TensorBoard is installed, launch it with the training directory,
         and open a web browser to view the TensorBoard interface.
         Chooses a random port every time to avoid port collisions.
         If TensorBoard is not installed, it will attempt to install it using pip.
-        
-        
+
+
         Parameters
         ----------
 
@@ -1757,16 +2087,22 @@ class YOLO_octron:
         -------
         bool
             True if TensorBoard was successfully launched, False otherwise
+
         """
         import random
+
         # Check if tensorboard is installed
         if importlib.util.find_spec("tensorboard") is None:
             logger.info("TensorBoard is not installed. Installing now...")
             try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "tensorboard"])
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "tensorboard"]
+                )
                 logger.info("TensorBoard installed successfully!")
             except subprocess.CalledProcessError:
-                logger.error("Failed to install TensorBoard. Please install it manually with: pip install tensorboard")
+                logger.error(
+                    "Failed to install TensorBoard. Please install it manually with: pip install tensorboard"
+                )
                 return False
 
         if self.training_path is None:
@@ -1774,26 +2110,34 @@ class YOLO_octron:
             return False
 
         if not self.training_path.exists():
-            logger.warning(f"Training path '{self.training_path}' does not exist.")
+            logger.warning(
+                f"Training path '{self.training_path}' does not exist."
+            )
             return False
-        
+
         # Launch tensorboard in a separate process
-        log_dir = self.training_path / 'training'
+        log_dir = self.training_path / "training"
         try:
             port = random.randint(6000, 7000)
             logger.info(f"Starting TensorBoard on port {port}...")
             tensorboard_process = subprocess.Popen(
-                [sys.executable, "-m", "tensorboard.main", 
-                "--logdir", log_dir.as_posix(),
-                "--port", str(port)],
+                [
+                    sys.executable,
+                    "-m",
+                    "tensorboard.main",
+                    "--logdir",
+                    log_dir.as_posix(),
+                    "--port",
+                    str(port),
+                ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
             )
-            
+
             # Give it a moment to start up
             time.sleep(3)
-            
+
             # Check if process is still running
             if tensorboard_process.poll() is not None:
                 # Process terminated - get error message
@@ -1804,7 +2148,9 @@ class YOLO_octron:
             # Open web browser
             tensorboard_url = f"http://localhost:{port}/"
             logger.info(f"Opening TensorBoard in browser: {tensorboard_url}")
-            webbrowser.open(tensorboard_url, new=1) # to open in new browser window (fingers crossed this works...)
+            webbrowser.open(
+                tensorboard_url, new=1
+            )  # to open in new browser window (fingers crossed this works...)
 
             logger.info("TensorBoard is running.")
             return True
@@ -1812,34 +2158,32 @@ class YOLO_octron:
         except Exception as e:
             logger.error(f"Error launching TensorBoard: {e}")
             return False
-        
 
     def _quit_tensorboard_posix(self):
-        """
-        Helper method to terminate TensorBoard on Unix-like systems
-        """
+        """Helper method to terminate TensorBoard on Unix-like systems"""
         # Find processes with tensorboard in the command
         result = subprocess.run(
-            ["ps", "-ef"], 
-            capture_output=True, 
-            text=True, 
-            check=True
+            ["ps", "-ef"], capture_output=True, text=True, check=True
         )
-        lines = result.stdout.split('\n')
+        lines = result.stdout.split("\n")
         found_processes = False
-        
+
         for line in lines:
-            if 'tensorboard.main' in line or 'tensorboard ' in line:
+            if "tensorboard.main" in line or "tensorboard " in line:
                 # Extract PID and kill
                 parts = line.split()
                 if len(parts) >= 2:
                     try:
                         pid = int(parts[1])
-                        logger.info(f"Terminating TensorBoard process with PID {pid}")
+                        logger.info(
+                            f"Terminating TensorBoard process with PID {pid}"
+                        )
                         os.kill(pid, signal.SIGTERM)
                         found_processes = True
                     except (ValueError, ProcessLookupError) as e:
-                        logger.error(f"Failed to terminate TensorBoard process: {e}")
+                        logger.error(
+                            f"Failed to terminate TensorBoard process: {e}"
+                        )
 
         if not found_processes:
             logger.info("No TensorBoard processes found")
@@ -1848,51 +2192,51 @@ class YOLO_octron:
         """Helper method to terminate TensorBoard on Windows"""
         # Use tasklist and taskkill on Windows
         result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV"], 
-            capture_output=True, 
-            text=True
+            ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV"],
+            capture_output=True,
+            text=True,
         )
         found_processes = False
-        
-        for line in result.stdout.split('\n'):
-            if 'tensorboard' in line.lower():
+
+        for line in result.stdout.split("\n"):
+            if "tensorboard" in line.lower():
                 try:
                     parts = line.strip('"').split('","')
                     if len(parts) >= 2:
                         pid = int(parts[1])
-                        logger.info(f"Terminating TensorBoard process with PID {pid}")
+                        logger.info(
+                            f"Terminating TensorBoard process with PID {pid}"
+                        )
                         subprocess.run(["taskkill", "/F", "/PID", str(pid)])
                         found_processes = True
                 except (ValueError, IndexError) as e:
-                    logger.error(f"Failed to terminate TensorBoard process: {e}")
+                    logger.error(
+                        f"Failed to terminate TensorBoard process: {e}"
+                    )
 
         if not found_processes:
             logger.info("No TensorBoard processes found")
 
-    
     def quit_tensorboard(self):
-        """
-        Find and quit all TensorBoard processes on both Unix-like systems 
+        """Find and quit all TensorBoard processes on both Unix-like systems
         and Windows platforms.
         """
         logger.info("Stopping any running TensorBoard processes...")
 
         try:
             # Check platform-specific approach
-            if os.name == 'posix':  # Unix-like systems (macOS, Linux)
+            if os.name == "posix":  # Unix-like systems (macOS, Linux)
                 self._quit_tensorboard_posix()
-            elif os.name == 'nt':  # Windows
+            elif os.name == "nt":  # Windows
                 self._quit_tensorboard_windows()
             else:
                 logger.warning(f"Unsupported platform: {os.name}")
         except Exception as e:
             logger.error(f"Error when terminating TensorBoard processes: {e}")
-    
-     
-    def validate(self, data=None, device='auto', plots=True):
-        """
-        Validate the model
-        
+
+    def validate(self, data=None, device="auto", plots=True):
+        """Validate the model
+
         Parameters
         ----------
         data : str or Path, optional
@@ -1901,34 +2245,34 @@ class YOLO_octron:
             Device to use for inference
         plots : bool
             Whether to generate plots
-            
+
         Returns
         -------
         metrics : dict
             Validation metrics
+
         """
         # TODO: Which model to validate
         # Should be able to choose checkpoint, like best, last, etc.
-        
+
         # if self.model is None:
         #     self.load_model()
-            
+
         # data_path = data if data else self.config_path
         # print(f"Running validation on {data_path}...")
-        
+
         # metrics = self.model.val(data=data_path, device=device, plots=plots)
-        
+
         # print("Validation results:")
         # print(f"Mean Average Precision for boxes: {metrics.box.map}")
         # print(f"Mean Average Precision for masks: {metrics.seg.map}")
-        
+
         # return metrics
         pass
-    
+
     @staticmethod
     def get_model_info(model_path):
-        """
-        Extract metadata from a trained YOLO model checkpoint for display
+        """Extract metadata from a trained YOLO model checkpoint for display
         in a tooltip.
 
         Parameters
@@ -1942,85 +2286,99 @@ class YOLO_octron:
             Dictionary with keys: task, architecture, imgsz, epochs,
             num_classes, class_names, trained_on.  Values are None when
             the information could not be determined.
+
         """
-        import torch
+        import os
+        import time as _time
         from pathlib import Path
-        import os, time as _time
+
+        import torch
 
         info = dict(
-            task=None, architecture=None, imgsz=None, epochs=None,
-            num_classes=None, class_names=None, trained_on=None,
+            task=None,
+            architecture=None,
+            imgsz=None,
+            epochs=None,
+            num_classes=None,
+            class_names=None,
+            trained_on=None,
         )
 
         model_path = Path(model_path)
         try:
-            ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
+            ckpt = torch.load(
+                model_path, map_location="cpu", weights_only=False
+            )
         except Exception as e:
             logger.warning(f"Could not read checkpoint '{model_path}': {e}")
             return info
 
-        train_args = ckpt.get('train_args', {})
+        train_args = ckpt.get("train_args", {})
         if not isinstance(train_args, dict):
             train_args = {}
 
         # Task
-        info['task'] = train_args.get('task')
-        if info['task'] is None and 'model' in ckpt:
-            cls_name = type(ckpt['model']).__name__
-            if 'Segment' in cls_name:
-                info['task'] = 'segment'
-            elif 'Detect' in cls_name:
-                info['task'] = 'detect'
+        info["task"] = train_args.get("task")
+        if info["task"] is None and "model" in ckpt:
+            cls_name = type(ckpt["model"]).__name__
+            if "Segment" in cls_name:
+                info["task"] = "segment"
+            elif "Detect" in cls_name:
+                info["task"] = "detect"
 
         # Architecture / base model (store just the filename, not the full path)
-        arch = train_args.get('model')
+        arch = train_args.get("model")
         if arch:
             # Use PurePosixPath split + backslash split to handle both Unix and Windows paths
-            info['architecture'] = str(arch).replace('\\', '/').rsplit('/', 1)[-1]
+            info["architecture"] = (
+                str(arch).replace("\\", "/").rsplit("/", 1)[-1]
+            )
 
         # Image size
-        imgsz = train_args.get('imgsz')
+        imgsz = train_args.get("imgsz")
         if imgsz is not None:
-            info['imgsz'] = imgsz
+            info["imgsz"] = imgsz
 
         # Epochs
-        info['epochs'] = train_args.get('epochs')
+        info["epochs"] = train_args.get("epochs")
 
         # Class names & count — try model object first, then top-level 'names'
         names = None
-        model_obj = ckpt.get('model', None)
-        if model_obj is not None and hasattr(model_obj, 'names'):
+        model_obj = ckpt.get("model", None)
+        if model_obj is not None and hasattr(model_obj, "names"):
             names = model_obj.names
         if names is None:
-            names = ckpt.get('names')
+            names = ckpt.get("names")
         if isinstance(names, dict):
-            info['class_names'] = list(names.values())
-            info['num_classes'] = len(names)
+            info["class_names"] = list(names.values())
+            info["num_classes"] = len(names)
         elif isinstance(names, (list, tuple)):
-            info['class_names'] = list(names)
-            info['num_classes'] = len(names)
+            info["class_names"] = list(names)
+            info["num_classes"] = len(names)
 
         # Training date from file modification time
         try:
             mtime = os.path.getmtime(model_path)
-            info['trained_on'] = _time.strftime('%Y-%m-%d %H:%M', _time.localtime(mtime))
+            info["trained_on"] = _time.strftime(
+                "%Y-%m-%d %H:%M", _time.localtime(mtime)
+            )
         except OSError:
             pass
 
         return info
 
-    def find_trained_models(self, 
-                           search_path, 
-                           model_parent='model',
-                           weights_folder='weights',
-                           model_suffix='.pt',
-                           ):
-        """
-        Find all trained models inside 'weights' directories under the
+    def find_trained_models(
+        self,
+        search_path,
+        model_parent="model",
+        weights_folder="weights",
+        model_suffix=".pt",
+    ):
+        """Find all trained models inside 'weights' directories under the
         project's 'model' subfolder.  This picks up .pt files from any
         training run layout, e.g. model/training/weights/,
         model/training_segmentation/weights/, etc.
-        
+
         Parameters
         ----------
         search_path : str or Path
@@ -2033,33 +2391,43 @@ class YOLO_octron:
             (default 'weights').
         model_suffix : str
             Suffix of the model files to search for (e.g. '.pt')
-            
+
         """
         search_path = Path(search_path)
-        assert search_path.exists(), f"Search path {search_path} does not exist."
-        assert search_path.is_dir(), f"Search path {search_path} is not a directory"
-        
+        assert search_path.exists(), (
+            f"Search path {search_path} does not exist."
+        )
+        assert search_path.is_dir(), (
+            f"Search path {search_path} is not a directory"
+        )
+
         found_models_project = []
 
-        for dirpath_str, dirnames, filenames in os.walk(search_path.as_posix(), topdown=True):
+        for dirpath_str, dirnames, filenames in os.walk(
+            search_path.as_posix(), topdown=True
+        ):
             # Prune directories that cannot contain model weights.
             # This modification happens in-place and affects os.walk's traversal.
-            dirnames[:] = [d for d in dirnames
-                           if '.zarr' not in d and d != 'training_data']
-            
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if ".zarr" not in d and d != "training_data"
+            ]
+
             current_dir_path = Path(dirpath_str)
 
             # Match any directory named <weights_folder> that sits
             # somewhere under a <model_parent> ancestor.
-            if (current_dir_path.name == weights_folder
-                    and model_parent in current_dir_path.parts):
+            if (
+                current_dir_path.name == weights_folder
+                and model_parent in current_dir_path.parts
+            ):
                 for fname in filenames:
                     if fname.endswith(model_suffix):
                         found_models_project.append(current_dir_path / fname)
-                        
+
         return natsorted(found_models_project)
-      
-      
+
     def map_detection_index(
         self,
         tracker_input,
@@ -2067,11 +2435,10 @@ class YOLO_octron:
         per_class=True,
         verbose=False,
     ):
-        """
-        This stupidly convoluted function maps detection indices from tracker results 
-        back to their original input indices. This has bitten me too many times, so I wrote it out. 
-        This is particularly important for when per_class tracking is activated in BoxMOT. 
-        
+        """This stupidly convoluted function maps detection indices from tracker results
+        back to their original input indices. This has bitten me too many times, so I wrote it out.
+        This is particularly important for when per_class tracking is activated in BoxMOT.
+
         Parameters
         ----------
         tracker_input : numpy.ndarray
@@ -2084,57 +2451,79 @@ class YOLO_octron:
             Whether the tracker was configured to process each class independently.
         verbose : bool, default=False
             Print debugging info?
-            
+
         Returns
         -------
         tuple
             (tracked_ids, tracked_idxs) where:
             - tracked_ids is a list of track IDs from the tracker
             - tracked_idxs is a list of corresponding indices in the original tracker_input
-            
+
         """
         # Sanity checks
-        assert isinstance(tracker_input, np.ndarray), "tracker_input must be a numpy array"
-        assert isinstance(tracking_result, np.ndarray), "tracking_result must be a numpy array"
-        assert tracker_input.shape[1] >= 6, "tracker_input must have at least 6 columns [x1,y1,x2,y2,conf,cls]"
-        assert tracking_result.shape[1] >= 8, "tracking_result must have at least 8 columns [x1,y1,x2,y2,id,conf,cls,idx]"
-        
-        tracked_ids = [] 
+        assert isinstance(tracker_input, np.ndarray), (
+            "tracker_input must be a numpy array"
+        )
+        assert isinstance(tracking_result, np.ndarray), (
+            "tracking_result must be a numpy array"
+        )
+        assert tracker_input.shape[1] >= 6, (
+            "tracker_input must have at least 6 columns [x1,y1,x2,y2,conf,cls]"
+        )
+        assert tracking_result.shape[1] >= 8, (
+            "tracking_result must have at least 8 columns [x1,y1,x2,y2,id,conf,cls,idx]"
+        )
+
+        tracked_ids = []
         tracked_idxs = []
-        
+
         if not per_class:
             # Simple case: detection indices directly map to original input
             tracked_ids = tracking_result[:, 4].astype(int).tolist()
             tracked_idxs = tracking_result[:, 7].astype(int).tolist()
-            assert all(0 <= idx < tracker_input.shape[0] for idx in tracked_idxs), \
-                "Detection index out of bounds in non-per-class mode"
+            assert all(
+                0 <= idx < tracker_input.shape[0] for idx in tracked_idxs
+            ), "Detection index out of bounds in non-per-class mode"
         else:
             # Complex case: per-class tracking requires mapping class-specific indices back to global indices
             res_classes = tracking_result[:, 6]
             # Loop over extracted classes
             for res_class in np.unique(res_classes).astype(int):
                 # Filter results and inputs by class
-                res_filtered = tracking_result[tracking_result[:, 6] == res_class]
-                input_filtered = tracker_input[tracker_input[:, 5] == res_class]
+                res_filtered = tracking_result[
+                    tracking_result[:, 6] == res_class
+                ]
+                input_filtered = tracker_input[
+                    tracker_input[:, 5] == res_class
+                ]
                 for res_line in res_filtered:
                     track_id = int(res_line[4])
                     tracked_ids.append(track_id)
-                    
-                    idx_res = int(res_line[7]) # This is the index of the result in the class filtered tracker input
+
+                    idx_res = int(
+                        res_line[7]
+                    )  # This is the index of the result in the class filtered tracker input
                     if idx_res < 0 or idx_res >= len(input_filtered):
                         raise IndexError(
                             f"Detection index {idx_res} out of bounds for class {res_class} "
                             f"(max: {len(input_filtered) - 1})"
                         )
                     input_line = input_filtered[idx_res]
-                    
+
                     try:
                         # Find the index of this line in the original input array
-                        # This should not be necessary, but I want to make sure I get the right line ... 
-                        matches = np.all(np.isclose(tracker_input, input_line, rtol=1e-5, atol=1e-8), axis=1)
+                        # This should not be necessary, but I want to make sure I get the right line ...
+                        matches = np.all(
+                            np.isclose(
+                                tracker_input, input_line, rtol=1e-5, atol=1e-8
+                            ),
+                            axis=1,
+                        )
                         if not np.any(matches):
-                            raise ValueError(f"Could not find matching detection for track {track_id}")
-                        
+                            raise ValueError(
+                                f"Could not find matching detection for track {track_id}"
+                            )
+
                         tracked_idx = int(np.where(matches)[0][0])
                         tracked_idxs.append(tracked_idx)
                     except Exception as e:
@@ -2142,37 +2531,41 @@ class YOLO_octron:
                             f"Failed to find original index for track {track_id}, class {res_class}: {e}"
                         ) from e
 
-                    logger.debug(f'Matched\n{res_line} with\n{tracker_input[tracked_idx]}')
-                    
-        assert len(set(tracked_ids)) == len(tracked_ids), f'Duplicate track IDs found: {tracked_ids}'
-        assert len(tracked_ids) == len(tracked_idxs), \
+                    logger.debug(
+                        f"Matched\n{res_line} with\n{tracker_input[tracked_idx]}"
+                    )
+
+        assert len(set(tracked_ids)) == len(tracked_ids), (
+            f"Duplicate track IDs found: {tracked_ids}"
+        )
+        assert len(tracked_ids) == len(tracked_idxs), (
             f"Mismatch between tracked_ids ({len(tracked_ids)}) and tracked_idxs ({len(tracked_idxs)})"
-        
+        )
+
         return tracked_ids, tracked_idxs
-    
-    
-    def predict_batch(self, 
-                  videos,
-                  model_path,
-                  device,
-                  tracker_name=None,
-                  tracker_cfg_path=None,
-                  tracker_params=None,
-                  skip_frames=0,
-                  one_object_per_label=False,
-                  region_properties=None,
-                  extra_properties=None,
-                  iou_thresh=.7,
-                  conf_thresh=.5,
-                  opening_radius=0,
-                  overwrite=False,
-                  buffer_size=500,
-                  output_dir=None,
-                  local_cache_dir=None,
-                  ):
-        """
-        Predict and track objects in multiple videos.
-        
+
+    def predict_batch(
+        self,
+        videos,
+        model_path,
+        device,
+        tracker_name=None,
+        tracker_cfg_path=None,
+        tracker_params=None,
+        skip_frames=0,
+        one_object_per_label=False,
+        region_properties=None,
+        extra_properties=None,
+        iou_thresh=0.7,
+        conf_thresh=0.5,
+        opening_radius=0,
+        overwrite=False,
+        buffer_size=500,
+        output_dir=None,
+        local_cache_dir=None,
+    ):
+        """Predict and track objects in multiple videos.
+
         Parameters
         ----------
         videos : dict, str, Path, or list
@@ -2188,12 +2581,12 @@ class YOLO_octron:
         tracker_name : str, optional
             Name of the tracker to use (e.g. 'ByteTrack', 'bytetrack', 'BotSort').
             The name is resolved flexibly: exact key match, case-insensitive key match,
-            or match on the display name field. If the name cannot be resolved, a 
+            or match on the display name field. If the name cannot be resolved, a
             ValueError is raised listing all available trackers.
             Either tracker_name or tracker_cfg_path must be provided.
         tracker_cfg_path : str or Path, optional
             Path to a boxmot tracker config YAML file. Use this to supply a custom
-            or manually edited tracker configuration. When provided, this takes 
+            or manually edited tracker configuration. When provided, this takes
             priority over tracker_name.
         tracker_params : dict, optional
             Dictionary of tracker parameter overrides. These are applied on top of the
@@ -2208,7 +2601,7 @@ class YOLO_octron:
             and if more than one object is detected, only the first one with the highest confidence
             will be kept. Defaults to False.
         region_properties : list or tuple, optional
-            List of region properties to extract from segmentation masks via 
+            List of region properties to extract from segmentation masks via
             skimage.measure.regionprops_table (e.g. ['area', 'eccentricity', 'solidity']).
             'centroid' and 'label' are always included internally.
             If None (default), no regionprops extraction is performed (bbox-only mode).
@@ -2220,10 +2613,10 @@ class YOLO_octron:
             requires pixel intensities, it must accept intensity_image as second argument.
             The function's __name__ becomes the column name in the output CSV.
             Example::
-            
+
                 def mean_brightness(regionmask, intensity_image):
                     return np.mean(intensity_image[regionmask])
-                
+
                 predict_batch(..., extra_properties=(mean_brightness,))
         iou_thresh : float
             IOU threshold for detection
@@ -2238,7 +2631,7 @@ class YOLO_octron:
         output_dir : str or Path, optional
             Root directory under which octron_predictions/ folders are written.
             Defaults to alongside each video file when None.
-            
+
         Yields
         ------
         dict
@@ -2253,47 +2646,58 @@ class YOLO_octron:
             - eta: Estimated time remaining in seconds
             - eta_finish_time: Estimated finish time timestamp
             - overall_progress: Overall progress as percentage (0-100)
+
         """
-        
         # Handle different input formats for videos parameter
         if not isinstance(videos, dict):
             # Convert single path or list of paths to proper format
-            from octron.sam_octron.helpers.video_loader import probe_video
             from napari_pyav._reader import FastVideoReader
-            
+
+            from octron.sam_octron.helpers.video_loader import probe_video
+
             # Ensure it's a list
             if isinstance(videos, (str, Path)):
                 video_paths = [Path(videos)]
             else:
                 video_paths = [Path(p) for p in videos]
-            
+
             # Build the videos_dict (internal format) from paths
             videos_dict = {}
             for video_path in video_paths:
                 video_dict = probe_video(video_path, verbose=False)
-                video_dict['video'] = FastVideoReader(video_path, read_format='rgb24')
-                videos_dict[video_dict['video_name']] = video_dict
+                video_dict["video"] = FastVideoReader(
+                    video_path, read_format="rgb24"
+                )
+                videos_dict[video_dict["video_name"]] = video_dict
         else:
             # Already in dict format (GUI usage)
             videos_dict = videos
-        
+
         # Resolve Boxmot tracker configuration
         # Priority: tracker_cfg_path (custom YAML) > tracker_name (name-based lookup)
         if tracker_cfg_path is not None:
             # User supplied a custom tracker config YAML directly
             tracker_cfg_path = Path(tracker_cfg_path)
             if not tracker_cfg_path.exists():
-                raise FileNotFoundError(f'Tracker config YAML not found: {tracker_cfg_path}')
+                raise FileNotFoundError(
+                    f"Tracker config YAML not found: {tracker_cfg_path}"
+                )
             tracker_config = load_boxmot_tracker_config(tracker_cfg_path)
             # Extract tracker_id from the top-level key of the config YAML
             tracker_id = next(iter(tracker_config))
-            logger.info(f"Using custom tracker config: {tracker_cfg_path} (tracker: {tracker_id})")
+            logger.info(
+                f"Using custom tracker config: {tracker_cfg_path} (tracker: {tracker_id})"
+            )
         elif tracker_name is not None:
             # Resolve tracker name via flexible lookup in boxmot_trackers.yaml
-            trackers_yaml_path = octron_base_path / 'tracking/boxmot_trackers.yaml'
+            trackers_yaml_path = (
+                octron_base_path / "tracking/boxmot_trackers.yaml"
+            )
             trackers_dict = load_boxmot_trackers(trackers_yaml_path)
-            tracker_id, tracker_info = resolve_tracker(tracker_name, trackers_dict)
-            tracker_cfg_path = octron_base_path / tracker_info['config_path']
+            tracker_id, tracker_info = resolve_tracker(
+                tracker_name, trackers_dict
+            )
+            tracker_cfg_path = octron_base_path / tracker_info["config_path"]
             tracker_config = load_boxmot_tracker_config(tracker_cfg_path)
             logger.info(f"Resolved tracker '{tracker_name}' -> {tracker_id}")
         else:
@@ -2302,30 +2706,42 @@ class YOLO_octron:
                 "Use tracker_name for name-based lookup (e.g. 'ByteTrack') or "
                 "tracker_cfg_path for a custom tracker config YAML."
             )
-        
+
         if not tracker_config:
-            raise ValueError(f'Tracker config could not be loaded for tracker {tracker_id}')
-        
+            raise ValueError(
+                f"Tracker config could not be loaded for tracker {tracker_id}"
+            )
+
         # Apply user-provided parameter overrides (tracker_params)
         if tracker_params:
-            config_parameters = tracker_config[tracker_id].get('parameters', {})
+            config_parameters = tracker_config[tracker_id].get(
+                "parameters", {}
+            )
             for param_name, param_value in tracker_params.items():
                 if param_name in config_parameters:
-                    tracker_config[tracker_id]['parameters'][param_name]['current_value'] = param_value
-                    logger.debug(f"Tracker param override: {param_name} = {param_value}")
+                    tracker_config[tracker_id]["parameters"][param_name][
+                        "current_value"
+                    ] = param_value
+                    logger.debug(
+                        f"Tracker param override: {param_name} = {param_value}"
+                    )
                 else:
-                    logger.warning(f"Unknown tracker parameter '{param_name}' — ignored. "
-                                   f"Available: {list(config_parameters.keys())}")
+                    logger.warning(
+                        f"Unknown tracker parameter '{param_name}' — ignored. "
+                        f"Available: {list(config_parameters.keys())}"
+                    )
 
         # Check YOLO configuration
         model_path = Path(model_path)
         assert model_path.exists(), f"Model path {model_path} does not exist."
-        
+
         # Determine model task (detect vs segment)
-        model_task = self.get_model_info(model_path).get('task') or 'segment'
-        is_segment = (model_task == 'segment')
-        logger.info(f"Model task: {model_task} ({'segmentation' if is_segment else 'detection'})")
-        
+        model_task = self.get_model_info(model_path).get("task") or "segment"
+        is_segment = model_task == "segment"
+        logger.info(
+            f"Model task: {model_task} ({'segmentation' if is_segment else 'detection'})"
+        )
+
         # Detection models do not produce masks — disable mask-dependent options
         region_details = bool(region_properties) or bool(extra_properties)
         if not is_segment:
@@ -2333,52 +2749,75 @@ class YOLO_octron:
             extra_properties = None
             region_details = False
             opening_radius = 0
-        
+
         # Collect extra property column names from callable __name__
-        extra_prop_names = [fn.__name__ for fn in extra_properties] if extra_properties else []
-        
-        # Try to find model args 
+        extra_prop_names = (
+            [fn.__name__ for fn in extra_properties]
+            if extra_properties
+            else []
+        )
+
+        # Try to find model args
         model_args = self.load_model_args(model_name_path=model_path)
         if model_args is not None:
-            logger.info(f"Model args loaded from {model_path.parent.parent.as_posix()}")
-            imgsz = model_args['imgsz']
-            rect = model_args.get('rect', True)
-            logger.info(f'Image size: {imgsz}, rect={rect}')
+            logger.info(
+                f"Model args loaded from {model_path.parent.parent.as_posix()}"
+            )
+            imgsz = model_args["imgsz"]
+            rect = model_args.get("rect", True)
+            logger.info(f"Image size: {imgsz}, rect={rect}")
         else:
-            logger.info('No model args found, using default image size of 640 and rect=True')
+            logger.info(
+                "No model args found, using default image size of 640 and rect=True"
+            )
             imgsz = 640
             rect = True
-        
+
         skip_frames = int(max(0, skip_frames))
-        
+
         if one_object_per_label:
             logger.warning("Tracking only one object per label.")
-        
+
         # Calculate total frames across all videos
         total_videos = len(videos_dict)
         # Create dictionary of frame iterators, considering skip_frames
         for video_name, video_dict in videos_dict.items():
-            num_frames_total_video = video_dict['num_frames']
+            num_frames_total_video = video_dict["num_frames"]
             frame_iterator = range(0, num_frames_total_video, skip_frames + 1)
-            videos_dict[video_name]['frame_iterator'] = frame_iterator
-            videos_dict[video_name]['num_frames_analyzed'] = len(frame_iterator)
-        
-        total_frames = sum(v['num_frames_analyzed'] for v in videos_dict.values())
-        
+            videos_dict[video_name]["frame_iterator"] = frame_iterator
+            videos_dict[video_name]["num_frames_analyzed"] = len(
+                frame_iterator
+            )
+
+        total_frames = sum(
+            v["num_frames_analyzed"] for v in videos_dict.values()
+        )
+
         # Resolve the optional local prediction cache (explicit opt-in only).
         # Precedence: local_cache_dir argument > config.yaml prediction_cache_dir > off.
         # When enabled, each video's output is written under
         # <cache>/octron_cache_<pid> and moved to its final destination on
         # completion (avoids zarr atomic-write failures on SMB/network shares).
         import atexit
+
         from octron import config as _octron_config
-        from octron.yolo_octron.helpers.cache_io import is_network_path, move_prediction_folder
-        _cache_base = Path(local_cache_dir) if local_cache_dir is not None else _octron_config.get_prediction_cache_dir()
+        from octron.yolo_octron.helpers.cache_io import (
+            is_network_path,
+            move_prediction_folder,
+        )
+
+        _cache_base = (
+            Path(local_cache_dir)
+            if local_cache_dir is not None
+            else _octron_config.get_prediction_cache_dir()
+        )
         _cache_root = None
         if _cache_base is not None:
             _cache_root = Path(_cache_base) / f"octron_cache_{os.getpid()}"
             _cache_root.mkdir(parents=True, exist_ok=True)
-            atexit.register(lambda p=_cache_root: shutil.rmtree(p, ignore_errors=True))
+            atexit.register(
+                lambda p=_cache_root: shutil.rmtree(p, ignore_errors=True)
+            )
             logger.info(f"Local prediction cache: {_cache_root}")
         elif output_dir is not None and is_network_path(output_dir):
             logger.warning(
@@ -2388,38 +2827,54 @@ class YOLO_octron:
             )
 
         # Process each video
-        for video_index, (video_name, video_dict) in enumerate(videos_dict.items(), start=0):
-            num_frames = video_dict['num_frames_analyzed']
-            
-            logger.info(f'Processing video {video_index+1}/{total_videos}: {video_name}')
-            video_path = Path(video_dict['video_file_path'])
-            
+        for video_index, (video_name, video_dict) in enumerate(
+            videos_dict.items(), start=0
+        ):
+            num_frames = video_dict["num_frames_analyzed"]
+
+            logger.info(
+                f"Processing video {video_index + 1}/{total_videos}: {video_name}"
+            )
+            video_path = Path(video_dict["video_file_path"])
+
             # Check overwrite BEFORE loading the model to avoid unnecessary work.
             # The overwrite/skip check is always on the FINAL destination.
             _pred_root = Path(output_dir) if output_dir else video_path.parent
-            final_save_dir = _pred_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
+            final_save_dir = (
+                _pred_root
+                / "octron_predictions"
+                / f"{video_path.stem}_{tracker_name}"
+            )
             if final_save_dir.exists() and overwrite:
                 shutil.rmtree(final_save_dir)
             elif final_save_dir.exists() and not overwrite:
-                logger.info(f"Skipping {video_name}: predictions already exist at {final_save_dir}. Pass --overwrite to replace.")
+                logger.info(
+                    f"Skipping {video_name}: predictions already exist at {final_save_dir}. Pass --overwrite to replace."
+                )
                 yield {
-                    'stage': 'skipped_video',
-                    'video_name': video_name,
-                    'video_index': video_index,
-                    'total_videos': total_videos,
-                    'save_dir': final_save_dir,
+                    "stage": "skipped_video",
+                    "video_name": video_name,
+                    "video_index": video_index,
+                    "total_videos": total_videos,
+                    "save_dir": final_save_dir,
                 }
                 continue
 
             # Where output is actually written: the local cache (if configured)
             # or the final destination directly.
             if _cache_root is not None:
-                save_dir = _cache_root / 'octron_predictions' / f"{video_path.stem}_{tracker_name}"
+                save_dir = (
+                    _cache_root
+                    / "octron_predictions"
+                    / f"{video_path.stem}_{tracker_name}"
+                )
                 if save_dir.exists():
-                    shutil.rmtree(save_dir)  # clear stale cache from a prior run
+                    shutil.rmtree(
+                        save_dir
+                    )  # clear stale cache from a prior run
             else:
                 save_dir = final_save_dir
-            
+
             # Load model anew for every video since the tracker persists
             try:
                 model = self.load_model(model_name_path=model_path)
@@ -2437,116 +2892,131 @@ class YOLO_octron:
             # else:
             #     retina_masks = True
             retina_masks = True if is_segment else False
-            
+
             save_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Set up boxmot tracker 
+
+            # Set up boxmot tracker
             gc.collect()  # Encourage garbage collection of any old tracker objects
-            is_reid = tracker_config[tracker_id]['is_reid']
-            tracker_parameters = tracker_config[tracker_id]['parameters']
-            custom_tracker_params = {} # Transcribe tracker_parameters - only take "current_value"
+            is_reid = tracker_config[tracker_id]["is_reid"]
+            tracker_parameters = tracker_config[tracker_id]["parameters"]
+            custom_tracker_params = {}  # Transcribe tracker_parameters - only take "current_value"
             for param_name, param_config in tracker_parameters.items():
-                assert 'current_value' in param_config
-                custom_tracker_params[param_name] = param_config['current_value']
-            custom_tracker_params['nr_classes'] = len(model.names)
-            per_class = custom_tracker_params.get('per_class', False)
+                assert "current_value" in param_config
+                custom_tracker_params[param_name] = param_config[
+                    "current_value"
+                ]
+            custom_tracker_params["nr_classes"] = len(model.names)
+            per_class = custom_tracker_params.get("per_class", False)
             # Initialize tracker with the custom parameters.
             # Resolve ReID weights into the OCTRON model cache (config.py) so a
             # bare filename like 'osnet_x1_0_market1501.pt' is downloaded next to
             # the YOLO/SAM models.
             reid_weights = None
             if is_reid:
-                reid_model = Path(tracker_config[tracker_id]['reid_model'])
-                if reid_model.parent == Path('.'):
-                    reid_weights = _octron_config.get_reid_weights_dir() / reid_model.name
+                reid_model = Path(tracker_config[tracker_id]["reid_model"])
+                if reid_model.parent == Path("."):
+                    reid_weights = (
+                        _octron_config.get_reid_weights_dir() / reid_model.name
+                    )
                 else:
                     reid_weights = reid_model
             tracker = create_tracker(
-                tracker_type=tracker_config[tracker_id]['tracker_type'],
+                tracker_type=tracker_config[tracker_id]["tracker_type"],
                 reid_weights=reid_weights,
                 device=device,
                 per_class=per_class,
-                evolve_param_dict=custom_tracker_params
+                evolve_param_dict=custom_tracker_params,
             )
             # Reset any internal state the tracker might have
             # September 2025: This is currently not handled consistently across BoxMot trackers
-            # TODO: Follow up on this 
-            if hasattr(tracker, 'reset'):
+            # TODO: Follow up on this
+            if hasattr(tracker, "reset"):
                 tracker.reset()  # Call reset if available
-            elif hasattr(tracker, 'tracker'):
-                if hasattr(tracker.tracker, 'reset'):
-                    tracker.tracker.reset()   
-            if hasattr(tracker, 'tracks'):
+            elif hasattr(tracker, "tracker"):
+                if hasattr(tracker.tracker, "reset"):
+                    tracker.tracker.reset()
+            if hasattr(tracker, "tracks"):
                 tracker.tracks = []
- 
+
             # Prepare prediction stores (segmentation only — detection has no masks)
             prediction_store = None
             if is_segment:
-                prediction_store_dir = save_dir / 'predictions.zarr'
-                prediction_store = create_prediction_store(prediction_store_dir)
-            
+                prediction_store_dir = save_dir / "predictions.zarr"
+                prediction_store = create_prediction_store(
+                    prediction_store_dir
+                )
+
             # Process video frames
-            video = video_dict['video']
+            video = video_dict["video"]
             tracking_df_dict = {}
             track_id_label_dict = {}
             video_prediction_start = time.time()
             frame_start = time.time()
             all_ids = []
-            
+
             # Initialize buffer structures for masks (segmentation only)
             mask_buffers = {}  # track_id -> {frame_idx: mask}
             buffer_counts = {}  # track_id -> count
-            mask_stores = {}   # track_id -> zarr array
-            
+            mask_stores = {}  # track_id -> zarr array
+
             def _flush_mask_buffer(track_id):
-                """
-                Helper to flush a track's mask buffer to disk
-                """
-                if track_id not in buffer_counts or buffer_counts[track_id] == 0:
+                """Helper to flush a track's mask buffer to disk"""
+                if (
+                    track_id not in buffer_counts
+                    or buffer_counts[track_id] == 0
+                ):
                     return
-                    
+
                 # Get the buffer and store
                 mask_buffer = mask_buffers[track_id]
                 mask_store = mask_stores[track_id]
                 frame_indices = sorted(mask_buffer.keys())
-                stacked_masks = np.stack([mask_buffer[idx] for idx in frame_indices])
-                mask_store[frame_indices,:,:] = stacked_masks
+                stacked_masks = np.stack(
+                    [mask_buffer[idx] for idx in frame_indices]
+                )
+                mask_store[frame_indices, :, :] = stacked_masks
                 mark_frames_annotated(mask_store, frame_indices)
-                    
+
                 # Clear buffer
                 mask_buffers[track_id].clear()
                 buffer_counts[track_id] = 0
-                logger.debug(f"Saved mask buffer for track {track_id} to zarr ({len(frame_indices)} frames)")
-            
-            for frame_no, frame_idx in enumerate(video_dict['frame_iterator'], start=0):
+                logger.debug(
+                    f"Saved mask buffer for track {track_id} to zarr ({len(frame_indices)} frames)"
+                )
+
+            for frame_no, frame_idx in enumerate(
+                video_dict["frame_iterator"], start=0
+            ):
                 try:
                     frame = video[frame_idx]
 
                 except StopIteration:
-                    logger.warning(f"Could not read frame {frame_idx} from video {video_name}")
+                    logger.warning(
+                        f"Could not read frame {frame_idx} from video {video_name}"
+                    )
                     continue
-                    
-                # Before processing the results, yield progress information 
-                # This is because we want this information regardless of whether there 
+
+                # Before processing the results, yield progress information
+                # This is because we want this information regardless of whether there
                 # were any detections in the frame
                 # Update timing information
                 if frame_no > 0:
-                    frame_time = time.time()-frame_start
+                    frame_time = time.time() - frame_start
                 else:
                     frame_time = 0
                 yield {
-                    'stage': 'processing',
-                    'video_name': video_name,
-                    'video_index': video_index,
-                    'total_videos': total_videos,
-                    'frame': frame_no + 1,
-                    'total_frames': num_frames,
-                    'frame_time': frame_time,
+                    "stage": "processing",
+                    "video_name": video_name,
+                    "video_index": video_index,
+                    "total_videos": total_videos,
+                    "frame": frame_no + 1,
+                    "total_frames": num_frames,
+                    "frame_time": frame_time,
                 }
                 frame_start = time.time()
                 # Run tracking on this frame
                 results = model.predict(
-                    source=frame, 
+                    source=frame,
                     task=model_task,
                     project=save_dir.parent.as_posix(),
                     name=save_dir.name,
@@ -2558,69 +3028,86 @@ class YOLO_octron:
                     max_det=2000,
                     conf=conf_thresh,
                     iou=iou_thresh,
-                    device=device, 
-                    retina_masks=retina_masks, # original image resolution, not inference resolution
+                    device=device,
+                    retina_masks=retina_masks,  # original image resolution, not inference resolution
                     save_txt=False,
                     save_conf=False,
                 )
-                # Then process the results ...    
+                # Then process the results ...
                 try:
                     confidences = results[0].boxes.conf.cpu().numpy()
                     classes = results[0].boxes.cls.cpu().numpy()
-                    label_names = tuple([results[0].names[int(r)] for r in results[0].boxes.cls.cpu().numpy()])
+                    label_names = tuple(
+                        [
+                            results[0].names[int(r)]
+                            for r in results[0].boxes.cls.cpu().numpy()
+                        ]
+                    )
                     boxes = results[0].boxes.xyxy.cpu().numpy()
                     if is_segment:
                         masks = results[0].masks.data.cpu().numpy()
                     else:
                         masks = None
                 except AttributeError as e:
-                    logger.debug(f'No result for frame_idx {frame_idx}: {e}')
+                    logger.debug(f"No result for frame_idx {frame_idx}: {e}")
                     continue
 
-                # Pass things to the boxmot tracker 
+                # Pass things to the boxmot tracker
                 # INPUT:  M X (x, y, x, y, conf, cls)
-                tracker_input = np.hstack([boxes,
-                                           confidences[:,np.newaxis],
-                                           classes[:,np.newaxis],
-                                          ])
+                tracker_input = np.hstack(
+                    [
+                        boxes,
+                        confidences[:, np.newaxis],
+                        classes[:, np.newaxis],
+                    ]
+                )
                 try:
                     tracking_result = tracker.update(tracker_input, frame)
                 except Exception as e:
-                    logger.warning(f'Tracker error on frame {frame_idx}: {e}')
+                    logger.warning(f"Tracker error on frame {frame_idx}: {e}")
                     continue
                 if tracking_result.shape[0] == 0:
-                    logger.debug(f'No tracking result found for frame_idx {frame_idx}')
+                    logger.debug(
+                        f"No tracking result found for frame_idx {frame_idx}"
+                    )
                     continue
-                
+
                 # Map tracking results to original detections
-                tracked_ids, tracked_idxs = self.map_detection_index(tracker_input,
-                                                                     tracking_result,
-                                                                     per_class=per_class,
-                                                                     verbose=False,
-                                                                     )
+                tracked_ids, tracked_idxs = self.map_detection_index(
+                    tracker_input,
+                    tracking_result,
+                    per_class=per_class,
+                    verbose=False,
+                )
                 # Skip if no valid tracks found
                 if not tracked_idxs:
-                    logger.debug(f'No valid tracks mapped for frame_idx {frame_idx}')
+                    logger.debug(
+                        f"No valid tracks mapped for frame_idx {frame_idx}"
+                    )
                     continue
-                            
+
                 # Filter all result arrays using tracked_box_indices
                 tracked_confidences = confidences[tracked_idxs]
                 tracked_label_names = [label_names[i] for i in tracked_idxs]
                 tracked_boxes = boxes[tracked_idxs]
-                tracked_masks = masks[tracked_idxs] if is_segment else [None] * len(tracked_idxs)
+                tracked_masks = (
+                    masks[tracked_idxs]
+                    if is_segment
+                    else [None] * len(tracked_idxs)
+                )
 
-                # Extract tracks 
-                for track_id, label, conf, bbox, mask in zip(tracked_ids,
-                                                             tracked_label_names, 
-                                                             tracked_confidences,
-                                                             tracked_boxes,
-                                                             tracked_masks, 
-                                                             ):
-                    
-                    # Figure out if you can use the track_id or whether it needs 
+                # Extract tracks
+                for track_id, label, conf, bbox, mask in zip(
+                    tracked_ids,
+                    tracked_label_names,
+                    tracked_confidences,
+                    tracked_boxes,
+                    tracked_masks,
+                ):
+                    # Figure out if you can use the track_id or whether it needs
                     # to be replaced - this is a special case for when "1 subject" (one_object_per_label)
                     # is active
-                    
+
                     if one_object_per_label or iou_thresh < 0.01:
                         # ! Use 'label' as keys in track_id_label_dict
                         # There is only one object/track ID per label
@@ -2630,66 +3117,83 @@ class YOLO_octron:
                         else:
                             # Assign a new, custom track ID
                             current_ids = list(track_id_label_dict.values())
-                            track_id = (max(current_ids) + 1) if current_ids else 1
+                            track_id = (
+                                (max(current_ids) + 1) if current_ids else 1
+                            )
                             track_id_label_dict[label] = track_id
-                    else: 
+                    else:
                         # ! Use 'track_id' as keys in track_id_label_dict
                         # There can be multiple objects/track IDs per label
                         if track_id in track_id_label_dict:
                             label_ = track_id_label_dict[track_id]
-                            if label_ != label: 
-                                raise IndexError(f'Track ID {track_id} - labels do not match: LABEL {label_} =! {label}')
-                                # This happens in cases 
-                                # where the same track ID is assigned to different labels over time 
+                            if label_ != label:
+                                raise IndexError(
+                                    f"Track ID {track_id} - labels do not match: LABEL {label_} =! {label}"
+                                )
+                                # This happens in cases
+                                # where the same track ID is assigned to different labels over time
                                 # Assign a new track ID
                                 # Get the largest key + 1, or start at 1 if dict is empty
                                 # current_ids = list(track_id_label_dict.keys())
                                 # track_id = (max(current_ids) + 1) if current_ids else 1
                                 # track_id_label_dict[track_id] = label
                         else:
-                            track_id_label_dict[track_id] = label   
-                        
-                    # Take care of zarr array and tracking dataframe 
-                    if not track_id in all_ids:
+                            track_id_label_dict[track_id] = label
+
+                    # Take care of zarr array and tracking dataframe
+                    if track_id not in all_ids:
                         # Initialize mask store (only for segmentation models)
                         if is_segment:
-                            video_shape = (video_dict['num_frames'], video_dict['height'], video_dict['width'])   
-                            mask_store = create_prediction_zarr(prediction_store, 
-                                            f'{track_id}_masks',
-                                            shape=video_shape,
-                                            chunk_size=1,  # 1 frame/chunk: napari reads one frame per seek.
-                                            fill_value=-1,
-                                            dtype='int8',                           
-                                            video_hash=''
-                                            )
-                            mask_store.attrs['label'] = label
-                            mask_store.attrs['classes'] = results[0].names
+                            video_shape = (
+                                video_dict["num_frames"],
+                                video_dict["height"],
+                                video_dict["width"],
+                            )
+                            mask_store = create_prediction_zarr(
+                                prediction_store,
+                                f"{track_id}_masks",
+                                shape=video_shape,
+                                chunk_size=1,  # 1 frame/chunk: napari reads one frame per seek.
+                                fill_value=-1,
+                                dtype="int8",
+                                video_hash="",
+                            )
+                            mask_store.attrs["label"] = label
+                            mask_store.attrs["classes"] = results[0].names
                             mask_buffers[track_id] = {}
                             buffer_counts[track_id] = 0
                             mask_stores[track_id] = mask_store
-                        
+
                         # Initialize tracking dataframe
-                        tracking_df = self.create_tracking_dataframe(video_dict, 
-                                                                     region_properties=region_properties,
-                                                                     extra_properties=extra_properties)
-                        tracking_df.attrs['video_name'] = video_name
-                        tracking_df.attrs['label'] = label
-                        tracking_df.attrs['track_id'] = track_id
+                        tracking_df = self.create_tracking_dataframe(
+                            video_dict,
+                            region_properties=region_properties,
+                            extra_properties=extra_properties,
+                        )
+                        tracking_df.attrs["video_name"] = video_name
+                        tracking_df.attrs["label"] = label
+                        tracking_df.attrs["track_id"] = track_id
                         tracking_df_dict[track_id] = tracking_df
 
                         all_ids.append(track_id)
                     else:
                         tracking_df = tracking_df_dict[track_id]
-                        assert tracking_df.attrs['track_id'] == track_id, "ID mismatch" 
-                        assert tracking_df.attrs['label'] == label, "Label mismatch"
+                        assert tracking_df.attrs["track_id"] == track_id, (
+                            "ID mismatch"
+                        )
+                        assert tracking_df.attrs["label"] == label, (
+                            "Label mismatch"
+                        )
                         if is_segment:
                             mask_store = mask_stores[track_id]
 
                     # Check if a row already exists and compare current confidence with existing one
-                    # This happens if one_object_per_label is True or iou_thresh < 0.01 
+                    # This happens if one_object_per_label is True or iou_thresh < 0.01
                     # and there are multiple detections
                     if (frame_no, frame_idx, track_id) in tracking_df.index:
-                        existing_conf = tracking_df.loc[(frame_no, frame_idx, track_id), 'confidence']
+                        existing_conf = tracking_df.loc[
+                            (frame_no, frame_idx, track_id), "confidence"
+                        ]
                         if conf <= existing_conf and iou_thresh >= 0.01:
                             # Skip this detection if a better one already exists
                             # and we are not fusing masks (iou_thresh > 0)
@@ -2697,44 +3201,71 @@ class YOLO_octron:
                         else:
                             # Average the confidence values
                             conf = (conf + existing_conf) / 2
-                    
+
                     # Mask processing (segmentation models only)
                     if is_segment:
-                        mask = postprocess_mask(mask, opening_radius=opening_radius)
+                        mask = postprocess_mask(
+                            mask, opening_radius=opening_radius
+                        )
                         if iou_thresh < 0.01:
                             # Fuse this mask with prior mask (if any) from buffer or zarr
                             if frame_idx in mask_buffers[track_id]:
-                                previous_mask = mask_buffers[track_id][frame_idx].copy()
+                                previous_mask = mask_buffers[track_id][
+                                    frame_idx
+                                ].copy()
                             else:
-                                previous_mask = mask_store[frame_idx,:,:].copy()
+                                previous_mask = mask_store[
+                                    frame_idx, :, :
+                                ].copy()
                                 previous_mask[previous_mask == -1] = 0
                             mask = np.logical_or(previous_mask, mask)
-                            mask = mask.astype('int8')
+                            mask = mask.astype("int8")
                         # Add to buffer instead of writing directly
                         mask_buffers[track_id][frame_idx] = mask
-                        buffer_counts[track_id] = buffer_counts.get(track_id, 0) + 1
+                        buffer_counts[track_id] = (
+                            buffer_counts.get(track_id, 0) + 1
+                        )
                         if buffer_counts[track_id] >= buffer_size:
                             _flush_mask_buffer(track_id)
-                    
+
                     # Store tracking data directly (no buffering for tracking dataframes)
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_x'] = (bbox[0] + bbox[2])/2
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_y'] = (bbox[1] + bbox[3])/2
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "pos_x"
+                    ] = (bbox[0] + bbox[2]) / 2
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "pos_y"
+                    ] = (bbox[1] + bbox[3]) / 2
                     bbox_w = bbox[2] - bbox[0]
                     bbox_h = bbox[3] - bbox[1]
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_area'] = bbox_w * bbox_h
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_aspect_ratio'] = bbox_w / bbox_h if bbox_h > 0 else np.nan
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_x_min'] = bbox[0]
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_x_max'] = bbox[2]
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_y_min'] = bbox[1]
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'bbox_y_max'] = bbox[3]
-                    tracking_df.loc[(frame_no, frame_idx, track_id), 'confidence'] = conf
-                                            
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "bbox_area"
+                    ] = bbox_w * bbox_h
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "bbox_aspect_ratio"
+                    ] = bbox_w / bbox_h if bbox_h > 0 else np.nan
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "bbox_x_min"
+                    ] = bbox[0]
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "bbox_x_max"
+                    ] = bbox[2]
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "bbox_y_min"
+                    ] = bbox[1]
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "bbox_y_max"
+                    ] = bbox[3]
+                    tracking_df.loc[
+                        (frame_no, frame_idx, track_id), "confidence"
+                    ] = conf
+
                     # If region_properties or extra_properties are specified, supplement info from regionprops extraction
                     # (only available for segmentation models with masks)
                     regions_props = None
                     if region_details and is_segment:
                         _, regions_props = find_objects_in_mask(
-                            mask, min_area=0, 
+                            mask,
+                            min_area=0,
                             properties=region_properties,
                             intensity_image=frame,
                             extra_properties=extra_properties,
@@ -2742,19 +3273,27 @@ class YOLO_octron:
                         if not regions_props:
                             # Skip if no regions were found
                             continue
-                        
+
                         # Collect property keys (expanded names from regionprops_table)
-                        _skip = {'label', 'centroid'}
-                        all_prop_keys = [k for k in regions_props[0] if k not in _skip]
-                        
+                        _skip = {"label", "centroid"}
+                        all_prop_keys = [
+                            k for k in regions_props[0] if k not in _skip
+                        ]
+
                         if len(regions_props) == 1:
                             # Single region — store scalars directly
                             region = regions_props[0]
-                            centroid = region['centroid']
-                            tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_x'] = centroid[1]
-                            tracking_df.loc[(frame_no, frame_idx, track_id), 'pos_y'] = centroid[0]
+                            centroid = region["centroid"]
+                            tracking_df.loc[
+                                (frame_no, frame_idx, track_id), "pos_x"
+                            ] = centroid[1]
+                            tracking_df.loc[
+                                (frame_no, frame_idx, track_id), "pos_y"
+                            ] = centroid[0]
                             for k in all_prop_keys:
-                                tracking_df.loc[(frame_no, frame_idx, track_id), k] = region[k]
+                                tracking_df.loc[
+                                    (frame_no, frame_idx, track_id), k
+                                ] = region[k]
                         else:
                             # Multiple disconnected regions in one detection mask.
                             # Store a tuple of per-region values as a string so no
@@ -2763,30 +3302,36 @@ class YOLO_octron:
                             # cannot hold tuple objects) and is parsed back by
                             # _resolve_tuples() during results loading.
                             idx = (frame_no, frame_idx, track_id)
-                            centroids = [r['centroid'] for r in regions_props]
-                            tracking_df.loc[idx, 'pos_x'] = str(tuple(float(c[1]) for c in centroids))
-                            tracking_df.loc[idx, 'pos_y'] = str(tuple(float(c[0]) for c in centroids))
+                            centroids = [r["centroid"] for r in regions_props]
+                            tracking_df.loc[idx, "pos_x"] = str(
+                                tuple(float(c[1]) for c in centroids)
+                            )
+                            tracking_df.loc[idx, "pos_y"] = str(
+                                tuple(float(c[0]) for c in centroids)
+                            )
                             for k in all_prop_keys:
-                                tracking_df.loc[idx, k] = str(tuple(float(r[k]) for r in regions_props))
+                                tracking_df.loc[idx, k] = str(
+                                    tuple(float(r[k]) for r in regions_props)
+                                )
 
                 # A FRAME IS COMPLETE
-            
-            # A VIDEO IS COMPLETE 
+
+            # A VIDEO IS COMPLETE
             if is_segment:
                 for track_id in all_ids:
                     _flush_mask_buffer(track_id)
-                
+
             # Save each tracking DataFrame with a label column added
             for track_id, tr_df in tracking_df_dict.items():
                 label = tr_df.attrs["label"]
                 df_to_save = tr_df.copy()
                 # Add the label column (will be filled with the same value for all rows)
-                df_to_save.insert(0, 'label', label)
-                
+                df_to_save.insert(0, "label", label)
+
                 # Save to CSV with metadata header
-                filename = f'{label}_track_{track_id}.csv'
+                filename = f"{label}_track_{track_id}.csv"
                 csv_path = save_dir / filename
-                
+
                 # Create header with metadata
                 header = [
                     f"video_name: {tr_df.attrs.get('video_name', 'unknown')}",
@@ -2795,67 +3340,77 @@ class YOLO_octron:
                     f"video_height: {tr_df.attrs.get('video_height', '')}",
                     f"video_width: {tr_df.attrs.get('video_width', '')}",
                     f"created_at: {tr_df.attrs.get('created_at', str(datetime.now()))}",
-                    "", #Empty line for separation
+                    "",  # Empty line for separation
                 ]
-                
+
                 # Write the header and then the data
-                with open(csv_path, 'w') as f:
-                    f.write('\n'.join(header) + '\n') 
-                    df_to_save.to_csv(f, na_rep='NaN', lineterminator='\n')
-                logger.debug(f"Saved tracking data for '{label}' (track ID: {track_id}) to {filename}")
-            
-            # Save a json file with all metadata / parameters used for prediction 
-            json_meta_path = save_dir / 'prediction_metadata.json'
-            
+                with open(csv_path, "w") as f:
+                    f.write("\n".join(header) + "\n")
+                    df_to_save.to_csv(f, na_rep="NaN", lineterminator="\n")
+                logger.debug(
+                    f"Saved tracking data for '{label}' (track ID: {track_id}) to {filename}"
+                )
+
+            # Save a json file with all metadata / parameters used for prediction
+            json_meta_path = save_dir / "prediction_metadata.json"
+
             # Prepare model_path for metadata: try to make it relative if project_path is set
             meta_model_path_str = model_path.as_posix()
             if self.project_path:
                 try:
-                    meta_model_path_str = Path(os.path.relpath(model_path, self.project_path)).as_posix()
-                except ValueError: # Happens if model_path is not under project_path
-                    pass 
+                    meta_model_path_str = Path(
+                        os.path.relpath(model_path, self.project_path)
+                    ).as_posix()
+                except (
+                    ValueError
+                ):  # Happens if model_path is not under project_path
+                    pass
 
             # Before saving metadata, get rid of some unnecessary fields
             if model_args is not None:
                 for key in [
-                    'project_path',
-                    'name',
-                    'mode',
-                    'project',
-                    'model',
-                    'data',
-                    'disk',
-                    'show',
-                    'save_frames',
-                    'save_txt',
-                    'save_conf',
-                    'save_crop',
-                    'show_labels',
-                    'show_conf',
-                    'show_boxes',
-                    'line_width',
-                    'workers',
-                    'cache',
-                    'save_dir',
+                    "project_path",
+                    "name",
+                    "mode",
+                    "project",
+                    "model",
+                    "data",
+                    "disk",
+                    "show",
+                    "save_frames",
+                    "save_txt",
+                    "save_conf",
+                    "save_crop",
+                    "show_labels",
+                    "show_conf",
+                    "show_boxes",
+                    "line_width",
+                    "workers",
+                    "cache",
+                    "save_dir",
                 ]:
-                    model_args.pop(key, None)  
-                    
-            if 'reid_weights' in custom_tracker_params:
-                _ = custom_tracker_params.pop('reid_weights') # This info exists twice
-            
+                    model_args.pop(key, None)
+
+            if "reid_weights" in custom_tracker_params:
+                _ = custom_tracker_params.pop(
+                    "reid_weights"
+                )  # This info exists twice
+
             metadata_to_save = {
                 "octron_version": octron_version,
-                "prediction_start_timestamp": datetime.fromtimestamp(video_prediction_start).isoformat(), 
+                "prediction_start_timestamp": datetime.fromtimestamp(
+                    video_prediction_start
+                ).isoformat(),
                 "prediction_end_timestamp": datetime.now().isoformat(),
                 "model_classes": {str(k): v for k, v in model.names.items()},
                 "video_info": {
                     "original_video_name": video_name,
-                    "original_video_path": video_dict['video_file_path'],
-                    "num_frames_original": video_dict['num_frames'],
-                    "num_frames_analyzed": video_dict['num_frames_analyzed'],
-                    "height": video_dict['height'],
-                    "width": video_dict['width'],
-                    "fps_original": video_dict.get('fps', 'unknown'),
+                    "original_video_path": video_dict["video_file_path"],
+                    "num_frames_original": video_dict["num_frames"],
+                    "num_frames_analyzed": video_dict["num_frames_analyzed"],
+                    "height": video_dict["height"],
+                    "width": video_dict["width"],
+                    "fps_original": video_dict.get("fps", "unknown"),
                     "channel_order": "rgb",  # FastVideoReader uses read_format='rgb24'; intensity columns -0, -1, -2 map to R, G, B
                 },
                 "prediction_parameters": {
@@ -2863,8 +3418,14 @@ class YOLO_octron:
                     "model_task": model_task,
                     "model_imgsz": imgsz,
                     "model_retina_masks": retina_masks,
-                    "region_properties": list(region_properties) if region_properties else None,
-                    "extra_properties": [fn.__name__ for fn in extra_properties] if extra_properties else None,
+                    "region_properties": list(region_properties)
+                    if region_properties
+                    else None,
+                    "extra_properties": [
+                        fn.__name__ for fn in extra_properties
+                    ]
+                    if extra_properties
+                    else None,
                     "device": device,
                     "tracker_name": tracker_name,
                     "skip_frames": skip_frames,
@@ -2875,18 +3436,24 @@ class YOLO_octron:
                     "overwrite_existing_predictions": overwrite,
                 },
                 "tracker_configuration": {
-                    "tracker_type": tracker_config[tracker_id]['tracker_type'],
+                    "tracker_type": tracker_config[tracker_id]["tracker_type"],
                     "is_reid": is_reid,
-                    "reid_model": tracker_config[tracker_id]['reid_model'] if is_reid else None,
+                    "reid_model": tracker_config[tracker_id]["reid_model"]
+                    if is_reid
+                    else None,
                     "parameters": custom_tracker_params,  # All parameters from evolve_param_dict
                 },
-                "original_model_training_args": model_args if model_args is not None else "Model args not found",
+                "original_model_training_args": model_args
+                if model_args is not None
+                else "Model args not found",
             }
-            
-            with open(json_meta_path, 'w') as f:
+
+            with open(json_meta_path, "w") as f:
                 json.dump(metadata_to_save, f, indent=4)
-            logger.info(f"Saved prediction metadata to {json_meta_path.as_posix()}")
-            
+            logger.info(
+                f"Saved prediction metadata to {json_meta_path.as_posix()}"
+            )
+
             # When caching, close the zarr stores and move the completed video
             # folder to its final destination before reporting it, so consumers
             # (e.g. the GUI) load results from the final location.
@@ -2904,65 +3471,68 @@ class YOLO_octron:
                 reported_save_dir = final_save_dir
 
             yield {
-                    'stage': 'video_complete',
-                    'video_name': video_name,
-                    'save_dir': reported_save_dir,
-                }
-            
-            
+                "stage": "video_complete",
+                "video_name": video_name,
+                "save_dir": reported_save_dir,
+            }
+
         # Clean up the local cache root (each completed video was already moved
         # to its final destination at its video_complete).
         if _cache_root is not None and _cache_root.exists():
             shutil.rmtree(_cache_root, ignore_errors=True)
 
-        # ALL COMPLETE    
+        # ALL COMPLETE
         yield {
-            'stage': 'complete',
-            'total_videos': total_videos,
-            'total_frames': total_frames,
+            "stage": "complete",
+            "total_videos": total_videos,
+            "total_frames": total_frames,
         }
-                
-    
-    def create_tracking_dataframe(self, 
-                                  video_dict, 
-                                  region_properties=None,
-                                  extra_properties=None,
-                                  ):
-        """
-        Create an empty DataFrame for storing tracking data and associated metadata
-        I am using the video_dict to get number of frames that are expected for the 
+
+    def create_tracking_dataframe(
+        self,
+        video_dict,
+        region_properties=None,
+        extra_properties=None,
+    ):
+        """Create an empty DataFrame for storing tracking data and associated metadata
+        I am using the video_dict to get number of frames that are expected for the
         tracking dataframe and to store the video metadata in the DataFrame attributes.
-        
+
         Parameters
         ----------
         video_dict : dict
             Dictionary with video metadata including num_frames
         region_properties : list or tuple, optional
-            Region-property columns are added dynamically during prediction (not pre-created), 
+            Region-property columns are added dynamically during prediction (not pre-created),
             because regionprops_table may expand one property into several columns:
             Ontensity-based functions expand to one column per image channel (e.g. <name>-0/-1/-2 for RGB).
         extra_properties : tuple of callables, optional
             Custom-function columns. Intensity-based functions expand to
             one column per image channel (e.g. <name>-0/-1/-2 for RGB).
-            
+
         Returns
         -------
         pd.DataFrame
             Empty DataFrame initialized for tracking data
+
         """
         import pandas as pd
-        assert 'num_frames_analyzed' in video_dict, "Video metadata must include 'num_frames_analyzed'"
+
+        assert "num_frames_analyzed" in video_dict, (
+            "Video metadata must include 'num_frames_analyzed'"
+        )
         # Create a flat column structure — base columns are always present
-        columns = ['confidence', 
-                'pos_x', 
-                'pos_y', 
-                'bbox_area',
-                'bbox_aspect_ratio',
-                'bbox_x_min',
-                'bbox_x_max',
-                'bbox_y_min',
-                'bbox_y_max',
-                ]
+        columns = [
+            "confidence",
+            "pos_x",
+            "pos_y",
+            "bbox_area",
+            "bbox_aspect_ratio",
+            "bbox_x_min",
+            "bbox_x_max",
+            "bbox_y_min",
+            "bbox_y_max",
+        ]
         # Region-property AND extra-property columns are NOT pre-created here.
         # regionprops_table may expand a single property into multiple columns
         # (e.g. intensity_mean -> intensity_mean-0, -1, -2 for RGB;
@@ -2977,39 +3547,41 @@ class YOLO_octron:
 
         # Initialize the DataFrame with NaN values
         df = pd.DataFrame(
-            index=pd.MultiIndex.from_product([
-                list(range(video_dict['num_frames_analyzed'])), 
-                [], # Empty frame_idx list - will be populated during tracking
-                []  # Empty track_id list - will be populated during tracking
-            ], names=['frame_counter', 'frame_idx', 'track_id']),
+            index=pd.MultiIndex.from_product(
+                [
+                    list(range(video_dict["num_frames_analyzed"])),
+                    [],  # Empty frame_idx list - will be populated during tracking
+                    [],  # Empty track_id list - will be populated during tracking
+                ],
+                names=["frame_counter", "frame_idx", "track_id"],
+            ),
             columns=columns,
-
         )
         # Add metadata as DataFrame attributes
         df.attrs = {
-            'video_hash': video_dict.get('hash', ''), 
-            'video_name': None,  # Will be filled in later
-            'video_height': video_dict.get('height', np.nan),
-            'video_width': video_dict.get('width', np.nan),
-            'frame_count': video_dict['num_frames'],
-            'frame_count_analyzed': video_dict['num_frames_analyzed'],
-            'created_at': str(datetime.now())
+            "video_hash": video_dict.get("hash", ""),
+            "video_name": None,  # Will be filled in later
+            "video_height": video_dict.get("height", np.nan),
+            "video_width": video_dict.get("width", np.nan),
+            "frame_count": video_dict["num_frames"],
+            "frame_count_analyzed": video_dict["num_frames_analyzed"],
+            "created_at": str(datetime.now()),
         }
-        
+
         return df
 
-    def load_predictions(self, 
-                         save_dir,
-                         sigma_tracking_pos=2,
-                         open_viewer=True,
-                         ):
-        """
-        Load the predictions in a OCTRON (YOLO) output directory 
+    def load_predictions(
+        self,
+        save_dir,
+        sigma_tracking_pos=2,
+        open_viewer=True,
+    ):
+        """Load the predictions in a OCTRON (YOLO) output directory
         and optionally display them in a new napari viewer.
-        
+
         Parameters
         ----------
-        save_dir : str or Path  
+        save_dir : str or Path
             Path to the directory with the predictions
         sigma_tracking_pos : int
             Sigma value for tracking position smoothing
@@ -3019,7 +3591,7 @@ class YOLO_octron:
 
 
         Yields
-        -------
+        ------
         6 objects in total
         label : str
             Label of the object
@@ -3027,80 +3599,142 @@ class YOLO_octron:
             Track ID of the object
         color : array-like
             RGBA color of the object (range 0-1)
-        tracking_data : pd.DataFrame  
+        tracking_data : pd.DataFrame
             DataFrame with tracking data for the object
         features_data : pd.DataFrame
             DataFrame with features data for the object
-        masks : zarr.Array  
+        masks : zarr.Array
             Zarr array with masks for the object
-            
-            
+
+
         """
         yolo_results = YOLO_results(save_dir)
         track_id_label = yolo_results.track_id_label
-        assert track_id_label is not None, "No track ID - label mapping found in the results"
+        assert track_id_label is not None, (
+            "No track ID - label mapping found in the results"
+        )
         has_masks = yolo_results.has_masks
-        tracking_data = yolo_results.get_tracking_data(interpolate=True,
-                                                       interpolate_method='linear',
-                                                       interpolate_limit=None,
-                                                       sigma=sigma_tracking_pos,
-                                                       )
+        tracking_data = yolo_results.get_tracking_data(
+            interpolate=True,
+            interpolate_method="linear",
+            interpolate_limit=None,
+            sigma=sigma_tracking_pos,
+        )
         mask_data = yolo_results.get_mask_data() if has_masks else {}
 
         if open_viewer:
-            viewer = napari.Viewer()    
-            if yolo_results.video is not None and yolo_results.video_dict is not None:
-                add_layer = getattr(viewer, "add_image")
-                layer_dict = {'name'    : yolo_results.video_dict['video_name'],
-                              'metadata': yolo_results.video_dict,   
-                              }
+            viewer = napari.Viewer()
+            if (
+                yolo_results.video is not None
+                and yolo_results.video_dict is not None
+            ):
+                add_layer = viewer.add_image
+                layer_dict = {
+                    "name": yolo_results.video_dict["video_name"],
+                    "metadata": yolo_results.video_dict,
+                }
                 add_layer(yolo_results.video, **layer_dict)
-            elif yolo_results.height is not None and yolo_results.width is not None:
-                add_layer = getattr(viewer, "add_image")
-                layer_dict = {'name': 'dummy mask'}
-                add_layer(np.zeros((yolo_results.height, yolo_results.width)), **layer_dict)
+            elif (
+                yolo_results.height is not None
+                and yolo_results.width is not None
+            ):
+                add_layer = viewer.add_image
+                layer_dict = {"name": "dummy mask"}
+                add_layer(
+                    np.zeros((yolo_results.height, yolo_results.width)),
+                    **layer_dict,
+                )
             else:
                 if not has_masks:
-                    logger.warning("Detection results — no video or mask dimensions available for viewer background.")
+                    logger.warning(
+                        "Detection results — no video or mask dimensions available for viewer background."
+                    )
                 else:
-                    raise ValueError("Could not load video or mask metadata for viewer")
-        
+                    raise ValueError(
+                        "Could not load video or mask metadata for viewer"
+                    )
+
         # Collect results per track for ordered layer addition
         results_per_track = []
         for track_id, label in track_id_label.items():
             if track_id not in tracking_data:
-                logger.warning(f"No tracking data for track_id {track_id} (label '{label}'), skipping.")
+                logger.warning(
+                    f"No tracking data for track_id {track_id} (label '{label}'), skipping."
+                )
                 continue
-            color, napari_colormap = yolo_results.get_color_for_track_id(track_id)
-            tracking_df = tracking_data[track_id]['data']
-            features_df = tracking_data[track_id]['features']
-            masks = mask_data[track_id]['data'] if track_id in mask_data else None
-            results_per_track.append((track_id, label, color, napari_colormap, tracking_df, features_df, masks))
+            color, napari_colormap = yolo_results.get_color_for_track_id(
+                track_id
+            )
+            tracking_df = tracking_data[track_id]["data"]
+            features_df = tracking_data[track_id]["features"]
+            masks = (
+                mask_data[track_id]["data"] if track_id in mask_data else None
+            )
+            results_per_track.append(
+                (
+                    track_id,
+                    label,
+                    color,
+                    napari_colormap,
+                    tracking_df,
+                    features_df,
+                    masks,
+                )
+            )
 
         if open_viewer:
             # Add mask layers first (bottom)
-            for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
+            for (
+                track_id,
+                label,
+                color,
+                napari_colormap,
+                tracking_df,
+                features_df,
+                masks,
+            ) in results_per_track:
                 if masks is not None:
                     viewer.add_labels(
                         masks,
-                        name=f'{label} - MASKS - id {track_id}',
+                        name=f"{label} - MASKS - id {track_id}",
                         opacity=0.5,
-                        blending='translucent',
+                        blending="translucent",
                         colormap=napari_colormap,
                         visible=True,
                     )
             # Add track layers second (on top)
-            for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
-                viewer.add_tracks(tracking_df.values,
-                                  features=features_df.to_dict(orient='list'),
-                                  blending='translucent',
-                                  name=f'{label} - id {track_id}',
-                                  colormap='hsv',
-                            )
-                viewer.layers[f'{label} - id {track_id}'].tail_width = 3
-                viewer.layers[f'{label} - id {track_id}'].tail_length = min(yolo_results.num_frames, 250)
-                viewer.layers[f'{label} - id {track_id}'].color_by = 'frame_idx'
+            for (
+                track_id,
+                label,
+                color,
+                napari_colormap,
+                tracking_df,
+                features_df,
+                masks,
+            ) in results_per_track:
+                viewer.add_tracks(
+                    tracking_df.values,
+                    features=features_df.to_dict(orient="list"),
+                    blending="translucent",
+                    name=f"{label} - id {track_id}",
+                    colormap="hsv",
+                )
+                viewer.layers[f"{label} - id {track_id}"].tail_width = 3
+                viewer.layers[f"{label} - id {track_id}"].tail_length = min(
+                    yolo_results.num_frames, 250
+                )
+                viewer.layers[
+                    f"{label} - id {track_id}"
+                ].color_by = "frame_idx"
             viewer.dims.set_point(0, 0)
 
-        for track_id, label, color, napari_colormap, tracking_df, features_df, masks in results_per_track:
+        for (
+            track_id,
+            label,
+            color,
+            napari_colormap,
+            tracking_df,
+            features_df,
+            masks,
+        ) in results_per_track:
             yield label, track_id, color, tracking_df, features_df, masks

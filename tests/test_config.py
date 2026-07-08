@@ -1,5 +1,4 @@
-"""
-Tests for the OCTRON user-config loader (octron/config.py).
+"""Tests for the OCTRON user-config loader (octron/config.py).
 
 The loader is intentionally lightweight (stdlib + yaml + loguru), so these
 tests need no project, model, or napari import.  ``OCTRON_CONFIG_PATH`` is
@@ -24,6 +23,7 @@ def cfg_path(tmp_path, monkeypatch):
 # Location
 # ---------------------------------------------------------------------------
 
+
 def test_config_path_respects_env(cfg_path):
     assert config.config_path() == cfg_path
 
@@ -31,6 +31,7 @@ def test_config_path_respects_env(cfg_path):
 # ---------------------------------------------------------------------------
 # Defaults / load
 # ---------------------------------------------------------------------------
+
 
 def test_defaults_when_no_file(cfg_path):
     assert not cfg_path.exists()
@@ -56,6 +57,7 @@ def test_malformed_file_falls_back_to_defaults(cfg_path):
 # set_value / round-trip
 # ---------------------------------------------------------------------------
 
+
 def test_set_and_get_roundtrip(cfg_path, tmp_path):
     cache = tmp_path / "scratch"
     written = config.set_value("prediction_cache_dir", str(cache))
@@ -73,7 +75,9 @@ def test_empty_string_means_caching_off(cfg_path):
 
 def test_tilde_is_expanded_on_read(cfg_path):
     config.set_value("prediction_cache_dir", "~/octron_scratch")
-    assert config.get_prediction_cache_dir() == (Path.home() / "octron_scratch")
+    assert config.get_prediction_cache_dir() == (
+        Path.home() / "octron_scratch"
+    )
 
 
 def test_set_value_preserves_unrelated_file_content(cfg_path):
@@ -89,6 +93,7 @@ def test_set_value_preserves_unrelated_file_content(cfg_path):
 # Unknown keys
 # ---------------------------------------------------------------------------
 
+
 def test_get_value_rejects_unknown_key(cfg_path):
     with pytest.raises(KeyError):
         config.get_value("nope")
@@ -103,6 +108,7 @@ def test_set_value_rejects_unknown_key(cfg_path):
 # Schema introspection (drives the CLI / settings dialog)
 # ---------------------------------------------------------------------------
 
+
 def test_specs_includes_prediction_cache_dir(cfg_path):
     by_key = {s.key: s for s in config.specs()}
     assert "prediction_cache_dir" in by_key
@@ -115,6 +121,7 @@ def test_specs_includes_prediction_cache_dir(cfg_path):
 # ---------------------------------------------------------------------------
 # Model cache dir (downloaded weights / checkpoints)
 # ---------------------------------------------------------------------------
+
 
 def test_model_cache_dir_defaults_to_user_cache(cfg_path):
     # Unset -> per-user cache dir for "octron" (does NOT create it).

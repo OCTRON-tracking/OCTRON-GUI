@@ -1,7 +1,7 @@
 StrongSort:
   name: StrongSort
   tracker_type: "strongsort"
-  is_reid: true # Is this a model that uses ReID in some form or another? 
+  is_reid: true # Is this a model that uses ReID in some form or another?
   reid_model: 'osnet_x1_0_market1501.pt'
   win_height: 560
   parameters:
@@ -15,7 +15,7 @@ StrongSort:
       range:
       - 0.0
       - 1.0
-      
+
     max_age:
       current_value: 300
       default_value: 300
@@ -25,7 +25,7 @@ StrongSort:
       range:
       - 1
       - 10000
-      
+
     max_obs:
       current_value: 305
       default_value: 305
@@ -35,7 +35,7 @@ StrongSort:
       range:
       - 5
       - 10000
-      
+
     min_hits:
       current_value: 3
       default_value: 3
@@ -45,7 +45,7 @@ StrongSort:
       range:
       - 1
       - 20
-      
+
     iou_threshold:
       current_value: 0.3
       default_value: 0.3
@@ -55,14 +55,14 @@ StrongSort:
       range:
       - 0.1
       - 0.9
-      
+
     per_class:
       current_value: false
       default_value: false
       disabled: false
       docstring: Enables class-separated tracking. When true, tracks different object classes separately
       gui_element: checkbox
-      
+
     nr_classes:
       current_value: 80
       default_value: 80
@@ -72,7 +72,7 @@ StrongSort:
       range:
       - 1
       - 100
-      
+
     asso_func:
       current_value: iou
       default_value: iou
@@ -86,14 +86,14 @@ StrongSort:
       - ciou
       - diou
       - centroid
-      
+
     is_obb:
       current_value: false
       default_value: false
       disabled: true
       docstring: Work with Oriented Bounding Boxes instead of standard axis-aligned bounding boxes
       gui_element: checkbox
-      
+
     # StrongSort-specific parameters
     half:
       current_value: false
@@ -101,7 +101,7 @@ StrongSort:
       disabled: false
       docstring: Whether to use half-precision (fp16) for faster inference
       gui_element: checkbox
-      
+
     min_conf:
       current_value: 0.4
       default_value: 0.4
@@ -111,7 +111,7 @@ StrongSort:
       range:
       - 0.0
       - 1.0
-      
+
     max_cos_dist:
       current_value: 0.3
       default_value: 0.3
@@ -121,7 +121,7 @@ StrongSort:
       range:
       - 0.01
       - 1.0
-      
+
     max_iou_dist:
       current_value: 0.85
       default_value: 0.85
@@ -131,7 +131,7 @@ StrongSort:
       range:
       - 0.1
       - 1.0
-      
+
     n_init:
       current_value: 3
       default_value: 3
@@ -141,7 +141,7 @@ StrongSort:
       range:
       - 1
       - 10
-      
+
     nn_budget:
       current_value: 100
       default_value: 100
@@ -151,7 +151,7 @@ StrongSort:
       range:
       - 10
       - 1000
-      
+
     mc_lambda:
       current_value: 0.98
       default_value: 0.98
@@ -161,7 +161,7 @@ StrongSort:
       range:
       - 0.0
       - 1.0
-      
+
     ema_alpha:
       current_value: 0.9
       default_value: 0.9

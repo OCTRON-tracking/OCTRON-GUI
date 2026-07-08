@@ -1,5 +1,5 @@
-
 import os
+
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch
@@ -14,12 +14,11 @@ def build_sam3_octron(
     mode="eval",
     **kwargs,
 ):
-    """
-    Build the SAM3 model from a checkpoint file for OCTRON usage.
-    
-    Uses the ultralytics SAM3 implementation which provides the SAM2-compatible 
+    """Build the SAM3 model from a checkpoint file for OCTRON usage.
+
+    Uses the ultralytics SAM3 implementation which provides the SAM2-compatible
     track_step interface on top of SAM3 weights.
-    
+
     Parameters
     ----------
     ckpt_path : str
@@ -35,16 +34,17 @@ def build_sam3_octron(
         Mode to run the model in. Default is "eval"
     **kwargs : dict
         Additional keyword arguments.
-        
+
     Returns
     -------
     model : SAM3_octron or SAM3_semantic_octron
         The predictor object.
     device : torch.device
         The device the model is running on.
+
     """
-    from .sam3_octron import SAM3_octron, SAM3_IMAGE_SIZE
-    
+    from .sam3_octron import SAM3_IMAGE_SIZE, SAM3_octron
+
     # Find out which device to use
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -69,36 +69,37 @@ def build_sam3_octron(
     sam3_model = sam3_model.to(device)
     if mode == "eval":
         sam3_model.eval()
-    
+
     # Configure model resolution from the global SAM3_IMAGE_SIZE constant.
     # set_imgsz updates: image_size, prompt encoder, memory encoder, and
     # backbone positional embeddings / RoPE frequencies.
     sam3_model.set_imgsz([SAM3_IMAGE_SIZE, SAM3_IMAGE_SIZE])
-    
+
     # Wrap in SAM3_octron (tracker – used in both modes)
     tracker = SAM3_octron(model=sam3_model, device=device)
-    
+
     if not semantic:
-        logger.info('Loaded SAM3 OCTRON – Mode A (interactive tracking)')
+        logger.info("Loaded SAM3 OCTRON – Mode A (interactive tracking)")
         return tracker, device
-    
+
     # --- Mode B: also build the semantic detector ---
     from ultralytics.models.sam.build_sam3 import build_sam3_image_model
+
     from .sam3_octron import SAM3_semantic_octron
-    
+
     sem_ckpt = semantic_ckpt_path or ckpt_path
     detector = build_sam3_image_model(sem_ckpt)
     detector = detector.to(device)
     if mode == "eval":
         detector.eval()
     detector.set_imgsz((SAM3_IMAGE_SIZE, SAM3_IMAGE_SIZE))
-    
+
     predictor = SAM3_semantic_octron(
         detector_model=detector,
         tracker=tracker,
         device=device,
         detector_ckpt_path=sem_ckpt,
     )
-    
-    logger.info('Loaded SAM3 OCTRON – Mode B (semantic detection + tracking)')
+
+    logger.info("Loaded SAM3 OCTRON – Mode B (semantic detection + tracking)")
     return predictor, device

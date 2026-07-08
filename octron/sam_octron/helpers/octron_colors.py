@@ -1,19 +1,16 @@
-# Create a continous colormap and cmap_range for each label 
+# Create a continous colormap and cmap_range for each label
 
-import numpy as np
 import cmasher as cmr
+import numpy as np
 
-def create_label_colors(cmap='cmr.tropical', 
-                        n_labels=10, 
-                        n_colors_submap=250
-                        ):
-    """
-    Create label submaps from cmap. 
+
+def create_label_colors(cmap="cmr.tropical", n_labels=10, n_colors_submap=250):
+    """Create label submaps from cmap.
     Each submap is a list of colors that represent a label.
     For this, the cmap is being divided into n_labels submaps.
     Each submap is then divided into n_colors_submap colors
-    
-    
+
+
     Parameters
     ----------
     cmap : str
@@ -22,25 +19,27 @@ def create_label_colors(cmap='cmr.tropical',
         Number of labels to create submaps for.
     n_colors_submap : int
         Number of colors per submap.
-        
-    """
 
-    slices = np.linspace(0, 1, n_labels+1)
+    """
+    slices = np.linspace(0, 1, n_labels + 1)
     all_label_submaps = []
     for no in range(0, n_labels):
-        label_colors = cmr.take_cmap_colors(cmap, 
-                                            N=n_colors_submap, 
-                                            cmap_range=(slices[no],slices[no+1]), 
-                                            return_fmt='int'
-                                            ) 
-        label_colors = [np.concat([np.array(l) / 255., np.array([1])]) for l in label_colors]
+        label_colors = cmr.take_cmap_colors(
+            cmap,
+            N=n_colors_submap,
+            cmap_range=(slices[no], slices[no + 1]),
+            return_fmt="int",
+        )
+        label_colors = [
+            np.concat([np.array(l) / 255.0, np.array([1])])
+            for l in label_colors
+        ]
         all_label_submaps.append(label_colors)
     return all_label_submaps
 
 
 def get_semantic_cmap_range(label_id, slice_width=0.25):
-    """
-    Compute a colormap slice for a label using golden-ratio spacing.
+    """Compute a colormap slice for a label using golden-ratio spacing.
 
     Each label gets a ~20% band of the neon colormap so that objects
     within a label share a colour family while being clearly distinct
@@ -57,6 +56,7 @@ def get_semantic_cmap_range(label_id, slice_width=0.25):
     Returns
     -------
     (start, end) : tuple[float, float]
+
     """
     if label_id is None:
         return (0.0, 1.0)
@@ -70,8 +70,7 @@ def get_semantic_cmap_range(label_id, slice_width=0.25):
 
 
 def create_semantic_colormap(n_objects, label_id=None):
-    """
-    Create a DirectLabelColormap for multi-ID semantic masks.
+    """Create a DirectLabelColormap for multi-ID semantic masks.
     Uses cmr.neon with maximally-different reordering so each
     object ID is visually distinct.
 
@@ -89,12 +88,16 @@ def create_semantic_colormap(n_objects, label_id=None):
     Returns
     -------
     DirectLabelColormap
+
     """
     from napari.utils import DirectLabelColormap
 
     cmap_range = get_semantic_cmap_range(label_id)
     obj_colors = cmr.take_cmap_colors(
-        'cmr.neon', N=max(n_objects, 2), cmap_range=cmap_range, return_fmt='float'
+        "cmr.neon",
+        N=max(n_objects, 2),
+        cmap_range=cmap_range,
+        return_fmt="float",
     )
     reorder = sample_maximally_different(list(range(len(obj_colors))))
     color_dict = {None: [0, 0, 0, 0]}  # unmapped labels -> transparent
@@ -105,8 +108,7 @@ def create_semantic_colormap(n_objects, label_id=None):
 
 
 def sample_maximally_different(seq):
-    """
-    Given an ascending list of numbers, return a new ordering
+    """Given an ascending list of numbers, return a new ordering
     where each subsequent number is chosen such that its minimum
     absolute difference to all previously picked numbers is maximized.
 
@@ -116,6 +118,7 @@ def sample_maximally_different(seq):
     Example:
         Input:  [1, 2, 3, 4, 5]
         Possible Output: [1, 5, 2, 4, 3]
+
     """
     if not seq:
         return []
@@ -125,7 +128,9 @@ def sample_maximally_different(seq):
     while remaining:
         # For each candidate, compute the minimum distance to any element in sample,
         # then select the candidate with the maximum such distance.
-        candidate = max(remaining, key=lambda x: min(abs(x - s) for s in sample))
+        candidate = max(
+            remaining, key=lambda x: min(abs(x - s) for s in sample)
+        )
         sample.append(candidate)
         remaining.remove(candidate)
     return sample

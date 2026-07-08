@@ -11,8 +11,8 @@ contributions:
   readers:
     - command: octron.octron_reader
       accepts_directories: true
-      filename_patterns: 
-      - '*' 
+      filename_patterns:
+      - '*'
   widgets:
     - command: octron.octron_widget
       display_name: OCTRON

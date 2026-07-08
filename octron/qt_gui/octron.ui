@@ -1616,7 +1616,7 @@ labels is present.</string>
                 </size>
                </property>
                <property name="toolTip">
-                <string>Enable watershed on mask data. This helps to separate masks that 
+                <string>Enable watershed on mask data. This helps to separate masks that
 are on the same layer and carry the same label assignment,
 but should be separate entities in the training data.</string>
                </property>

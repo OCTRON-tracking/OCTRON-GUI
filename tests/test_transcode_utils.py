@@ -1,5 +1,4 @@
-"""
-Tests for the filesystem-level logic in octron/tools/transcode.py.
+"""Tests for the filesystem-level logic in octron/tools/transcode.py.
 
 ffmpeg is never invoked: tests either exercise code paths that return before
 the subprocess call (empty input, no matching files) or pre-create the
@@ -30,19 +29,19 @@ Skip / overwrite behaviour (no ffmpeg)
 """
 
 import pytest
-from pathlib import Path
+
 import octron.tools.transcode as tc
 from octron.tools.transcode import (
+    VIDEO_EXTENSIONS,
+    _load_tiff_as_rgb,
     run_transcode,
     transcode_one,
-    _load_tiff_as_rgb,
-    VIDEO_EXTENSIONS,
 )
-
 
 # ---------------------------------------------------------------------------
 # VIDEO_EXTENSIONS constant
 # ---------------------------------------------------------------------------
+
 
 def test_video_extensions_contains_common_formats():
     assert ".mp4" in VIDEO_EXTENSIONS
@@ -61,6 +60,7 @@ def test_video_extensions_includes_tiff():
 # ---------------------------------------------------------------------------
 # Empty / no-video cases (no ffmpeg call)
 # ---------------------------------------------------------------------------
+
 
 def test_no_videos_empty_list(capsys):
     run_transcode([])
@@ -89,12 +89,13 @@ def test_directory_with_no_matching_extensions_warns(tmp_path, capsys):
 # Directory expansion
 # ---------------------------------------------------------------------------
 
+
 def test_directory_expands_to_video_files(tmp_path, capsys):
     video_dir = tmp_path / "vids"
     video_dir.mkdir()
     (video_dir / "clip1.avi").touch()
     (video_dir / "clip2.mov").touch()
-    (video_dir / "notes.txt").touch()   # should be ignored
+    (video_dir / "notes.txt").touch()  # should be ignored
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     # Pre-create outputs so ffmpeg is never called
@@ -134,12 +135,13 @@ def test_single_file_passes_through(tmp_path, capsys):
 # Output path resolution
 # ---------------------------------------------------------------------------
 
+
 def test_default_output_path_is_mp4_transcoded_next_to_input(tmp_path, capsys):
     fake_video = tmp_path / "clip.avi"
     fake_video.touch()
     expected_out_dir = tmp_path / "mp4_transcoded"
     expected_out_dir.mkdir()
-    (expected_out_dir / "clip.mp4").touch()     # pre-create so ffmpeg is skipped
+    (expected_out_dir / "clip.mp4").touch()  # pre-create so ffmpeg is skipped
     run_transcode([fake_video], overwrite=False)
     assert expected_out_dir.exists()
 
@@ -149,7 +151,7 @@ def test_explicit_output_path_is_used(tmp_path, capsys):
     fake_video.touch()
     custom_out = tmp_path / "my_output"
     custom_out.mkdir()
-    (custom_out / "clip.mp4").touch()           # pre-create so ffmpeg is skipped
+    (custom_out / "clip.mp4").touch()  # pre-create so ffmpeg is skipped
     run_transcode([fake_video], output_path=custom_out, overwrite=False)
     out = capsys.readouterr().out
     assert str(custom_out) in out
@@ -170,6 +172,7 @@ def test_output_directory_is_created_if_missing(tmp_path, capsys):
 # ---------------------------------------------------------------------------
 # Skip / overwrite behaviour (no ffmpeg)
 # ---------------------------------------------------------------------------
+
 
 def test_existing_output_is_skipped_when_no_overwrite(tmp_path, capsys):
     fake_video = tmp_path / "clip.avi"
@@ -208,6 +211,7 @@ def test_multiple_files_some_skipped(tmp_path, capsys, monkeypatch):
 # Option passthrough to transcode_one (no ffmpeg)
 # ---------------------------------------------------------------------------
 
+
 def test_run_transcode_uses_libx264_not_hardware(tmp_path, monkeypatch):
     """run_transcode must request the libx264-preferring detection."""
     seen = {}
@@ -243,8 +247,12 @@ def test_run_transcode_passes_options_to_transcode_one(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     run_transcode(
-        [video], output_path=out_dir, crf=18, overwrite=True,
-        fps=30.0, keep_audio=False,
+        [video],
+        output_path=out_dir,
+        crf=18,
+        overwrite=True,
+        fps=30.0,
+        keep_audio=False,
     )
 
     assert len(calls) == 1
@@ -259,6 +267,7 @@ def test_run_transcode_passes_options_to_transcode_one(tmp_path, monkeypatch):
 def test_run_transcode_reports_missing_ffmpeg(tmp_path, capsys, monkeypatch):
     def _raise(*a, **k):
         raise RuntimeError("ffmpeg is required but was not found on PATH.")
+
     monkeypatch.setattr(tc, "detect_h264_encoder", _raise)
     video = tmp_path / "clip.avi"
     video.touch()
@@ -270,6 +279,7 @@ def test_run_transcode_reports_missing_ffmpeg(tmp_path, capsys, monkeypatch):
 # ---------------------------------------------------------------------------
 # transcode_one / _load_tiff_as_rgb (no ffmpeg)
 # ---------------------------------------------------------------------------
+
 
 def test_transcode_one_skips_unreadable_tiff(tmp_path):
     # encoder is provided so detection (ffmpeg) is skipped; the TIFF read fails,
@@ -309,5 +319,7 @@ def test_load_tiff_as_rgb_rejects_ambiguous_t_and_z(tmp_path):
     tifffile = pytest.importorskip("tifffile")
     arr = np.zeros((2, 3, 8, 8), dtype=np.uint8)
     p = tmp_path / "tz.tif"
-    tifffile.imwrite(str(p), arr, metadata={"axes": "TZYX"}, photometric="minisblack")
+    tifffile.imwrite(
+        str(p), arr, metadata={"axes": "TZYX"}, photometric="minisblack"
+    )
     assert _load_tiff_as_rgb(p) is None

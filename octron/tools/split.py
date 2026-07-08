@@ -1,5 +1,4 @@
-"""
-OCTRON training-data split pipeline.
+"""OCTRON training-data split pipeline.
 
 Prepares and exports train/val/test data from an OCTRON project without
 running model training.  The `octron train` command calls this internally;
@@ -8,7 +7,9 @@ users can also run it standalone via `octron split`.
 
 from pathlib import Path
 
-_MODELS_YAML = Path(__file__).parent.parent / "yolo_octron" / "yolo_models.yaml"
+_MODELS_YAML = (
+    Path(__file__).parent.parent / "yolo_octron" / "yolo_models.yaml"
+)
 
 
 def run_split(
@@ -19,8 +20,7 @@ def run_split(
     train_mode="segment",
     dry_run=False,
 ):
-    """
-    Prepare and export train/val/test data for an OCTRON project.
+    """Prepare and export train/val/test data for an OCTRON project.
 
     Steps
     -----
@@ -45,10 +45,13 @@ def run_split(
         detection only.
     dry_run : bool
         If ``True``, print split sizes without writing anything to disk.
+
     """
     from octron.yolo_octron.yolo_octron import YOLO_octron
 
-    train_mode = train_mode.value if hasattr(train_mode, 'value') else str(train_mode)
+    train_mode = (
+        train_mode.value if hasattr(train_mode, "value") else str(train_mode)
+    )
 
     # Validate fractions up front using the core guard (also enforced inside
     # prepare_split) so the CLI fails before any model, label, or geometry work.
@@ -65,8 +68,18 @@ def run_split(
     yolo.prepare_labels()
 
     # --- Step 2: generate geometry (polygons for segment, bboxes for detect) ---
-    print("Generating polygons..." if train_mode == "segment" else "Generating bounding boxes...")
-    for no_entry, total, label, frame_no, total_frames in yolo.prepare_geometry():
+    print(
+        "Generating polygons..."
+        if train_mode == "segment"
+        else "Generating bounding boxes..."
+    )
+    for (
+        no_entry,
+        total,
+        label,
+        frame_no,
+        total_frames,
+    ) in yolo.prepare_geometry():
         print(
             f"  [{no_entry}/{total}] {label}: frame {frame_no}/{total_frames}",
             end="\r",
@@ -90,7 +103,14 @@ def run_split(
 
     # --- Step 4: export to disk ---
     print("Exporting training data...")
-    for no_entry, total, label, split, frame_no, total_frames in yolo.create_training_data():
+    for (
+        no_entry,
+        total,
+        label,
+        split,
+        frame_no,
+        total_frames,
+    ) in yolo.create_training_data():
         print(
             f"  [{no_entry}/{total}] {label} ({split}): frame {frame_no}/{total_frames}",
             end="\r",

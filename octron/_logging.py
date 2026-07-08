@@ -1,5 +1,4 @@
-"""
-Central logging configuration for OCTRON.
+"""Central logging configuration for OCTRON.
 
 All modules import `from loguru import logger` and use it directly.
 Call `setup_logging()` once at startup (from the GUI entry point or CLI callback).
@@ -7,15 +6,13 @@ The CLI branch can pass `debug=True` to enable DEBUG-level output.
 """
 
 import sys
+
 from loguru import logger
 
 from octron._version import version as octron_version
 
-
 _LOG_FORMAT_NORMAL = (
-    "<cyan>{time:HH:mm:ss}</cyan> | "
-    "<level>{level: <8}</level> | "
-    "{message}"
+    "<cyan>{time:HH:mm:ss}</cyan> | <level>{level: <8}</level> | {message}"
 )
 
 _LOG_FORMAT_DEBUG = (
@@ -37,6 +34,7 @@ def setup_logging(debug: bool = False) -> None:
 
     This function is idempotent — calling it multiple times simply resets the
     handler to the current settings.
+
     """
     logger.remove()  # drop default stderr handler
 

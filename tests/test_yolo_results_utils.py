@@ -1,5 +1,4 @@
-"""
-Tests for the cheap CSV row-count helper on YOLO_results.
+"""Tests for the cheap CSV row-count helper on YOLO_results.
 
 ``_csv_observation_count`` is the single place that encodes the tracking-CSV
 header offset (fixed metadata header lines + one column-header row); it backs the
@@ -21,9 +20,9 @@ def test_csv_observation_count_counts_data_rows(tmp_path):
     obj = _make_results(header_lines=7)
     csv = tmp_path / "clip_track_1.csv"
     lines = (
-        [f"# meta {i}" for i in range(7)]      # 7 fixed metadata header lines
-        + ["frame_idx,track_id,label"]          # 1 column-header row
-        + ["0,1,a", "1,1,a", "2,1,a"]           # 3 data rows
+        [f"# meta {i}" for i in range(7)]  # 7 fixed metadata header lines
+        + ["frame_idx,track_id,label"]  # 1 column-header row
+        + ["0,1,a", "1,1,a", "2,1,a"]  # 3 data rows
     )
     csv.write_text("\n".join(lines) + "\n")
     assert obj._csv_observation_count(csv) == 3
@@ -56,6 +55,7 @@ def test_csv_observation_count_respects_header_lines(tmp_path):
 # octron_predictions/ directory (nested layout). Both must be found. Pure
 # filesystem lookup, so no real video is opened.
 # ---------------------------------------------------------------------------
+
 
 def test_candidate_video_path_finds_sibling(tmp_path):
     (tmp_path / "clipA_ByteTrack").mkdir()
