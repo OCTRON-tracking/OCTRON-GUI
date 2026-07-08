@@ -151,7 +151,7 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
             # Store the full path object on the item for later retrieval
             item.setData(Qt.UserRole, video)
             file_list.addItem(item)
-            # Pre-select all videos by default
+            # Preselect all videos by default
             item.setSelected(True)
         layout.addWidget(file_list)
 

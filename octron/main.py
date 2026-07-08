@@ -1205,7 +1205,7 @@ class octron_widget(QWidget):
             saved_threshold = saved_settings.get("sam3_detect_threshold")
             if saved_threshold is not None:
                 self.sam3detect_thresh.setText(str(saved_threshold))
-            # Restore model name — pre-select it in the dropdown
+            # Restore model name — preselect it in the dropdown
             saved_model_name = saved_settings.get("model_name")
             if saved_model_name:
                 self.loaded_model_name = saved_model_name

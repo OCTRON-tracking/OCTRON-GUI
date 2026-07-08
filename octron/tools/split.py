@@ -158,13 +158,13 @@ def _print_split_summary(label_dict, seed):
     print(sep)
     print(header)
     print(sep)
-    for subfolder, label, tr, va, te, tot in rows:
+    for subfolder, label, tr, va, te, tot in rows:  # codespell:ignore te
         print(
             f"{subfolder:{col_w[0]}}  "
             f"{label:{col_w[1]}}  "
             f"{tr:>{col_w[2]}}  "
             f"{va:>{col_w[3]}}  "
-            f"{te:>{col_w[4]}}  "
+            f"{te:>{col_w[4]}}  "  # codespell:ignore te
             f"{tot:>{col_w[5]}}"
         )
     print(sep)

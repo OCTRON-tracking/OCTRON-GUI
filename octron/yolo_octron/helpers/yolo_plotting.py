@@ -13,8 +13,8 @@ def make_linear_colormap(
     """Create color map - linear version.
     Uses seaborn color_palette() function to create color map.
 
-    Paramters
-    ---------
+    Parameters
+    ----------
         - array: 1-D Numpy array to loop over and create colors for
         - cmap: Color palette name or list of colors of a (custom) palette
         - desat: seaborn specific desaturation of color palette. 1 = no desaturation.

@@ -2864,7 +2864,7 @@ This slows down analysis, but gives you much more info per tracked region.</stri
                 </size>
                </property>
                <property name="toolTip">
-                <string>Open the resuts in new napari window when finished</string>
+                <string>Open the results in new napari window when finished</string>
                </property>
                <property name="text">
                 <string>View result</string>

@@ -27,7 +27,7 @@ def create_prediction_store(
 
     Returns
     -------
-    store : zar.storage.LocalStore
+    store : zarr.storage.LocalStore
         Zarr store object.
 
     """

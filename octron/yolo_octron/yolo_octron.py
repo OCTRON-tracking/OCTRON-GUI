@@ -2192,7 +2192,13 @@ class YOLO_octron:
         """Helper method to terminate TensorBoard on Windows"""
         # Use tasklist and taskkill on Windows
         result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV"],
+            [
+                "tasklist",
+                "/FI",
+                "IMAGENAME eq python.exe",
+                "/FO",  # codespell:ignore
+                "CSV",
+            ],
             capture_output=True,
             text=True,
         )

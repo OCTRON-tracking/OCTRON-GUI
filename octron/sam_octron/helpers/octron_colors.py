@@ -1,4 +1,4 @@
-# Create a continous colormap and cmap_range for each label
+# Create a continuous colormap and cmap_range for each label
 
 import cmasher as cmr
 import numpy as np

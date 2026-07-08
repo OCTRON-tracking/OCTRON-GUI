@@ -26,7 +26,7 @@
 - Fixed prediction loading for detection mode.
 - Fixed project folder change state handling. This now clears (refreshes) menus correctly.
 - Fixed bugs in prediction boxes / dialogues when all predictions are skipped.
-- Fixed frame index validation when loading results. It is now not anymore implicitly assumed that the csv and zarr ouput match.
+- Fixed frame index validation when loading results. It is now not anymore implicitly assumed that the csv and zarr output match.
 - Fixed print statement for skipping frames. Now the GUI and print statement show the same info.
 - Fixed SAM2/SAM3 annotation incompatibility detection. The user is now correctly informed that SAM2 and SAM3 annotation projects are incompatible (they can either annotate with SAM2 or SAM3 on a single video but cannot switch once started on that particular video).
 - Bugfixes for multi-label case.
@@ -135,7 +135,7 @@
 - Mask prediction results are now directly read from masks created in YOLO, instead of going through polygon-mask conversion steps. This is more efficient and less error prone. The Gaussian smoothing sigma parameter for prediction polygons (GUI and code) has been replaced with an `opening` (binary opening of masks) parameter. Morphological opening is (optionally) applied, which, similarly to the original smoothing sigma, can help to improve mask results.
 - Feature columns (eccentricity, area, ...) are now also interpolated with `interpolate=True` alongside position data
 - During prediction frame and mask CIE LAB average values are extracted and saved in the .csv output. The experimenter thereby has access to color and brightness information for every frame and extracted mask after prediction completed. These values are new additions to the features columns, alongside eccentricity, area, etc.
-- Major update of ultralytics (8.3.152) that gets rid of an offest of mask vs. frame data introduced when the masks are scaled back to the original image size after prediction. See [PR 20957](https://github.com/ultralytics/ultralytics/pull/20957).
+- Major update of ultralytics (8.3.152) that gets rid of an offset of mask vs. frame data introduced when the masks are scaled back to the original image size after prediction. See [PR 20957](https://github.com/ultralytics/ultralytics/pull/20957).
 - Created wheels for quick installation of py-av, sam2, and sam2-hq
 
 ## vers. 0.0.3

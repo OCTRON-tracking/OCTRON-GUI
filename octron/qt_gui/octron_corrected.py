@@ -2612,7 +2612,7 @@ class Ui_octron_widgetui:
         self.octron.open_when_finish_checkBox.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "Open the resuts in new napari window when finished",
+                "Open the results in new napari window when finished",
                 None,
             )
         )

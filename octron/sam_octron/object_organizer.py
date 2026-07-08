@@ -57,7 +57,7 @@ class ObjectOrganizer(BaseModel):
     I am using a color picking strategy that is based on the number of labels and suffixes.
     A colormap is created (see self.all_colors) and then maximally different colors are picked
     for each label and suffix combination.
-    Labels are assigend "slices" of a colormap and then each suffix is assigned a color from that slice.
+    Labels are assigned "slices" of a colormap and then each suffix is assigned a color from that slice.
     You CAN assign a color yourself, but I would recommend using the internal strategy.
 
 

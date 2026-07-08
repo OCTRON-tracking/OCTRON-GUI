@@ -141,7 +141,7 @@ def watershed_mask(
     footprint_diameter : float : Diameter of the footprint for peak_local_max()
     min_size_ratio : float : Minimum size ratio of a mask towards
                             the largest mask to keep a mask
-    p_norm : int : Norm to use for peak_local_max(). Deafault is 2 (Euclidean)
+    p_norm : int : Norm to use for peak_local_max(). Default is 2 (Euclidean)
     plot : bool : Whether to plot the results
 
 
