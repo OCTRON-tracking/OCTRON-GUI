@@ -120,10 +120,14 @@ local_scheme = "no-local-version"
 
 [tool.check-manifest]
 ignore = [
-  ".yaml",
-  "tests/",
-  "tests/test_unit/",
-  "tests/test_integration/",
+    "octron/_version.py",
+    "*.yaml",
+    "tests/",
+    "tests/test_unit/",
+    "tests/test_integration/",
+    # these next two files seem unused
+    "octron/sam_octron/checkpoints/config.json",
+    "octron/sam_octron/checkpoints/download_ckpts.sh",
 ]
 
 [tool.ruff] # same as https://github.com/neuroinformatics-unit/movement/

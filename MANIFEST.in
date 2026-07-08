@@ -1,5 +1,20 @@
-recursive-include octron/sam_octron/configs *.yaml
-recursive-include octron/qt_gui/icons *.svg
-recursive-include octron *.md
-include README.md
 include LICENSE
+include README.md
+include *.md
+include CITATION.cff
+
+exclude .pre-commit-config.yaml
+
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude tests *
+recursive-exclude octron/notebooks *
+
+recursive-include octron/sam_octron/configs *.yaml
+
+# toolbar/button icons loaded at runtime
+recursive-include octron/qt_gui/icons *.svg
+
+# dev-time design resources
+exclude octron/qt_gui/octron.ui
+exclude octron/qt_gui/octron_logo.ai
