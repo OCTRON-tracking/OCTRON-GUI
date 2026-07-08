@@ -176,6 +176,13 @@ passenv =
     GITHUB_ACTIONS
 extras =
     dev
+# In linux, we specify CPU-only torch and torchvision as deps so that tox installs them
+# before it pip installs the package with [dev]. Otherwise we would get PyPI's
+# default Linux torch wheel, which bundles CUDA (and is slower to download)
+deps =
+    --index-url https://download.pytorch.org/whl/cpu
+    torch>=2.5.1 ; sys_platform == 'linux'
+    torchvision>=0.20.1 ; sys_platform == 'linux'
 commands =
     pytest -v --color=yes --cov=octron --cov-report=xml
 """

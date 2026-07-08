@@ -1,0 +1,80 @@
+name: Linting, manifest and tests
+
+on:
+  push:
+    branches:
+      - '**' # double to include slashes
+    tags:
+      - '*'
+  pull_request:
+
+# Cancel in-progress runs if a new run is triggered, 
+# except for main branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  linting:
+    name: Linting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: neuroinformatics-unit/actions/lint@v2
+
+  manifest:
+    name: Check Manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: neuroinformatics-unit/actions/check_manifest@v2
+
+  test:
+    needs: [linting, manifest]
+    name: Tests ${{ matrix.os }} py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # Run all supported Python versions on linux
+        python-version: ["3.11"]
+        os: [ubuntu-latest]
+        # Include one windows and macos run
+        include:
+        - os: macos-latest
+          python-version: "3.11"
+        - os: windows-latest
+          python-version: "3.11"
+
+    steps:
+      # Install ffmpeg for the relevant platform
+      - uses: FedericoCarboni/setup-ffmpeg@v3.1
+        with:
+            # to increase request limit to Github API;
+            # github.token is auto-provided per run 
+            github-token: ${{ github.token }}
+            # tests the latest release as
+            # posted in https://ffmpeg.org/download.html#releases
+            # (it is the only version avail in all mirrors)
+            ffmpeg-version: "release"
+
+      # Run tests
+      - uses: neuroinformatics-unit/actions/test@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+  # NOT IMPLEMENTED YET
+  # build_sdist_wheels:
+  #   name: Build source distribution
+  #   needs: [test]
+  #   if: github.event_name == 'push' && github.ref_type == 'tag'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: neuroinformatics-unit/actions/build_sdist_wheels@v2
+
+  # NOT IMPLEMENTED YET
+  # upload_all:
+  #   name: Publish build distributions
+  #   needs: [build_sdist_wheels]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: neuroinformatics-unit/actions/upload_pypi@v2
+  #     with:
+  #       secret-pypi-key: ${{ secrets.TWINE_API_KEY }}
