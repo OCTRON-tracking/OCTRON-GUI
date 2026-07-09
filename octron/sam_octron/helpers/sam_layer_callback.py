@@ -494,10 +494,7 @@ class sam_octron_callbacks:
                 # Find out which label was attached to the point
                 # by going through the symbol lists
                 cur_symbol = points_layer.symbol[pt_no]
-                if cur_symbol in ["o", "disc"]:
-                    label = 1
-                else:
-                    label = 0
+                label = 1 if cur_symbol in ["o", "disc"] else 0
                 labels.append(label)
                 point_data.append(pt[1:][::-1])  # index 0 is the frame number
 
@@ -626,10 +623,7 @@ class sam_octron_callbacks:
         ) in self.octron.predictor.propagate_in_video(
             processing_order=image_idxs
         ):
-            if counter == 1:
-                last_run = True
-            else:
-                last_run = False
+            last_run = counter == 1
             # Single GPU→CPU transfer for all objects instead of N separate ones
             all_masks = (out_mask_logits > 0).cpu().numpy().astype(np.uint8)
             for i, out_obj_id in enumerate(out_obj_ids):
@@ -685,10 +679,7 @@ class sam_octron_callbacks:
         ) in self.octron.predictor.propagate_in_video(
             processing_order=image_idxs
         ):
-            if counter == end_frame:
-                last_run = True
-            else:
-                last_run = False
+            last_run = counter == end_frame
             try:
                 # Single GPU→CPU transfer for all objects instead of N separate ones
                 all_masks = (

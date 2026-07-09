@@ -1284,10 +1284,7 @@ class YoloHandler(QObject):
             finish_time_str = " ".join(time.ctime(finish_time).split()[:-1])
 
             # Update labels
-            if len(video_name) > 21:
-                prefix = "..."
-            else:
-                prefix = ""
+            prefix = "..." if len(video_name) > 21 else ""
             shortened_video_name = f"{prefix}{video_name[-21:]}"
 
             self.w.predict_current_videoname_label.setText(

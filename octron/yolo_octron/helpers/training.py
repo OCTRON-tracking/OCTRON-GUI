@@ -69,7 +69,7 @@ def load_object_organizer(file_path):
     if not file_path.exists():
         logger.warning(f"No organizer file found at {file_path}")
         return
-    if not file_path.suffix == ".json":
+    if file_path.suffix != ".json":
         logger.error(f"File is not a json file: {file_path}")
         return
     try:

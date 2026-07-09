@@ -407,10 +407,7 @@ class OctoZarr:
 
         if len(batch) == 1:
             batch = batch[0]
-        if len(indices) == 1:
-            indices_ = indices[0]
-        else:
-            indices_ = indices
+        indices_ = indices[0] if len(indices) == 1 else indices
         self.zarr_array[indices_, :, :, :] = (
             batch.float().numpy().astype(np.float16)
         )

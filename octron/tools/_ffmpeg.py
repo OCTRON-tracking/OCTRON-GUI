@@ -9,6 +9,7 @@ Imports are deliberately light (stdlib only) so this is cheap to import from the
 CLI, the GUI reader, and core.
 """
 
+import contextlib
 import shutil
 import subprocess
 
@@ -186,22 +187,16 @@ class _FfmpegWriter:
         proc = self._proc
         try:
             if proc.stdin is not None and not proc.stdin.closed:
-                try:
+                with contextlib.suppress(OSError):
                     proc.stdin.close()
-                except OSError:
-                    pass
             rc = proc.wait()
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 proc.kill()
-            except Exception:
-                pass
             rc = proc.poll()
         tail = self._stderr_tail()
-        try:
+        with contextlib.suppress(Exception):
             self._stderr_file.close()
-        except Exception:
-            pass
         if check and rc not in (0, None):
             msg = (
                 f"ffmpeg exited with code {rc} "
@@ -213,7 +208,5 @@ class _FfmpegWriter:
         return rc
 
     def __del__(self):
-        try:
+        with contextlib.suppress(Exception):
             self.close(check=False)
-        except Exception:
-            pass

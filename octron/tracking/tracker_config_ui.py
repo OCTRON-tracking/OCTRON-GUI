@@ -265,9 +265,7 @@ class BoxmotTrackerConfigDialog(QDialog):
             param_config = parameters[param_name]
             default_value = param_config.get("default_value")
 
-            if isinstance(widget, QSpinBox) or isinstance(
-                widget, QDoubleSpinBox
-            ):
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 widget.setValue(default_value)
             elif isinstance(widget, QCheckBox):
                 widget.setChecked(default_value)
@@ -290,9 +288,7 @@ class BoxmotTrackerConfigDialog(QDialog):
                     widget.currentText()
                 )
                 continue
-            if isinstance(widget, QSpinBox) or isinstance(
-                widget, QDoubleSpinBox
-            ):
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 parameters[param_name]["current_value"] = widget.value()
             elif isinstance(widget, QCheckBox):
                 parameters[param_name]["current_value"] = widget.isChecked()

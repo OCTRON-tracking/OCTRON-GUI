@@ -920,7 +920,7 @@ class SAM2_octron_hq(SAM2HQBase):
                             obj_output_dict[storage_key].pop(old_idx)
                             for objid in self.inference_state[
                                 "output_dict_per_obj"
-                            ].keys():
+                            ]:
                                 if (
                                     old_idx
                                     in self.inference_state[

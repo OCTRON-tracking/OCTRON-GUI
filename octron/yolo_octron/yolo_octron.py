@@ -34,6 +34,8 @@ except PackageNotFoundError:
     # Running from source without an installed distribution.
     octron_version = "no version"
 octron_base_path = Path(__file__).parent.parent.resolve()
+import contextlib
+
 from loguru import logger
 
 from octron.sam_octron.helpers.sam_zarr import mark_frames_annotated
@@ -2897,7 +2899,7 @@ class YOLO_octron:
             #     retina_masks = False
             # else:
             #     retina_masks = True
-            retina_masks = True if is_segment else False
+            retina_masks = bool(is_segment)
 
             save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -3006,10 +3008,7 @@ class YOLO_octron:
                 # This is because we want this information regardless of whether there
                 # were any detections in the frame
                 # Update timing information
-                if frame_no > 0:
-                    frame_time = time.time() - frame_start
-                else:
-                    frame_time = 0
+                frame_time = time.time() - frame_start if frame_no > 0 else 0
                 yield {
                     "stage": "processing",
                     "video_name": video_name,
@@ -3466,10 +3465,8 @@ class YOLO_octron:
             reported_save_dir = save_dir
             if _cache_root is not None:
                 if is_segment and prediction_store is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         prediction_store.close()
-                    except Exception:
-                        pass
                 mask_stores.clear()
                 prediction_store = None
                 gc.collect()
