@@ -454,7 +454,7 @@ class octron_widget(QWidget):
             return
 
         # Check SAM3 first
-        for model_id, model in self.sam3models_dict.items():
+        for _model_id, model in self.sam3models_dict.items():
             if model["name"] == model_name:
                 self.load_sam3model(model_name=model_name)
                 return
@@ -681,7 +681,7 @@ class octron_widget(QWidget):
 
         # Clear prediction masks on current frame
         current_frame = self._viewer.dims.current_step[0]
-        for obj_id, entry in self.object_organizer.entries.items():
+        for _obj_id, entry in self.object_organizer.entries.items():
             if entry.prediction_layer is not None:
                 # Clear only current frame to allow starting fresh
                 entry.prediction_layer.data[current_frame] = 0

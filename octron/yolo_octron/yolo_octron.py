@@ -1788,14 +1788,14 @@ class YOLO_octron:
 
         # rect=True only when EVERY sampled image is landscape.
         # Any portrait or square image forces rect=False (ultralytics bug).
-        all_landscape = all(w > h for w, h in zip(widths, heights))
+        all_landscape = all(w > h for w, h in zip(widths, heights, strict=False))
         rect = all_landscape
 
         # Check whether all sampled images share a single aspect ratio.
         # copy_paste / mixup are only unsafe when rect=True creates *multiple*
         # batch shape groups (one per distinct ratio). Round to 2 d.p. so that
         # e.g. 1920x1080 and 1280x720 (both 1.78) are treated as identical.
-        unique_ratios = {round(w / h, 2) for w, h in zip(widths, heights)}
+        unique_ratios = {round(w / h, 2) for w, h in zip(widths, heights, strict=False)}
         uniform_aspect_ratio = len(unique_ratios) == 1
 
         return avg_h, avg_w, rect, uniform_aspect_ratio
@@ -3107,7 +3107,7 @@ class YOLO_octron:
                     tracked_label_names,
                     tracked_confidences,
                     tracked_boxes,
-                    tracked_masks,
+                    tracked_masks, strict=False,
                 ):
                     # Figure out if you can use the track_id or whether it needs
                     # to be replaced - this is a special case for when "1 subject" (one_object_per_label)

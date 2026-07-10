@@ -357,7 +357,7 @@ class YOLO_results:
 
                 # Write to a dictionary, sort the track_id key
                 for track_id, label in zip(
-                    track_ids_from_csv, labels_from_csv
+                    track_ids_from_csv, labels_from_csv, strict=False
                 ):
                     if track_id not in track_id_label_dict:
                         track_id_label_dict[track_id] = label

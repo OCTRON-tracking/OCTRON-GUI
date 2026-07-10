@@ -85,7 +85,7 @@ def _load_tiff_as_rgb(path):
             stack = series.asarray()
             # Build sizes from axes + shape directly.
             # series.sizes can be unreliable across tifffile versions.
-            sizes = dict(zip(axes, stack.shape))
+            sizes = dict(zip(axes, stack.shape, strict=False))
     except Exception as e:
         logger.error(f"Failed to read TIFF '{path.name}': {e}")
         return None

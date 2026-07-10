@@ -144,7 +144,7 @@ def _print_split_summary(label_dict, seed):
         return
 
     col_w = [max(len(str(r[i])) for r in rows) for i in range(6)]
-    col_w = [max(w, h) for w, h in zip(col_w, [8, 5, 5, 3, 4, 5])]
+    col_w = [max(w, h) for w, h in zip(col_w, [8, 5, 5, 3, 4, 5], strict=False)]
     header = (
         f"{'Subfolder':{col_w[0]}}  "
         f"{'Label':{col_w[1]}}  "
