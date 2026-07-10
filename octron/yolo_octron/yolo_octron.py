@@ -465,14 +465,14 @@ class YOLO_octron:
                                     continue
                                 # Loop over watershedded masks
                                 for mask in water_masks:
-                                    try:
+                                    # AssertionError: the mask is empty at
+                                    # this frame. This happens if there is
+                                    # more than one mask zarr array (because
+                                    # there are multiple instances of a
+                                    # label), and the current label is not
+                                    # present in the current mask array.
+                                    with contextlib.suppress(AssertionError):
                                         mask_polys.append(get_polygons(mask))
-                                    except AssertionError:
-                                        # The mask is empty at this frame.
-                                        # This happens if there is more than one mask
-                                        # zarr array (because there are multiple instances of a label),
-                                        # and the current label is not present in the current mask array.
-                                        pass
                             else:
                                 # No watershedding
                                 mask_labeled = np.asarray(
@@ -2937,9 +2937,10 @@ class YOLO_octron:
             # TODO: Follow up on this
             if hasattr(tracker, "reset"):
                 tracker.reset()  # Call reset if available
-            elif hasattr(tracker, "tracker"):
-                if hasattr(tracker.tracker, "reset"):
-                    tracker.tracker.reset()
+            elif hasattr(tracker, "tracker") and hasattr(
+                tracker.tracker, "reset"
+            ):
+                tracker.tracker.reset()
             if hasattr(tracker, "tracks"):
                 tracker.tracks = []
 
@@ -3360,14 +3361,11 @@ class YOLO_octron:
             # Prepare model_path for metadata: try to make it relative if project_path is set
             meta_model_path_str = model_path.as_posix()
             if self.project_path:
-                try:
+                # ValueError happens if model_path is not under project_path
+                with contextlib.suppress(ValueError):
                     meta_model_path_str = Path(
                         os.path.relpath(model_path, self.project_path)
                     ).as_posix()
-                except (
-                    ValueError
-                ):  # Happens if model_path is not under project_path
-                    pass
 
             # Before saving metadata, get rid of some unnecessary fields
             if model_args is not None:

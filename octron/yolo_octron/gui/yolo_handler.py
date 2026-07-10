@@ -335,55 +335,49 @@ class YoloHandler(QObject):
             logger.error(f"Error when preparing labels: {e}")
             return
 
-        if not self.yolo.clean_training_dir:
-            # Check if the training folder already exists
-            # If it does, we can skip everything after this step
-            if (
-                self.yolo.data_path is not None
-                and self.yolo.data_path.exists()
-            ):
-                # Check if the existing config was generated with the same train_mode
-                existing_config_path = self.yolo.data_path / "yolo_config.yaml"
-                if existing_config_path.exists():
-                    with open(existing_config_path) as f:
-                        existing_config = yaml.safe_load(f)
-                    existing_mode = existing_config.get(
-                        "train_mode", "segment"
+        # Check if the training folder already exists
+        # If it does, we can skip everything after this step
+        if not self.yolo.clean_training_dir and (
+            self.yolo.data_path is not None and self.yolo.data_path.exists()
+        ):
+            # Check if the existing config was generated with the same train_mode
+            existing_config_path = self.yolo.data_path / "yolo_config.yaml"
+            if existing_config_path.exists():
+                with open(existing_config_path) as f:
+                    existing_config = yaml.safe_load(f)
+                existing_mode = existing_config.get("train_mode", "segment")
+                if existing_mode != self.w.train_mode:
+                    msg = (
+                        f"Train mode mismatch: existing training data was generated for '{existing_mode}' "
+                        f"but current mode is '{self.w.train_mode}'. "
+                        f"Please enable 'Overwrite' to regenerate training data or switch mode."
                     )
-                    if existing_mode != self.w.train_mode:
-                        msg = (
-                            f"Train mode mismatch: existing training data was generated for '{existing_mode}' "
-                            f"but current mode is '{self.w.train_mode}'. "
-                            f"Please enable 'Overwrite' to regenerate training data or switch mode."
-                        )
-                        logger.info(msg)
-                        show_error(msg)
-                        return
-                # TODO: Since we just generated the labels_dict (in prepare_labels above),
-                # a rudimentary check is actually possible, comparing the total number of expected labeled
-                # frames and the number of images in the training folder. I am skipping any checks for now.
-                # Show a warning dialog that user must dismiss
-                warning_dialog = QMessageBox()
-                warning_dialog.setIcon(QMessageBox.Warning)
-                warning_dialog.setWindowTitle("Existing Training Data")
-                warning_dialog.setText(
-                    "Training data directory already exists."
-                )
-                warning_dialog.setInformativeText(
-                    "The existing training data will be used without regeneration. "
-                    "No checks are performed on the training data folder. "
-                    "If you want to regenerate the data, please check the 'Overwrite' option."
-                )
-                warning_dialog.setStandardButtons(QMessageBox.Ok)
-                warning_dialog.exec_()
-                self.bbox_or_polygon_generated = True
-                self.training_data_generated = True
-                self._on_training_data_finished()
+                    logger.info(msg)
+                    show_error(msg)
+                    return
+            # TODO: Since we just generated the labels_dict (in prepare_labels above),
+            # a rudimentary check is actually possible, comparing the total number of expected labeled
+            # frames and the number of images in the training folder. I am skipping any checks for now.
+            # Show a warning dialog that user must dismiss
+            warning_dialog = QMessageBox()
+            warning_dialog.setIcon(QMessageBox.Warning)
+            warning_dialog.setWindowTitle("Existing Training Data")
+            warning_dialog.setText("Training data directory already exists.")
+            warning_dialog.setInformativeText(
+                "The existing training data will be used without regeneration. "
+                "No checks are performed on the training data folder. "
+                "If you want to regenerate the data, please check the 'Overwrite' option."
+            )
+            warning_dialog.setStandardButtons(QMessageBox.Ok)
+            warning_dialog.exec_()
+            self.bbox_or_polygon_generated = True
+            self.training_data_generated = True
+            self._on_training_data_finished()
 
-                logger.info(
-                    f"Training data path '{self.yolo.data_path.as_posix()}' already exists. Using existing directory."
-                )
-                return
+            logger.info(
+                f"Training data path '{self.yolo.data_path.as_posix()}' already exists. Using existing directory."
+            )
+            return
 
         # Disable the training groupbox while generating data
         self.w.train_train_groupbox.setEnabled(False)

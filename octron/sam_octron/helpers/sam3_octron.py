@@ -865,11 +865,9 @@ class SAM3_octron:
         is_init_cond_frame = frame_idx not in self.inference_state.get(
             "frames_already_tracked", []
         )
-        if is_init_cond_frame:
-            reverse = False
-        else:
-            # For SAM3 there's no per-object frames_tracked, so default to False
-            reverse = False
+        # For SAM3 there's no per-object frames_tracked, so 'reverse'
+        # defaults to False whether or not this is an init cond frame.
+        reverse = False
 
         obj_output_dict = self.inference_state["output_dict_per_obj"][obj_idx]
         obj_temp_output_dict = self.inference_state[

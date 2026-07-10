@@ -269,12 +269,12 @@ class BoxmotTrackerConfigDialog(QDialog):
                 widget.setValue(default_value)
             elif isinstance(widget, QCheckBox):
                 widget.setChecked(default_value)
-            elif isinstance(widget, QComboBox):
-                if (
-                    "options" in param_config
-                    and default_value in param_config["options"]
-                ):
-                    widget.setCurrentText(default_value)
+            elif (
+                isinstance(widget, QComboBox)
+                and "options" in param_config
+                and default_value in param_config["options"]
+            ):
+                widget.setCurrentText(default_value)
 
     def save_config(self):
         """Save the configuration."""

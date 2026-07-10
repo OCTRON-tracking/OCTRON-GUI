@@ -40,14 +40,11 @@ def make_linear_colormap(
         reference_array = None
 
     # Correct for negative values in array
-    if not categorical:
-        if (array < 0).any():
-            minimum = array.min()
-            array += -1 * minimum
-            if (
-                reference_array is not None
-            ):  # Also correct reference number range
-                reference_array += -1 * minimum
+    if not categorical and (array < 0).any():
+        minimum = array.min()
+        array += -1 * minimum
+        if reference_array is not None:  # Also correct reference number range
+            reference_array += -1 * minimum
 
     if not categorical:
         # Check what format the colormap is in

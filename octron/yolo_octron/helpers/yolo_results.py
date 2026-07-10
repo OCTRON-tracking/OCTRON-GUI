@@ -639,9 +639,8 @@ class YOLO_results:
             "frame_idx",
             "track_id",
         ]
-        if interpolate_limit is not None:
-            if interpolate_limit <= 0:
-                interpolate_limit = None
+        if interpolate_limit is not None and interpolate_limit <= 0:
+            interpolate_limit = None
         if sigma < 0:
             sigma = 0
         if self.csvs is None:

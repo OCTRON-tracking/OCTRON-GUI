@@ -667,12 +667,13 @@ class octron_widget(QWidget):
         # Reset detector text embeddings if using SAM3 semantic mode
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
 
-        if isinstance(self.predictor, SAM3_semantic_octron):
-            if hasattr(self.predictor, "detector"):
-                if hasattr(self.predictor.detector, "text_embeddings"):
-                    self.predictor.detector.text_embeddings = {}
-                if hasattr(self.predictor.detector, "names"):
-                    self.predictor.detector.names = []
+        if isinstance(self.predictor, SAM3_semantic_octron) and hasattr(
+            self.predictor, "detector"
+        ):
+            if hasattr(self.predictor.detector, "text_embeddings"):
+                self.predictor.detector.text_embeddings = {}
+            if hasattr(self.predictor.detector, "names"):
+                self.predictor.detector.names = []
 
         # Clear annotation layers (input shapes/points)
         annotation_layers = self.object_organizer.get_annotation_layers()

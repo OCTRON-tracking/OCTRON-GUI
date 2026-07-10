@@ -197,12 +197,14 @@ class ObjectOrganizer(BaseModel):
     def add_entry(self, id_: int, entry: Obj) -> bool:
         if id_ in self.entries:
             raise ValueError(f"ID {id_} already exists.")
-        if self.exists_combination(entry.label, entry.suffix):
-            if entry.annotation_layer is not None:
-                logger.warning(
-                    f"Combination ({entry.label}, {entry.suffix}) already exists."
-                )
-                return False
+        if (
+            self.exists_combination(entry.label, entry.suffix)
+            and entry.annotation_layer is not None
+        ):
+            logger.warning(
+                f"Combination ({entry.label}, {entry.suffix}) already exists."
+            )
+            return False
         # Check if label already exists and assign label_id accordingly.
         if entry.label in self.label_id_map:
             entry.label_id = self.label_id_map[entry.label]
@@ -331,12 +333,11 @@ class ObjectOrganizer(BaseModel):
 
                 # Handle colormap serialization based on its type
                 colormap = obj.prediction_layer.colormap
-                if colormap is not None:
-                    # For DirectLabelColormap (from napari utils), extract the colors
-                    if hasattr(colormap, "name"):
-                        serializable_obj["prediction_layer_metadata"][
-                            "colormap_name"
-                        ] = colormap.name
+                # For DirectLabelColormap (from napari utils), extract the colors
+                if colormap is not None and hasattr(colormap, "name"):
+                    serializable_obj["prediction_layer_metadata"][
+                        "colormap_name"
+                    ] = colormap.name
 
                 # Add zarr file path if it exists in metadata
                 if (
