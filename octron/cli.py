@@ -659,11 +659,11 @@ def render(
     else:
         try:
             parts = [int(x.strip()) for x in tracklet_offset.split(",")]
-        except ValueError:
+        except ValueError as e:
             raise typer.BadParameter(
                 f"--tracklet-offset must be 'DX,DY' integers (e.g. '20,-30'); got {tracklet_offset!r}.",
                 param_hint="'--tracklet-offset'",
-            )
+            ) from e
         if len(parts) != 2:
             raise typer.BadParameter(
                 f"--tracklet-offset must be exactly two integers separated by a comma; got {tracklet_offset!r}.",

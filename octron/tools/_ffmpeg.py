@@ -168,7 +168,7 @@ class _FfmpegWriter:
     def write(self, data):
         try:
             self._proc.stdin.write(data)
-        except (BrokenPipeError, OSError):
+        except (BrokenPipeError, OSError) as e:
             # ffmpeg exited early: broken pipe on POSIX, OSError EINVAL on Windows.
             tail = self._stderr_tail()
             self.close(check=False)
@@ -178,7 +178,7 @@ class _FfmpegWriter:
             )
             if tail:
                 msg += f"\n--- ffmpeg output ---\n{tail}"
-            raise RuntimeError(msg + self._nvenc_hint())
+            raise RuntimeError(msg + self._nvenc_hint()) from e
 
     def close(self, check=True):
         if self._closed:

@@ -155,13 +155,13 @@ def watershed_mask(
     """
     try:
         from scipy import ndimage as ndi
-    except ImportError:
-        raise ImportError("watershed_mask() requires scipy")
+    except ImportError as e:
+        raise ImportError("watershed_mask() requires scipy") from e
     try:
         from skimage.feature import peak_local_max
         from skimage.segmentation import watershed
-    except ImportError:
-        raise ImportError("watershed_mask() requires scikit-image")
+    except ImportError as e:
+        raise ImportError("watershed_mask() requires scikit-image") from e
 
     assert mask.ndim == 2, f"Mask should be 2D, but got ndim={mask.ndim}"
     assert not np.isnan(mask).any(), (
@@ -326,8 +326,8 @@ def get_polygons(mask):
     """
     try:
         from imantics import Mask
-    except ImportError:
-        raise ImportError("get_polygons() requires imantics")
+    except ImportError as e:
+        raise ImportError("get_polygons() requires imantics") from e
 
     if mask is None:
         return None
@@ -377,8 +377,8 @@ def polygon_to_mask(
     """
     try:
         import cv2
-    except ImportError:
-        raise ImportError("to_mask() requires OpenCV")
+    except ImportError as e:
+        raise ImportError("to_mask() requires OpenCV") from e
     assert isinstance(polygons, np.ndarray), "Polygons should be a numpy array"
 
     # Smooth?

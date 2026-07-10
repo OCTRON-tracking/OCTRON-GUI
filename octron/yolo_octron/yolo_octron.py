@@ -102,8 +102,8 @@ class YOLO_octron:
             from ultralytics import settings
 
             self.yolo_settings = settings
-        except ImportError:
-            raise ImportError("YOLOv11 is required to run this class.")
+        except ImportError as e:
+            raise ImportError("YOLOv11 is required to run this class.") from e
 
         # Set up internal variables
         self._project_path = None  # Use private variable for property
@@ -1415,7 +1415,7 @@ class YOLO_octron:
             assert Path(model_name_path).exists()
             # If this path exists, load this model, otherwise
             # assume that this models is part of the models_dict
-        except AssertionError:
+        except AssertionError as e:
             # Not a file on disk — resolve the catalog name case-insensitively
             # (e.g. 'yolo11m' -> 'YOLO11m') so callers need not match YAML casing.
             resolved = self.resolve_model_name(model_name_path)
@@ -1423,7 +1423,7 @@ class YOLO_octron:
                 raise ValueError(
                     f"Unknown model '{model_name_path}': not an existing file and "
                     f"not in the model catalog. Available: {sorted(self.models_dict)}"
-                )
+                ) from e
             model_key = (
                 "model_path_detect"
                 if train_mode == "detect"
@@ -1788,14 +1788,18 @@ class YOLO_octron:
 
         # rect=True only when EVERY sampled image is landscape.
         # Any portrait or square image forces rect=False (ultralytics bug).
-        all_landscape = all(w > h for w, h in zip(widths, heights, strict=False))
+        all_landscape = all(
+            w > h for w, h in zip(widths, heights, strict=False)
+        )
         rect = all_landscape
 
         # Check whether all sampled images share a single aspect ratio.
         # copy_paste / mixup are only unsafe when rect=True creates *multiple*
         # batch shape groups (one per distinct ratio). Round to 2 d.p. so that
         # e.g. 1920x1080 and 1280x720 (both 1.78) are treated as identical.
-        unique_ratios = {round(w / h, 2) for w, h in zip(widths, heights, strict=False)}
+        unique_ratios = {
+            round(w / h, 2) for w, h in zip(widths, heights, strict=False)
+        }
         uniform_aspect_ratio = len(unique_ratios) == 1
 
         return avg_h, avg_w, rect, uniform_aspect_ratio
@@ -3107,7 +3111,8 @@ class YOLO_octron:
                     tracked_label_names,
                     tracked_confidences,
                     tracked_boxes,
-                    tracked_masks, strict=False,
+                    tracked_masks,
+                    strict=False,
                 ):
                     # Figure out if you can use the track_id or whether it needs
                     # to be replaced - this is a special case for when "1 subject" (one_object_per_label)
