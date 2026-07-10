@@ -1,5 +1,4 @@
-"""
-Tests for tracklet centroid smoothing and gap interpolation.
+"""Tests for tracklet centroid smoothing and gap interpolation.
 
 Both now live in core ``YOLO_results.get_tracking_data`` (shared by the CLI
 render path and the napari GUI), so they are exercised here through that single
@@ -14,22 +13,24 @@ import pandas as pd
 
 from octron.yolo_octron.helpers.yolo_results import YOLO_results
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
+
 def _results(tmp_path, frames, xs, ys, num_frames, header_lines=0):
     """Build a YOLO_results (no __init__) backed by one tracking CSV."""
     frames = list(frames)
-    df = pd.DataFrame({
-        "frame_idx": frames,
-        "track_id": [1] * len(frames),
-        "label": ["a"] * len(frames),
-        "confidence": [0.9] * len(frames),
-        "pos_x": [float(x) for x in xs],
-        "pos_y": [float(y) for y in ys],
-    })
+    df = pd.DataFrame(
+        {
+            "frame_idx": frames,
+            "track_id": [1] * len(frames),
+            "label": ["a"] * len(frames),
+            "confidence": [0.9] * len(frames),
+            "pos_x": [float(x) for x in xs],
+            "pos_y": [float(y) for y in ys],
+        }
+    )
     csv = tmp_path / "a_track_1.csv"
     df.to_csv(csv, index=False)
 
@@ -41,7 +42,9 @@ def _results(tmp_path, frames, xs, ys, num_frames, header_lines=0):
     return obj
 
 
-def _xy(results, *, sigma=0.0, interpolate=False, interpolate_limit=None, tid=1):
+def _xy(
+    results, *, sigma=0.0, interpolate=False, interpolate_limit=None, tid=1
+):
     td = results.get_tracking_data(
         interpolate=interpolate,
         interpolate_limit=interpolate_limit,
@@ -62,9 +65,16 @@ SIGMA = 3.0
 # Smoothing — get_tracking_data(sigma=...)
 # ===========================================================================
 
+
 def test_smooth_constant_trajectory_unchanged(tmp_path):
     n = 200
-    res = _results(tmp_path, range(n), np.ones(n) * 100.0, np.ones(n) * 200.0, num_frames=n)
+    res = _results(
+        tmp_path,
+        range(n),
+        np.ones(n) * 100.0,
+        np.ones(n) * 200.0,
+        num_frames=n,
+    )
     _, xs, ys = _xy(res, sigma=SIGMA)
     np.testing.assert_allclose(xs, 100.0, atol=1e-6)
     np.testing.assert_allclose(ys, 200.0, atol=1e-6)
@@ -122,7 +132,9 @@ def test_smooth_single_point_unchanged(tmp_path):
 def test_smooth_preserves_frame_indices(tmp_path):
     frames_in = list(range(10, 210))
     xs_in = np.linspace(0, 100, len(frames_in))
-    res = _results(tmp_path, frames_in, xs_in, np.zeros(len(frames_in)), num_frames=210)
+    res = _results(
+        tmp_path, frames_in, xs_in, np.zeros(len(frames_in)), num_frames=210
+    )
     frames, _, _ = _xy(res, sigma=SIGMA)
     assert list(frames) == frames_in
 
@@ -130,6 +142,7 @@ def test_smooth_preserves_frame_indices(tmp_path):
 # ===========================================================================
 # Interpolation — get_tracking_data(interpolate=True, interpolate_limit=...)
 # ===========================================================================
+
 
 def test_interp_fills_interior_gap(tmp_path):
     res = _results(tmp_path, [0, 5], [0.0, 100.0], [0.0, 200.0], num_frames=6)
@@ -154,10 +167,10 @@ def test_interp_limit_partial_fill(tmp_path):
     frames, xs, _ = _xy(res, interpolate=True, interpolate_limit=3)
     frames = list(frames)
     assert frames[0] == 0 and frames[-1] == 11
-    assert 1 in frames                 # forward-filled from the gap start
-    assert 5 <= len(frames) < 12       # partial fill, not the full 12 frames
+    assert 1 in frames  # forward-filled from the gap start
+    assert 5 <= len(frames) < 12  # partial fill, not the full 12 frames
     i1 = frames.index(1)
-    assert abs(xs[i1] - 10.0) < 1e-6   # linear: 110*1/11
+    assert abs(xs[i1] - 10.0) < 1e-6  # linear: 110*1/11
 
 
 def test_interp_does_not_fill_leading_gap(tmp_path):

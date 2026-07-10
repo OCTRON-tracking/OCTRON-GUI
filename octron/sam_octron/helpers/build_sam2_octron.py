@@ -1,15 +1,15 @@
-
 import os
+
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-from pathlib import Path
 import torch
-from loguru import logger
-from hydra.core.global_hydra import GlobalHydra
 from hydra import compose, initialize
+from hydra.core.global_hydra import GlobalHydra
 from hydra.utils import instantiate
+from loguru import logger
 from omegaconf import OmegaConf
 from sam2.build_sam import _load_checkpoint
+
 
 def build_sam2_octron(
     config_file_path,
@@ -19,12 +19,11 @@ def build_sam2_octron(
     apply_postprocessing=False,
     **kwargs,
 ):
-    """
-    Build the SAM2 model from config and checkpoint files.
-    
+    """Build the SAM2 model from config and checkpoint files.
+
     This is basically the original build_sam function.
     I am getting rid of the vos_optimized flag because I don't need it.
-    
+
     Parameters
     ----------
     config_file_path : str
@@ -38,22 +37,22 @@ def build_sam2_octron(
     apply_postprocessing : bool
         Apply postprocessing to the model. Default is False. TODO: UNTESTED!
         That would be:
-            dynamic_multimask_via_stability = True 
+            dynamic_multimask_via_stability = True
             dynamic_multimask_stability_delta = 0.05
             dynamic_multimask_stability_thresh = 0.98
             binarize_mask_from_pts_for_mem_enc = True
             fill_hole_area = 8
     **kwargs : dict
+
     """
-    
     # Is this HQ or normal SAM2?
-    if 'hq' in str(config_file_path).lower():
+    if "hq" in str(config_file_path).lower():
         logger.info("HQ SAM2 model detected. Setting HQ mode to True.")
         hq_mode = True
     else:
         logger.info("Normal SAM2 model detected. Setting HQ mode to False.")
         hq_mode = False
-    
+
     # Find out which device to use
     # Will automatically select CUDA if available and MPS (on Mac)
     if torch.cuda.is_available():
@@ -77,17 +76,16 @@ def build_sam2_octron(
             "See e.g. https://github.com/pytorch/pytorch/issues/84936 for a discussion."
         )
 
-    # Hydra configuration 
+    # Hydra configuration
     if hq_mode:
         hydra_overrides = [
             "++model._target_=octron.sam_octron.helpers.sam2hq_octron.SAM2_octron_hq",
         ]
     else:
         hydra_overrides = [
-"++model._target_=octron.sam_octron.helpers.sam2_octron.SAM2_octron",
+            "++model._target_=octron.sam_octron.helpers.sam2_octron.SAM2_octron",
         ]
-    
-    
+
     if apply_postprocessing:
         hydra_overrides_extra = hydra_overrides_extra.copy()
         hydra_overrides_extra += [
@@ -108,12 +106,12 @@ def build_sam2_octron(
     if GlobalHydra.instance().is_initialized():
         GlobalHydra.instance().clear()
     # I am hardcoding the config path here because I don't want to use the hydra config path
-    with initialize(config_path='../configs/sam2.1', version_base=None):
+    with initialize(config_path="../configs/sam2.1", version_base=None):
         # Read config and init model
         cfg = compose(config_name=config_name, overrides=hydra_overrides)
         OmegaConf.resolve(cfg)
         model = instantiate(cfg.model, _recursive_=True)
-        
+
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":

@@ -1,5 +1,4 @@
-"""
-OCTRON user configuration.
+r"""OCTRON user configuration.
 
 A single, GUI- and CLI-friendly home for *user-tunable runtime settings*, kept
 deliberately separate from ``octron/yolo_octron/constants.py``:
@@ -38,18 +37,19 @@ Example ``config.yaml``::
 """
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 import platformdirs
 import yaml
 from loguru import logger
 
-
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class SettingSpec:
@@ -72,13 +72,15 @@ class SettingSpec:
     coerce : callable, optional
         ``(raw_value) -> stored_value``; raises ``ValueError`` on invalid input.
         Applied on both load and set so the stored representation is normalized.
+
     """
+
     key: str
     default: Any
     description: str
     kind: str = "text"
     choices: tuple = ()
-    coerce: Optional[Callable[[Any], Any]] = None
+    coerce: Callable[[Any], Any] | None = None
 
 
 def _coerce_optional_dir(value):
@@ -126,6 +128,7 @@ _SPECS = {spec.key: spec for spec in SETTINGS}
 # Location
 # ---------------------------------------------------------------------------
 
+
 def config_path() -> Path:
     """Return the path to ``config.yaml``.
 
@@ -144,6 +147,7 @@ def config_path() -> Path:
 # Load / read
 # ---------------------------------------------------------------------------
 
+
 def _defaults() -> dict:
     return {spec.key: spec.default for spec in SETTINGS}
 
@@ -157,12 +161,16 @@ def _read_raw() -> dict:
         with open(path) as f:
             data = yaml.safe_load(f)
     except Exception as e:
-        logger.warning(f"Could not parse OCTRON config at {path}: {e}. Ignoring it.")
+        logger.warning(
+            f"Could not parse OCTRON config at {path}: {e}. Ignoring it."
+        )
         return {}
     if data is None:
         return {}
     if not isinstance(data, dict):
-        logger.warning(f"OCTRON config at {path} is not a mapping; ignoring it.")
+        logger.warning(
+            f"OCTRON config at {path} is not a mapping; ignoring it."
+        )
         return {}
     return data
 
@@ -177,7 +185,9 @@ def load() -> dict:
     for key, value in _read_raw().items():
         spec = _SPECS.get(key)
         if spec is None:
-            logger.warning(f"Ignoring unknown OCTRON config key {key!r} in {config_path()}.")
+            logger.warning(
+                f"Ignoring unknown OCTRON config key {key!r} in {config_path()}."
+            )
             continue
         try:
             cfg[key] = spec.coerce(value) if spec.coerce else value
@@ -205,6 +215,7 @@ def specs() -> "tuple[SettingSpec, ...]":
 # Write
 # ---------------------------------------------------------------------------
 
+
 def set_value(key: str, value) -> Path:
     """Validate ``value`` and persist it to ``config.yaml``.
 
@@ -230,7 +241,8 @@ def set_value(key: str, value) -> Path:
 # Typed accessors (convenience wrappers used by the rest of OCTRON)
 # ---------------------------------------------------------------------------
 
-def get_prediction_cache_dir() -> Optional[Path]:
+
+def get_prediction_cache_dir() -> Path | None:
     """Return the configured prediction cache directory, or ``None`` if unset.
 
     ``~`` is expanded in the returned path.  ``None`` means caching is off.

@@ -1,21 +1,20 @@
 # Code for checking the availability of the SAM3 model checkpoint and config
 from pathlib import Path
+
 import yaml
 from loguru import logger
-
 
 SAM3_HF_REPO = "facebook/sam3"
 SAM3_FILES = ["sam3.pt", "config.json"]
 
 
 def download_sam3_file(filename, local_dir, overwrite=False):
-    """
-    Download a single file from the SAM3 HuggingFace repository.
-    
+    """Download a single file from the SAM3 HuggingFace repository.
+
     Uses huggingface_hub to handle authentication (for gated models)
     and caching. The user must have run `huggingface-cli login` or set
     HF_TOKEN in their environment.
-    
+
     Parameters
     ----------
     filename : str
@@ -24,11 +23,12 @@ def download_sam3_file(filename, local_dir, overwrite=False):
         Local directory to download into.
     overwrite : bool
         If True, re-download even if the file already exists locally.
-    
+
     Returns
     -------
     local_path : Path
         Path to the downloaded file.
+
     """
     from huggingface_hub import hf_hub_download
 
@@ -51,24 +51,24 @@ def download_sam3_file(filename, local_dir, overwrite=False):
 
 
 def check_sam3_models(models_yaml_path, force_download=False):
-    """
-    Load SAM3 model definitions from a YAML file and ensure the
+    """Load SAM3 model definitions from a YAML file and ensure the
     checkpoint files are available locally (downloading from
     HuggingFace if missing).
-    
+
     Parameters
     ----------
     models_yaml_path : str or Path
         Path to the sam3_models.yaml file.
     force_download : bool
         Re-download even if files exist.
-    
+
     Returns
     -------
     models_dict : dict
         Keys are model IDs, values contain 'name', 'checkpoint_path',
         'semantic' (bool), and optionally 'tooltip'.
         Returns an empty dict if download fails.
+
     """
     models_yaml_path = Path(models_yaml_path)
     sam3_path = models_yaml_path.parent
@@ -76,16 +76,21 @@ def check_sam3_models(models_yaml_path, force_download=False):
     assert models_yaml_path.exists(), f"Path {models_yaml_path} does not exist"
 
     # Load the model YAML file
-    with open(models_yaml_path, 'r') as file:
+    with open(models_yaml_path) as file:
         models_dict = yaml.safe_load(file)
 
     for model_id in models_dict:
-        assert 'name' in models_dict[model_id], f"Name not found for model {model_id} in yaml file"
-        assert 'checkpoint_path' in models_dict[model_id], f"Checkpoint path not found for model {model_id} in yaml file"
+        assert "name" in models_dict[model_id], (
+            f"Name not found for model {model_id} in yaml file"
+        )
+        assert "checkpoint_path" in models_dict[model_id], (
+            f"Checkpoint path not found for model {model_id} in yaml file"
+        )
 
     # Checkpoints (sam3.pt + the downloaded config.json) live in the per-user
     # cache, not inside the installed package.
     from octron import config
+
     checkpoints_dir = config.get_sam_checkpoints_dir()
 
     try:
@@ -97,9 +102,11 @@ def check_sam3_models(models_yaml_path, force_download=False):
             )
     except Exception as e:
         logger.warning(f"⚠️  Could not download SAM3 files: {e}")
-        logger.warning("   Make sure you have accepted the licence at "
-              "https://huggingface.co/facebook/sam3 and run "
-              "`huggingface-cli login`.")
+        logger.warning(
+            "   Make sure you have accepted the licence at "
+            "https://huggingface.co/facebook/sam3 and run "
+            "`huggingface-cli login`."
+        )
         return {}
 
     # Verify the checkpoint actually landed
@@ -110,7 +117,7 @@ def check_sam3_models(models_yaml_path, force_download=False):
 
     # Verify checkpoint paths from YAML actually exist (in the per-user cache)
     for model_id, model in models_dict.items():
-        ckpt_path = checkpoints_dir / Path(model['checkpoint_path']).name
+        ckpt_path = checkpoints_dir / Path(model["checkpoint_path"]).name
         if not ckpt_path.exists():
             print(f"⚠️ {ckpt_path} not found after download attempt.")
             return {}

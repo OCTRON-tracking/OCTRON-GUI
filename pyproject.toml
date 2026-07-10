@@ -1,30 +1,11 @@
-[build-system]
-requires = [
-  "setuptools>=62.3.0,<75.8.1",
-  "wheel",
-  "setuptools_scm[toml]>=6.3"
-]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "octron"
-dynamic = ["version"]
+authors = [{ name = "Horst A. Obenhaus", email = "hobenhaus@gmail.com" }]
 description = "OCTRON - segmentation and tracking for animal behavior quantification"
-
-authors = [
-    { name = "Horst A. Obenhaus", email = "hobenhaus@gmail.com" }
-]
-license = { text = "GPL-3.0-or-later" }
 readme = "README.md"
-keywords = ["octron", "video segmentation", "napari", "object tracking", "behavior quantification", "machine learning", "sam2", "yolo11"]
-classifiers = [
-    "Framework :: napari",
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Science/Research",
-    "Programming Language :: Python :: 3.11",
-]
-
 requires-python = ">=3.11,<3.12"
+dynamic = ["version"]
+
 dependencies = [
     "setuptools",
     "napari==0.7.1",
@@ -37,14 +18,14 @@ dependencies = [
     "pandas>=2.2.3",
     "scikit-image>=0.25.0",
     "tifffile",
-    "zarr==3.1.6", # Newer versions require python version bump
+    "zarr==3.1.6",                                                                                                         # Newer versions require python version bump
     "kornia>=0.8.0",
     "cmasher>=1.9.2",
     "imantics",
     "ultralytics>=8.4.46",
     "tensorboard>=2.19.0",
     "lap>=0.5.12",
-    "opencv-python>=4.11.0",       
+    "opencv-python>=4.11.0",
     "natsort>=8.4.0",
     "loguru>=0.7",
     "platformdirs>=4.0",
@@ -55,8 +36,40 @@ dependencies = [
     "sam-2 @ https://github.com/horsto/sam2/releases/download/v0.0.2/sam_2-1.0-py3-none-any.whl",
     "boxmot @ https://github.com/horsto/boxmot/releases/download/v.15.0.5.2/boxmot-15.0.5-py3-none-any.whl",
     "timm>=1.0.25",
-    "clip @ git+https://github.com/ultralytics/CLIP.git"
+    "clip @ git+https://github.com/ultralytics/CLIP.git",
 ]
+
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Framework :: napari",
+]
+
+keywords = [
+    "octron",
+    "video segmentation",
+    "napari",
+    "object tracking",
+    "behavior quantification",
+    "machine learning",
+    "sam",
+    "yolo11",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/OCTRON-tracking/OCTRON-GUI"
+"Bug Tracker" = "https://github.com/OCTRON-tracking/OCTRON-GUI/issues"
+"Documentation" = "https://octron-tracking.github.io/OCTRON-docs/"
+"Source Code" = "https://github.com/OCTRON-tracking/OCTRON-GUI"
+"User Support" = "https://github.com/OCTRON-tracking/OCTRON-GUI/issues"
+"Changelog" = "https://github.com/OCTRON-tracking/OCTRON-GUI/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 pyqt5 = ["PyQt5>=5.15.11"]
@@ -65,13 +78,13 @@ all = ["napari[pyqt6]==0.7.1"]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "coverage",
+    "tox",
+    "mypy",
+    "pre-commit",
+    "ruff",
+    "setuptools-scm",
 ]
-
-[project.urls]
-Homepage = "https://github.com/OCTRON-tracking/OCTRON-GUI"
-Repository = "https://github.com/OCTRON-tracking/OCTRON-GUI.git"
-Issues = "https://github.com/OCTRON-tracking/OCTRON-GUI/issues"
-Changelog = "https://github.com/OCTRON-tracking/OCTRON-GUI/blob/master/CHANGELOG.md"
 
 [project.entry-points."napari.manifest"]
 octron = "octron:napari.yaml"
@@ -82,25 +95,96 @@ octron = "octron.cli:main"
 [project.scripts]
 octron = "octron.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["octron*", "qt_gui"]
-exclude = ["pics", "sample_data"]
+[build-system]
+requires = ["setuptools>=77", "wheel", "setuptools-scm[toml]>=8"]
+build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+include-package-data = true
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.svg", "*.md"]
 
-[tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
+[tool.setuptools.packages.find]
+include = ["octron*", "qt_gui"]
+exclude = ["tests*", "pics", "sample_data"]
 
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
+[tool.pytest.ini_options]
+addopts = "--cov=octron"
 
 [tool.setuptools_scm]
 # write version into code for import
 write_to = "octron/_version.py"
 version_scheme = "post-release"
 local_scheme = "no-local-version"
+
+
+[tool.check-manifest]
+ignore = [
+    "octron/_version.py",
+    "*.yaml",
+    "tests/",
+    "tests/test_unit/",
+    "tests/test_integration/",
+    # these next two files seem unused
+    "octron/sam_octron/checkpoints/config.json",
+    "octron/sam_octron/checkpoints/download_ckpts.sh",
+]
+
+[tool.ruff] # same as https://github.com/neuroinformatics-unit/movement/
+line-length = 79
+exclude = ["__init__.py", "build", ".eggs"]
+fix = true
+
+[tool.ruff.lint]
+# See https://docs.astral.sh/ruff/rules/
+ignore = [
+    "D203", # one blank line before class
+    "D213", # multi-line-summary second line
+]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # Pyflakes
+    "UP",     # pyupgrade
+    "I",      # isort
+    "B",      # flake8 bugbear
+    "SIM",    # flake8 simplify
+    "TC",     # flake8 type-checking
+    "C90",    # McCabe complexity
+    "D",      # pydocstyle
+    "NPY201", # checks for syntax that was deprecated in numpy2.0
+]
+per-file-ignores = { "tests/*" = [
+    "D100", # missing docstring in public module
+    "D205", # missing blank line between summary and description
+    "D103", # missing docstring in public function
+] }
+
+[tool.ruff.format]
+docstring-code-format = true # Also format code in docstrings
+
+[tool.codespell]
+skip = '.git'
+check-hidden = true
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+requires =
+    tox>=4
+    tox-gh-actions
+envlist = py{311}
+isolated_build = True
+
+[gh-actions]
+python =
+    3.11: py311
+
+[testenv]
+passenv =
+    CI
+    GITHUB_ACTIONS
+extras =
+    dev
+commands =
+    pytest -v --color=yes --cov=octron --cov-report=xml
+"""

@@ -1,5 +1,4 @@
-"""
-Tests for the shared ffmpeg helpers in octron/tools/_ffmpeg.py.
+"""Tests for the shared ffmpeg helpers in octron/tools/_ffmpeg.py.
 
 ffmpeg itself is never invoked: codec-arg construction is pure, and the
 encoder-detection failure path is exercised by monkeypatching shutil.which.
@@ -22,19 +21,31 @@ from octron.tools._ffmpeg import EVEN_DIM_YUV420P, h264_codec_args
 
 
 def test_even_dim_filter_value():
-    assert EVEN_DIM_YUV420P == "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p"
+    assert (
+        EVEN_DIM_YUV420P == "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p"
+    )
 
 
 def test_h264_codec_args_libx264_explicit():
     assert h264_codec_args("libx264", crf=18, preset="fast") == [
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "18",
     ]
 
 
 def test_h264_codec_args_libx264_defaults():
     # Default preset is superfast, default crf 23.
     assert h264_codec_args("libx264") == [
-        "-c:v", "libx264", "-preset", "superfast", "-crf", "23",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "superfast",
+        "-crf",
+        "23",
     ]
 
 
@@ -54,6 +65,7 @@ def test_detect_h264_encoder_raises_without_ffmpeg(monkeypatch):
 
 class _FakeRun:
     """Stand-in for subprocess.run with a fixed `ffmpeg -encoders` listing."""
+
     def __init__(self, text):
         self.stdout = text
         self.stderr = ""
@@ -62,7 +74,8 @@ class _FakeRun:
 def test_detect_h264_encoder_preference(monkeypatch):
     monkeypatch.setattr(ff.shutil, "which", lambda name: "/usr/bin/ffmpeg")
     monkeypatch.setattr(
-        ff.subprocess, "run",
+        ff.subprocess,
+        "run",
         lambda *a, **k: _FakeRun("V..... h264_nvenc\nV..... libx264\n"),
     )
     # Render (default) prefers the hardware encoder.
@@ -75,7 +88,8 @@ def test_detect_h264_encoder_preference(monkeypatch):
 def test_detect_h264_encoder_falls_back_to_nvenc_without_libx264(monkeypatch):
     monkeypatch.setattr(ff.shutil, "which", lambda name: "/usr/bin/ffmpeg")
     monkeypatch.setattr(
-        ff.subprocess, "run",
+        ff.subprocess,
+        "run",
         lambda *a, **k: _FakeRun("V..... h264_nvenc\n"),
     )
     # libx264 unavailable: prefer_hardware=False still yields a usable encoder.

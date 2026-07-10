@@ -1,5 +1,4 @@
-"""
-OCTRON video transcoding tool.
+"""OCTRON video transcoding tool.
 
 Transcodes video files and multi-frame TIFF stacks to MP4 (H.264) using ffmpeg.
 
@@ -22,10 +21,20 @@ from octron.tools._ffmpeg import (
     h264_codec_args,
 )
 
-
 VIDEO_EXTENSIONS = {
-    ".avi", ".mov", ".mj2", ".mpg", ".mpeg", ".mjpeg", ".mjpg",
-    ".wmv", ".mp4", ".mkv", ".mts", ".tif", ".tiff",
+    ".avi",
+    ".mov",
+    ".mj2",
+    ".mpg",
+    ".mpeg",
+    ".mjpeg",
+    ".mjpg",
+    ".wmv",
+    ".mp4",
+    ".mkv",
+    ".mts",
+    ".tif",
+    ".tiff",
 }
 
 TIFF_EXTENSIONS = {".tif", ".tiff"}
@@ -49,6 +58,7 @@ def _load_tiff_as_rgb(path):
         ``(stack, frame_count, height, width)`` on success, or ``None`` (after
         logging the reason) for unsupported inputs (single-frame/2D TIFFs,
         ambiguous T+Z stacks, read failures, or missing numpy/tifffile).
+
     """
     try:
         import numpy as np
@@ -63,24 +73,26 @@ def _load_tiff_as_rgb(path):
             return arr
         smin, smax = float(arr.min()), float(arr.max())
         if smax > smin:
-            return ((arr.astype(np.float32) - smin) / (smax - smin) * 255).astype(np.uint8)
+            return (
+                (arr.astype(np.float32) - smin) / (smax - smin) * 255
+            ).astype(np.uint8)
         return np.zeros_like(arr, dtype=np.uint8)
 
     try:
         with tifffile.TiffFile(str(path)) as tif:
             series = tif.series[0]
-            axes = series.axes   # e.g. "TCYX", "TYX", "TZYXC"
+            axes = series.axes  # e.g. "TCYX", "TYX", "TZYXC"
             stack = series.asarray()
             # Build sizes from axes + shape directly.
             # series.sizes can be unreliable across tifffile versions.
-            sizes = dict(zip(axes, stack.shape))
+            sizes = dict(zip(axes, stack.shape, strict=False))
     except Exception as e:
         logger.error(f"Failed to read TIFF '{path.name}': {e}")
         return None
 
-    n_t = sizes.get('T', 0)
-    n_z = sizes.get('Z', 0)
-    n_c = sizes.get('C', 0)
+    n_t = sizes.get("T", 0)
+    n_z = sizes.get("Z", 0)
+    n_c = sizes.get("C", 0)
 
     logger.info(
         f"TIFF detected: axes='{axes}' shape={stack.shape} dtype={stack.dtype} "
@@ -100,10 +112,12 @@ def _load_tiff_as_rgb(path):
 
     # Reject single-frame / 2D-only images
     if n_t >= 2:
-        frame_key = 'T'
+        frame_key = "T"
     elif n_z >= 2:
-        frame_key = 'Z'
-        logger.info(f"No time axis; treating Z-stack ({n_z} slices) as frames.")
+        frame_key = "Z"
+        logger.info(
+            f"No time axis; treating Z-stack ({n_z} slices) as frames."
+        )
     else:
         logger.warning(
             f"Skipped '{path.name}': single-frame or 2D TIFF "
@@ -114,10 +128,12 @@ def _load_tiff_as_rgb(path):
     # Reorder axes to canonical order:
     # (frame_key, [unknown extras,] [C,] Y, X)
     axes_list = list(axes)
-    known = {'T', 'Z', 'C', 'Y', 'X'}
+    known = {"T", "Z", "C", "Y", "X"}
     extra = [a for a in axes_list if a not in known]
 
-    target_order = [frame_key] + extra + (['C'] if n_c > 0 else []) + ['Y', 'X']
+    target_order = (
+        [frame_key] + extra + (["C"] if n_c > 0 else []) + ["Y", "X"]
+    )
 
     perm = [axes_list.index(a) for a in target_order]
     if perm != list(range(stack.ndim)):
@@ -155,7 +171,9 @@ def _load_tiff_as_rgb(path):
     elif n_c == 4:
         stack = _to_uint8(stack[..., :3])  # drop alpha
     else:
-        logger.warning(f"'{path.name}': {n_c} channels detected; using first 3 as RGB.")
+        logger.warning(
+            f"'{path.name}': {n_c} channels detected; using first 3 as RGB."
+        )
         stack = _to_uint8(stack[..., :3])
 
     frame_count, height, width, _ = stack.shape
@@ -210,6 +228,7 @@ def transcode_one(
     ------
     RuntimeError
         If no usable H.264 encoder is available and ``encoder`` is not given.
+
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -235,14 +254,20 @@ def transcode_one(
         if overwrite:
             cmd.append("-y")
         cmd += [
-            "-f", "rawvideo",
-            "-pixel_format", "rgb24",
-            "-video_size", f"{width}x{height}",
-            "-framerate", str(out_fps),
-            "-i", "-",
+            "-f",
+            "rawvideo",
+            "-pixel_format",
+            "rgb24",
+            "-video_size",
+            f"{width}x{height}",
+            "-framerate",
+            str(out_fps),
+            "-i",
+            "-",
             *codec_args,
             "-an",  # raw RGB frames carry no audio
-            "-vf", EVEN_DIM_YUV420P,
+            "-vf",
+            EVEN_DIM_YUV420P,
             str(output_path),
         ]
         stack_bytes = stack.tobytes()
@@ -253,7 +278,9 @@ def transcode_one(
                 f"(faster playback) | '{input_path.name}'"
             )
         else:
-            logger.info(f"Transcoding video: keeping source fps | '{input_path.name}'")
+            logger.info(
+                f"Transcoding video: keeping source fps | '{input_path.name}'"
+            )
         cmd = ["ffmpeg"]
         if overwrite:
             cmd.append("-y")
@@ -273,14 +300,19 @@ def transcode_one(
         subprocess.run(
             cmd,
             input=stack_bytes,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=True,
         )
     except subprocess.CalledProcessError as e:
-        stderr_msg = e.stderr.decode("utf-8", errors="ignore").strip() if e.stderr else ""
+        stderr_msg = (
+            e.stderr.decode("utf-8", errors="ignore").strip()
+            if e.stderr
+            else ""
+        )
         if stderr_msg:
-            logger.error(f"Failed to transcode '{input_path.name}': {stderr_msg.splitlines()[-1]}")
+            logger.error(
+                f"Failed to transcode '{input_path.name}': {stderr_msg.splitlines()[-1]}"
+            )
         else:
             logger.error(f"Failed to transcode '{input_path.name}': {e}")
         return False
@@ -304,8 +336,7 @@ def run_transcode(
     fps=None,
     keep_audio=True,
 ):
-    """
-    Transcode one or more video files (or multi-frame TIFF stacks) to MP4 (H.264).
+    """Transcode one or more video files (or multi-frame TIFF stacks) to MP4 (H.264).
 
     Parameters
     ----------
@@ -323,6 +354,7 @@ def run_transcode(
         for videos and 20 fps for TIFF stacks.
     keep_audio : bool
         Keep (re-encode to AAC) the audio track of video inputs. Default True.
+
     """
     if not isinstance(videos, list):
         videos = [videos]
@@ -333,8 +365,7 @@ def run_transcode(
     for v in videos:
         if v.is_dir():
             found = sorted(
-                f for f in v.iterdir()
-                if f.suffix.lower() in VIDEO_EXTENSIONS
+                f for f in v.iterdir() if f.suffix.lower() in VIDEO_EXTENSIONS
             )
             if not found:
                 print(f"No video files found in directory: {v}")

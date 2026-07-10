@@ -1,5 +1,4 @@
-"""
-Tests for pure utility functions in octron/tools/render.py.
+"""Tests for pure utility functions in octron/tools/render.py.
 
 Covered
 -------
@@ -27,10 +26,10 @@ from octron.tools.render import (
     run_tracklets,
 )
 
-
 # ---------------------------------------------------------------------------
 # _validate_render_args
 # ---------------------------------------------------------------------------
+
 
 def test_validate_render_args_rejects_unknown_preset():
     with pytest.raises(ValueError, match="preset must be one of"):
@@ -67,6 +66,7 @@ def test_validate_render_args_accepts_boundary_values():
 # ---------------------------------------------------------------------------
 # _coerce_track_ids
 # ---------------------------------------------------------------------------
+
 
 def test_coerce_track_ids_none():
     assert _coerce_track_ids(None) is None
@@ -119,24 +119,31 @@ def test_coerce_track_ids_rejects_float():
 # These tests rely on offset validation firing BEFORE any I/O or heavy
 # imports inside run_tracklets, so a non-existent predictions_path is fine.
 
-@pytest.mark.parametrize("bad_offset", [
-    "20,-30",       # string, not a tuple
-    (1,),           # wrong arity
-    (1, 2, 3),      # wrong arity
-    ("x", "y"),     # non-numeric
-    None,           # not iterable in the (a, b) sense
-])
+
+@pytest.mark.parametrize(
+    "bad_offset",
+    [
+        "20,-30",  # string, not a tuple
+        (1,),  # wrong arity
+        (1, 2, 3),  # wrong arity
+        ("x", "y"),  # non-numeric
+        None,  # not iterable in the (a, b) sense
+    ],
+)
 def test_run_tracklets_rejects_bad_offset(bad_offset):
     with pytest.raises(ValueError, match="offset"):
         run_tracklets(predictions_path="/nope_for_test", offset=bad_offset)
 
 
-@pytest.mark.parametrize("good_offset", [
-    (0, 0),
-    (1, -2),
-    (1.0, 2.0),     # floats coerced to int
-    [3, 4],         # list also accepted
-])
+@pytest.mark.parametrize(
+    "good_offset",
+    [
+        (0, 0),
+        (1, -2),
+        (1.0, 2.0),  # floats coerced to int
+        [3, 4],  # list also accepted
+    ],
+)
 def test_run_tracklets_accepts_valid_offset(good_offset):
     """Offset validation passes; later code fails because the path doesn't exist.
 
@@ -152,6 +159,7 @@ def test_run_tracklets_accepts_valid_offset(good_offset):
 # ---------------------------------------------------------------------------
 # _select_render_frames (--skip-empty frame selection)
 # ---------------------------------------------------------------------------
+
 
 def test_select_render_frames_unions_and_dedupes():
     per_track = {1: [0, 100, 200], 2: [100, 300]}
@@ -172,12 +180,15 @@ def test_select_render_frames_clamps_to_range():
 
 def test_select_render_frames_empty_inputs():
     assert _select_render_frames({}, 0, 100) == []
-    assert _select_render_frames({1: [500, 600]}, 0, 100) == []  # all out of range
+    assert (
+        _select_render_frames({1: [500, 600]}, 0, 100) == []
+    )  # all out of range
 
 
 # ---------------------------------------------------------------------------
 # _open_ffmpeg_writer — even-dimension + yuv420p
 # ---------------------------------------------------------------------------
+
 
 def test_open_ffmpeg_writer_forces_even_dim_yuv420p(monkeypatch):
     """The writer must apply the shared even-dim + yuv420p filter.
@@ -201,7 +212,9 @@ def test_open_ffmpeg_writer_forces_even_dim_yuv420p(monkeypatch):
 
     cmd = captured["cmd"]
     assert "-vf" in cmd
-    assert cmd[cmd.index("-vf") + 1] == EVEN_DIM_YUV420P  # rounds to even + 4:2:0
+    assert (
+        cmd[cmd.index("-vf") + 1] == EVEN_DIM_YUV420P
+    )  # rounds to even + 4:2:0
     # The raw input size stays as written (the filter, not -s, does the rounding).
     assert "47x47" in cmd
     assert cmd[-1] == "out.mp4"

@@ -1,5 +1,4 @@
-"""
-OCTRON prediction pipeline.
+"""OCTRON prediction pipeline.
 
 Wraps ``YOLO_octron.predict_batch()`` into a single callable usable from the CLI
 or programmatically.
@@ -11,9 +10,9 @@ the GUI and programmatic callers share it. It is opt-in: set
 ``--local-cache-dir`` on the CLI). ``run_predict`` only prints progress.
 """
 
+import time
 from collections import deque
 from pathlib import Path
-import time
 
 
 def run_predict(
@@ -35,8 +34,7 @@ def run_predict(
     debug=False,
     local_cache_dir=None,
 ):
-    """
-    Run YOLO prediction and tracking on one or more videos.
+    """Run YOLO prediction and tracking on one or more videos.
 
     Parameters
     ----------
@@ -83,6 +81,7 @@ def run_predict(
         ``predict_batch`` stages each video's output under
         ``<cache>/octron_cache_<pid>`` and moves the finished folder to
         ``output_dir``. Caching is OFF unless a cache dir is configured.
+
     """
     if isinstance(videos, (str, Path)):
         videos = [videos]
@@ -90,7 +89,9 @@ def run_predict(
     for v in videos:
         v = Path(v)
         if v.is_dir():
-            found = sorted(f for f in v.iterdir() if f.suffix.lower() == ".mp4")
+            found = sorted(
+                f for f in v.iterdir() if f.suffix.lower() == ".mp4"
+            )
             if not found:
                 raise ValueError(f"No .mp4 files found in directory: {v}")
             print(f"Found {len(found)} video(s) in {v}")
@@ -114,8 +115,9 @@ def run_predict(
         model_path = found
 
     from loguru import logger
-    from octron.yolo_octron.yolo_octron import YOLO_octron
+
     from octron.test_gpu import auto_device
+    from octron.yolo_octron.yolo_octron import YOLO_octron
 
     # Silence boxmot's verbose INFO chatter (tracker init parameter dumps).
     logger.disable("boxmot")
@@ -215,7 +217,11 @@ def run_predict(
             _fps_ts.append(now_t)
             while _fps_ts[0] < now_t - _FPS_WINDOW:
                 _fps_ts.popleft()
-            fps = (len(_fps_ts) - 1) / (_fps_ts[-1] - _fps_ts[0]) if len(_fps_ts) >= 2 else 0.0
+            fps = (
+                (len(_fps_ts) - 1) / (_fps_ts[-1] - _fps_ts[0])
+                if len(_fps_ts) >= 2
+                else 0.0
+            )
 
             pct = 100.0 * frame / total_f if total_f > 0 else 0.0
             eta_s = int((total_f - frame) / fps) if fps > 0 else 0

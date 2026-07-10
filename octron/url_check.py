@@ -3,25 +3,25 @@
 import requests
 from loguru import logger
 
+
 def check_url_availability(url, verbose=False):
-    """
-    Quick check if a URL is available.
+    """Quick check if a URL is available.
     This is used throughout the package to check if the model files are available.
-    
+
     Parameters
     ----------
     url : str
-        URL to check. 
-        For example "https://dl.fbaipublicfiles.com/segment_anything_2/092824" 
-    verbose : boolean 
-        Print info? 
-    
+        URL to check.
+        For example "https://dl.fbaipublicfiles.com/segment_anything_2/092824"
+    verbose : boolean
+        Print info?
+
     Returns
     -------
     available : bool
-        True if the URL is available, False otherwise  
-    
-    
+        True if the URL is available, False otherwise
+
+
     """
     try:
         response = requests.head(url)
@@ -35,7 +35,9 @@ def check_url_availability(url, verbose=False):
             available = True
         else:
             if verbose:
-                logger.warning(f"URL {url} returned status code {response.status_code}.")
+                logger.warning(
+                    f"URL {url} returned status code {response.status_code}."
+                )
             available = False
     except requests.exceptions.RequestException as e:
         if verbose:

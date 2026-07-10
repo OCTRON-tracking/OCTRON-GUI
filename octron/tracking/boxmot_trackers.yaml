@@ -1,7 +1,7 @@
 # BOXMOT Trackers available in OCTRON
 # The flag "available" determines whether the tracker is selectable by the user
 
-#### Base tracker 
+#### Base tracker
 
 BaseTracker:
   name: "base tracker"
@@ -25,7 +25,7 @@ OcSort:
 
 #### Advanced trackers with ReID capabilities
 
-StrongSort: # September 2025: Currently does not work! 
+StrongSort: # September 2025: Currently does not work!
   name: "StrongSort"  # Strong feature-based tracker (no per-class support)
   available: false
   color : '#e1ac40'
@@ -50,8 +50,7 @@ HybridSort:
   config_path: "tracking/configs/hybridsort.yaml"
 
 BoostTrack: #  September 2025: Currently does not support per class tracking!
-  name: "BoostTrack"  
+  name: "BoostTrack"
   available: true
   color : '#e1ac40'
   config_path: "tracking/configs/boosttrack.yaml"
-
