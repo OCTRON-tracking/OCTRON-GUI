@@ -89,7 +89,7 @@ class ObjectOrganizer(BaseModel):
         which I think is reasonable.
         Returns a list of lists:
             -> label
-                -> colors for each label
+                -> colors for each label.
         """
         label_colors = create_label_colors(
             cmap="cmr.tropical",
@@ -271,7 +271,7 @@ class ObjectOrganizer(BaseModel):
         return self.entries.pop(id_)
 
     def save_to_disk(self, file_path: str | Path):
-        """Save the object organizer to disk as JSON"""
+        """Save the object organizer to disk as JSON."""
         file_path = Path(file_path)
         # Create a copy of the data without non-serializable objects
         serializable_data = {

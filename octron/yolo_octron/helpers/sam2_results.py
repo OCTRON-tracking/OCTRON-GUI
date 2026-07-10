@@ -136,7 +136,7 @@ class ANNOT_results:
     def create_tracking_dict(self):
         """Loop over the zarr dictionary and all masks inside,
         and extract the centroid of each mask.
-        This throws an error if more than one region is detected per frame
+        This throws an error if more than one region is detected per frame.
 
 
         """

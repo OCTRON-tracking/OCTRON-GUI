@@ -458,7 +458,7 @@ class YOLO_results:
         match the original parameters used to create the colormap.
         So, if we don't change these parameters, the colors will be the same, because
         we are looking up object IDs from the original model classes
-        (See self.get_color_for_track_id())
+        (See self.get_color_for_track_id()).
         """
         from octron.sam_octron.helpers.octron_colors import (
             create_label_colors,
@@ -592,7 +592,7 @@ class YOLO_results:
         min_observations=0,
     ):
         """Get the tracking data for all csvs in a dictionary
-        of track_id -> tracking columns
+        of track_id -> tracking columns.
 
         Returns
         -------
@@ -971,7 +971,7 @@ class YOLO_results:
 
     def get_mask_data(self, close_holes=False):
         """Get the mask data for all track IDs in a dictionary
-        of track_id -> mask data
+        of track_id -> mask data.
 
         Parameters
         ----------

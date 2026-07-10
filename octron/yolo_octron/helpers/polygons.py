@@ -132,7 +132,7 @@ def watershed_mask(
     p_norm=2,
     plot=False,
 ):
-    """Watershed segmentation of a mask image
+    """Watershed segmentation of a mask image.
 
     Parameters
     ----------
@@ -242,7 +242,7 @@ def watershed_mask(
 
 
 def merge_multi_segment(segments):
-    """This function is copied from ultralytics/utils/ops.py
+    """This function is copied from ultralytics/utils/ops.py.
 
     Merge multiple segments into one list by connecting the coordinates with the minimum distance between each segment.
     This function connects these coordinates with a thin line to merge all segments into one.
@@ -313,7 +313,7 @@ def merge_multi_segment(segments):
 
 
 def get_polygons(mask):
-    """Given a mask image, extract outlines as polygon
+    """Given a mask image, extract outlines as polygon.
 
     Parameters
     ----------
@@ -358,7 +358,7 @@ def polygon_to_mask(
     opening_radius=2,
     model_imgsz=640,
 ):
-    """Convert a polygon to a binary mask
+    """Convert a polygon to a binary mask.
 
     Parameters
     ----------

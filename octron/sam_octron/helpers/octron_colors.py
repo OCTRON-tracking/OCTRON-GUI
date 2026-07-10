@@ -8,7 +8,7 @@ def create_label_colors(cmap="cmr.tropical", n_labels=10, n_colors_submap=250):
     """Create label submaps from cmap.
     Each submap is a list of colors that represent a label.
     For this, the cmap is being divided into n_labels submaps.
-    Each submap is then divided into n_colors_submap colors
+    Each submap is then divided into n_colors_submap colors.
 
 
     Parameters

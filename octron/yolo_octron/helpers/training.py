@@ -117,7 +117,7 @@ def find_common_frames(frame_arrays):
 
 
 def pick_random_frames(frames, n=20):
-    """Pick n random frames from a frames array without replacement
+    """Pick n random frames from a frames array without replacement.
 
     Parameters
     ----------

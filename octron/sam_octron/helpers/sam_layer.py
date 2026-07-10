@@ -149,7 +149,7 @@ def add_sam_shapes_layer(
     semantic_mode=False,
 ):
     """Generic shapes layer for napari and SAM2.
-    Initiates the shapes layer, a napari shapes layer instance,
+    Initiates the shapes layer, a napari shapes layer instance,.
 
     Parameters
     ----------
@@ -218,7 +218,7 @@ def add_sam_points_layer(
     name,
 ):
     """Generic points layer for napari and SAM2.
-    Initiates the points layer, a napari points layer instance,
+    Initiates the points layer, a napari points layer instance,.
 
     Parameters
     ----------

@@ -31,7 +31,7 @@ class sam_octron_callbacks:
         self.left_right_click = None
 
     def on_mouse_press(self, layer, event):
-        """Generic function to catch left and right mouse clicks"""
+        """Generic function to catch left and right mouse clicks."""
         if event.type == "mouse_press":
             if event.button == 1:  # Left-click
                 self.left_right_click = "left"

@@ -1,5 +1,5 @@
 """OCTRON
-Main GUI file
+Main GUI file.
 
 """
 
@@ -125,7 +125,7 @@ if app is not None:
 class octron_widget(QWidget):
     """Main OCTRON widget class.
     It contains SAM2 methods for now.
-    All YOLO methods are in the YoloHandler class, to be found in yolo_octron/gui/yolo_handler.py
+    All YOLO methods are in the YoloHandler class, to be found in yolo_octron/gui/yolo_handler.py.
     """
 
     def __init__(self, viewer: "napari.viewer.Viewer", parent=None):
@@ -245,7 +245,7 @@ class octron_widget(QWidget):
     ###################################################################################################
 
     def gui_callback_functions(self):
-        """Connect all callback functions to buttons and lists in the main GUI"""
+        """Connect all callback functions to buttons and lists in the main GUI."""
         # Global layer insertion callback
         self._viewer.layers.events.inserted.connect(self.consolidate_layers)
 
@@ -466,7 +466,7 @@ class octron_widget(QWidget):
         model_name="",
     ):
         """Load the selected SAM2 model and enable the batch prediction button,
-        setting the progress bar to the chunk size and the button text to predict next chunk size
+        setting the progress bar to the chunk size and the button text to predict next chunk size.
 
         Parameters
         ----------
@@ -817,7 +817,7 @@ class octron_widget(QWidget):
         self.batch_predict_progressbar.setMaximum(self.chunk_size)
 
     def init_prediction_threaded(self):
-        """Thread worker for predicting the next batch of images"""
+        """Thread worker for predicting the next batch of images."""
         # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
 
@@ -969,7 +969,7 @@ class octron_widget(QWidget):
     ###### NAPARI SPECIFIC CALLBACKS ##################################################################
 
     def closeEvent(self):
-        """Callback for the Napari viewer close event"""
+        """Callback for the Napari viewer close event."""
         for zarr_store in self.all_zarrs:
             if zarr_store is not None:
                 store = zarr_store.store
@@ -984,7 +984,7 @@ class octron_widget(QWidget):
             status = self.save_object_organizer()
 
     def save_object_organizer(self):
-        """Save the object organizer to the project directory
+        """Save the object organizer to the project directory.
 
         Returns
         -------
@@ -1010,7 +1010,7 @@ class octron_widget(QWidget):
         return True
 
     def refresh_label_table_list(self, delete_old=False):
-        """Refresh the label list combobox with the current labels in the object organizer
+        """Refresh the label list combobox with the current labels in the object organizer.
 
         Parameter
         ----------
@@ -1696,7 +1696,7 @@ class octron_widget(QWidget):
     def init_zarr_prefetcher_threaded(self):
         """This function deals with storage (temporary and long term).
         Long term: Zarr store
-        Short term: Threaded prefetcher worker
+        Short term: Threaded prefetcher worker.
 
         ...
         Create a zarr store for the video layer.
@@ -2101,7 +2101,7 @@ class octron_widget(QWidget):
         self.create_projection_layer_btn.setEnabled(True)
 
     def jump_to_next_annotated_frame(self):
-        """Jump to next annotated frame in viewer timeline"""
+        """Jump to next annotated frame in viewer timeline."""
         current_timeline_idx = self._viewer.dims.current_step[0]
         # Go through all prediction_layers and check if they have a mask for the current frame
         # If so, jump to the next frame with a mask
@@ -2127,7 +2127,7 @@ class octron_widget(QWidget):
         return
 
     def jump_to_previous_annotated_frame(self):
-        """Jump to previous annotated frame in viewer timeline"""
+        """Jump to previous annotated frame in viewer timeline."""
         current_timeline_idx = self._viewer.dims.current_step[0]
         # Go through all prediction_layers and check if they have a mask for the current frame
         # If so, jump to the next frame with a mask

@@ -400,7 +400,7 @@ class YoloHandler(QObject):
     def _polygon_generation(self):
         """MAIN MANAGER FOR POLYGON GENERATION
         polygon_worker()
-        Manages thread worker for generating polygons
+        Manages thread worker for generating polygons.
         """
         # Check if the worker has already run and was not interrupted.
         # If so, do not create a new worker, but just call the callback function.
@@ -496,7 +496,7 @@ class YoloHandler(QObject):
     def _bbox_generation(self):
         """MAIN MANAGER FOR BBOX GENERATION
         bbox_worker()
-        Manages thread worker for generating bounding boxes (detect mode)
+        Manages thread worker for generating bounding boxes (detect mode).
         """
         # Check if the worker has already run and was not interrupted.
         if (
@@ -580,7 +580,7 @@ class YoloHandler(QObject):
             pass
 
     def _training_data_export(self):
-        """MAIN MANAGER FOR TRAINING DATA EXPORT"""
+        """MAIN MANAGER FOR TRAINING DATA EXPORT."""
         if not self.training_data_interrupt and self.training_data_generated:
             self._on_training_data_finished()
             return
@@ -934,7 +934,7 @@ class YoloHandler(QObject):
     # Boxmot tracker selection / tuning handling
     def on_tracker_selection_change(self, index):
         """Handle tracker selection change in the dropdown list
-        Enable/disable tune button based on selection
+        Enable/disable tune button based on selection.
         """
         if index > 0:  # Any tracker selected (not the header item)
             self.w.tune_tracker_btn.setEnabled(True)
@@ -952,7 +952,7 @@ class YoloHandler(QObject):
 
     def on_tune_tracker_clicked(self):
         """This is the "Tune" button displayed next to the tracker selection list.
-        Open configuration dialog for the selected tracker
+        Open configuration dialog for the selected tracker.
         """
         index = self.w.yolomodel_tracker_list.currentIndex()
         if index <= 0:
@@ -1017,7 +1017,7 @@ class YoloHandler(QObject):
         """When the user clicks on one_object_per_label ("1 Subject") in the GUI:
         - Select the first tracker in the list of Trackers
         - disable the tracker selection dropdown
-        - disable the tune (tracker) button
+        - disable the tune (tracker) button.
 
         """
         is_checked = self.w.single_subject_checkBox.isChecked()
@@ -1129,7 +1129,7 @@ class YoloHandler(QObject):
 
     def init_yolo_prediction_threaded(self):
         """This function manages the prediction of videos
-        with custom trained YOLO models
+        with custom trained YOLO models.
         """
         if not self.w.project_path:
             show_warning("Please select a project directory first.")

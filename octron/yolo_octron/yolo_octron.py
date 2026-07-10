@@ -143,7 +143,7 @@ class YOLO_octron:
             self._setup_training_directories(self.clean_training_dir)
 
     def __repr__(self):
-        """Return a string representation of the YOLO_octron object"""
+        """Return a string representation of the YOLO_octron object."""
         pr = f"YOLO_octron(project_path={self.project_path})"
         models = [
             f"{k}: seg={v['model_path_seg']}, detect={v['model_path_detect']}"
@@ -153,12 +153,12 @@ class YOLO_octron:
 
     @property
     def project_path(self):
-        """Return the project path"""
+        """Return the project path."""
         return self._project_path
 
     @project_path.setter
     def project_path(self, path):
-        """Set the project path with validation
+        """Set the project path with validation.
 
         Parameters
         ----------
@@ -1378,7 +1378,7 @@ class YOLO_octron:
         )
 
     def load_model(self, model_name_path, train_mode="segment"):
-        """Load the YOLO model
+        """Load the YOLO model.
 
         Parameters
         ----------
@@ -1810,7 +1810,7 @@ class YOLO_octron:
         resume=False,
         batch=-1,
     ):
-        """Train the YOLO model with epoch progress updates
+        """Train the YOLO model with epoch progress updates.
 
         Parameters
         ----------
@@ -2162,7 +2162,7 @@ class YOLO_octron:
             return False
 
     def _quit_tensorboard_posix(self):
-        """Helper method to terminate TensorBoard on Unix-like systems"""
+        """Helper method to terminate TensorBoard on Unix-like systems."""
         # Find processes with tensorboard in the command
         result = subprocess.run(
             ["ps", "-ef"], capture_output=True, text=True, check=True
@@ -2191,7 +2191,7 @@ class YOLO_octron:
             logger.info("No TensorBoard processes found")
 
     def _quit_tensorboard_windows(self):
-        """Helper method to terminate TensorBoard on Windows"""
+        """Helper method to terminate TensorBoard on Windows."""
         # Use tasklist and taskkill on Windows
         result = subprocess.run(
             [
@@ -2243,7 +2243,7 @@ class YOLO_octron:
             logger.error(f"Error when terminating TensorBoard processes: {e}")
 
     def validate(self, data=None, device="auto", plots=True):
-        """Validate the model
+        """Validate the model.
 
         Parameters
         ----------
@@ -2968,7 +2968,7 @@ class YOLO_octron:
             mask_stores = {}  # track_id -> zarr array
 
             def _flush_mask_buffer(track_id):
-                """Helper to flush a track's mask buffer to disk"""
+                """Helper to flush a track's mask buffer to disk."""
                 if (
                     track_id not in buffer_counts
                     or buffer_counts[track_id] == 0

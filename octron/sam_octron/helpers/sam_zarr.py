@@ -310,7 +310,7 @@ def load_image_zarr(
 
 
 class OctoZarr:
-    """Flexible subclass of zarr array that allows for image data retrieval
+    """Flexible subclass of zarr array that allows for image data retrieval.
 
     The idea here was to just replace the possibly very large
     image dictionary directly with a zarr array.
@@ -399,7 +399,7 @@ class OctoZarr:
         return self.saved_indices
 
     def _save_to_zarr(self, batch, indices):
-        """Save a batch of images to  zarr array at index position indices"""
+        """Save a batch of images to  zarr array at index position indices."""
         assert len(indices), "No indices provided"
         assert len(batch) == len(indices), (
             "Batch and indices should have the same length"
@@ -532,7 +532,7 @@ class OctoZarr:
         return imgs_torch.squeeze()
 
     def __getitem__(self, frame_idx):
-        """Normal "get" function"""
+        """Normal "get" function."""
         if isinstance(frame_idx, slice):
             indices = np.arange(
                 frame_idx.start, frame_idx.stop, frame_idx.step

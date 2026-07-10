@@ -31,7 +31,7 @@ class ExistingDataTable(QAbstractTableModel):
         self.refresh_data()
 
     def refresh_data(self):
-        """Process the label_dict into table rows"""
+        """Process the label_dict into table rows."""
         self._data = []
 
         # No data case
@@ -76,7 +76,7 @@ class ExistingDataTable(QAbstractTableModel):
             )
 
     def update_data(self, new_label_dict, delete_old=False):
-        """Update the model with new data"""
+        """Update the model with new data."""
         self.beginResetModel()
         if delete_old:
             # Replace existing data with new data
@@ -130,7 +130,7 @@ class ExistingDataTable(QAbstractTableModel):
         return None
 
     def remove_row(self, row):
-        """Remove a row from the model and its corresponding entry from label_dict"""
+        """Remove a row from the model and its corresponding entry from label_dict."""
         if not (0 <= row < len(self._data)):
             return None
         self.beginResetModel()
@@ -142,7 +142,7 @@ class ExistingDataTable(QAbstractTableModel):
         return folder_path
 
     def get_folder_path(self, index):
-        """Return the full folder path for the given index"""
+        """Return the full folder path for the given index."""
         if not index.isValid() or not (0 <= index.row() < len(self._data)):
             return None
         return self._data[index.row()][4]

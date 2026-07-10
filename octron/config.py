@@ -1,4 +1,4 @@
-"""OCTRON user configuration.
+r"""OCTRON user configuration.
 
 A single, GUI- and CLI-friendly home for *user-tunable runtime settings*, kept
 deliberately separate from ``octron/yolo_octron/constants.py``:

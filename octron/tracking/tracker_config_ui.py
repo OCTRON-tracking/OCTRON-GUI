@@ -45,7 +45,7 @@ class BoxmotTrackerConfigDialog(QDialog):
         tracker_config=None,
         config_path=None,
     ):
-        """Dialog for configuring tracker parameters
+        """Dialog for configuring tracker parameters.
 
         Parameters
         ----------
@@ -71,7 +71,7 @@ class BoxmotTrackerConfigDialog(QDialog):
         self.setup_ui()
 
     def setup_ui(self):
-        """Set up the dialog UI"""
+        """Set up the dialog UI."""
         # Set window properties
         tracker_name = self.tracker_config[self.tracker_id]["name"]
         self.setWindowTitle(f"Configure {tracker_name}")
@@ -206,7 +206,7 @@ class BoxmotTrackerConfigDialog(QDialog):
         main_layout.addLayout(button_layout)
 
     def create_widget_for_param(self, param_config):
-        """Create appropriate widget based on gui_element type"""
+        """Create appropriate widget based on gui_element type."""
         gui_element = param_config.get("gui_element", "")
         current_value = param_config.get("current_value")
 
@@ -247,7 +247,7 @@ class BoxmotTrackerConfigDialog(QDialog):
         return widget
 
     def reset_defaults(self):
-        """Reset all parameters to default values"""
+        """Reset all parameters to default values."""
         parameters = self.tracker_config[self.tracker_id]["parameters"]
 
         for param_name, widget in self.parameter_widgets.items():
@@ -277,7 +277,7 @@ class BoxmotTrackerConfigDialog(QDialog):
                     widget.setCurrentText(default_value)
 
     def save_config(self):
-        """Save the configuration"""
+        """Save the configuration."""
         parameters = self.tracker_config[self.tracker_id]["parameters"]
 
         # Update config with widget values
@@ -303,14 +303,14 @@ class BoxmotTrackerConfigDialog(QDialog):
         self.accept()
 
     def get_config(self):
-        """Return the updated config"""
+        """Return the updated config."""
         return self.tracker_config
 
 
 def open_boxmot_tracker_config_dialog(
     parent, tracker_id, tracker_config, config_path
 ):
-    """Opens a modal dialog to configure BoxMOT tracker parameters"""
+    """Opens a modal dialog to configure BoxMOT tracker parameters."""
     dialog = BoxmotTrackerConfigDialog(
         parent, tracker_id, tracker_config, config_path
     )
