@@ -485,7 +485,9 @@ class SAM2_octron(SAM2VideoPredictor):
         new_obj_ids = [old_obj_ids[old_idx] for old_idx in remain_old_obj_inds]
         new_obj_inds = list(range(len(new_obj_ids)))
         # build new mappings
-        old_idx_to_new_idx = dict(zip(remain_old_obj_inds, new_obj_inds, strict=False))
+        old_idx_to_new_idx = dict(
+            zip(remain_old_obj_inds, new_obj_inds, strict=False)
+        )
         self.inference_state["obj_id_to_idx"] = dict(
             zip(new_obj_ids, new_obj_inds, strict=False)
         )

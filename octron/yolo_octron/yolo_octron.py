@@ -2762,13 +2762,6 @@ class YOLO_octron:
             region_details = False
             opening_radius = 0
 
-        # Collect extra property column names from callable __name__
-        extra_prop_names = (
-            [fn.__name__ for fn in extra_properties]
-            if extra_properties
-            else []
-        )
-
         # Try to find model args
         model_args = self.load_model_args(model_name_path=model_path)
         if model_args is not None:

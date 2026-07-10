@@ -812,7 +812,7 @@ class octron_widget(QWidget):
         # what we are doing here is creating a video hash from scratch twice (?) and
         # load the video data, plus we find out which indices have annotation data in the
         # video. So, that is a lot of processing ...
-        status = self.save_object_organizer()
+        self.save_object_organizer()
         self.refresh_label_table_list(delete_old=False)
         self.batch_predict_progressbar.setMaximum(self.chunk_size)
 
@@ -981,7 +981,7 @@ class octron_widget(QWidget):
             self.prefetcher_worker.quit()
         # Lastly, save object organizer to json
         if self.project_path:
-            status = self.save_object_organizer()
+            self.save_object_organizer()
 
     def save_object_organizer(self):
         """Save the object organizer to the project directory.
@@ -1724,7 +1724,6 @@ class octron_widget(QWidget):
         predictor_image_size = (
             self.predictor.image_size
         )  # SAM2 model image size
-        largest_edge = max(video_height, video_width)
 
         # Resize both (!) edges to the same square size matching the model's expected input.
         # Use predictor_image_size directly to avoid floating-point rounding errors

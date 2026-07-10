@@ -415,29 +415,25 @@ class MP4ToGifConverter(QMainWindow):
 
                     if len(probe_output) >= 2:
                         try:
-                            total_frames = int(float(probe_output[0]))
+                            _total_frames = int(float(probe_output[0]))
                             duration = float(probe_output[1])
                         except ValueError:
                             # Some videos don't report frame count correctly
-                            total_frames = 0
+                            _total_frames = 0
                             duration = float(probe_output[0])
                     else:
-                        total_frames = 0
+                        _total_frames = 0
                         duration = 0
 
                     logger.debug(f"Video duration {duration}s")
                 except Exception as e:
                     logger.warning(f"Error getting video info: {e}")
-                    total_frames = 0
+                    _total_frames = 0
 
                 # Extract frames based on skip_frames setting
                 if skip_frames > 0:
                     # Extract every Nth frame
                     framestep = skip_frames + 1
-
-                    # If we have total frames, we can estimate how many we'll extract
-                    if total_frames > 0:
-                        estimated_frames = total_frames // framestep
 
                     # Build filter for selection and optional resizing
                     vf_filter = f"select='not(mod(n\\,{framestep}))'"
@@ -474,7 +470,7 @@ class MP4ToGifConverter(QMainWindow):
                     ]
 
                 # Execute frame extraction
-                extract_result = subprocess.run(
+                subprocess.run(
                     extract_cmd,
                     capture_output=True,
                     check=True,
@@ -510,7 +506,7 @@ class MP4ToGifConverter(QMainWindow):
                 ]
 
                 # Execute palette generation
-                palette_result = subprocess.run(
+                subprocess.run(
                     palette_cmd,
                     capture_output=True,
                     check=True,
@@ -532,7 +528,7 @@ class MP4ToGifConverter(QMainWindow):
                 ]
 
                 # Execute GIF creation
-                gif_result = subprocess.run(
+                subprocess.run(
                     gif_cmd,
                     capture_output=True,
                     check=True,

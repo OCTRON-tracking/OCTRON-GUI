@@ -235,7 +235,6 @@ class SAM3_octron:
                     del cached[oldest]
 
         # Expand features if batch_size > 1 (multi-object)
-        expanded_image = image.expand(batch_size, -1, -1, -1)
         expanded_backbone_out = {
             "backbone_fpn": backbone_out["backbone_fpn"],
             "vision_pos_enc": backbone_out["vision_pos_enc"],
@@ -1380,7 +1379,9 @@ class SAM3_octron:
         remain_old_obj_inds.remove(old_obj_idx_to_rm)
         new_obj_ids = [old_obj_ids[old_idx] for old_idx in remain_old_obj_inds]
         new_obj_inds = list(range(len(new_obj_ids)))
-        old_idx_to_new_idx = dict(zip(remain_old_obj_inds, new_obj_inds, strict=False))
+        old_idx_to_new_idx = dict(
+            zip(remain_old_obj_inds, new_obj_inds, strict=False)
+        )
         self.inference_state["obj_id_to_idx"] = dict(
             zip(new_obj_ids, new_obj_inds, strict=False)
         )

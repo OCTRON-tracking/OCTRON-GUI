@@ -824,11 +824,6 @@ class SAM2_octron_hq(SAM2HQBase):
         """Propagate the input points across frames to track in the entire video."""
         self.propagate_in_video_preflight(self.inference_state)
 
-        output_dict = self.inference_state["output_dict"]
-        consolidated_frame_inds = self.inference_state[
-            "consolidated_frame_inds"
-        ]
-
         obj_ids = self.inference_state["obj_ids"]
         num_frames = self.inference_state["num_frames"]
         batch_size = self._get_obj_num(self.inference_state)
@@ -1342,7 +1337,9 @@ class SAM2_octron_hq(SAM2HQBase):
         new_obj_ids = [old_obj_ids[old_idx] for old_idx in remain_old_obj_inds]
         new_obj_inds = list(range(len(new_obj_ids)))
         # build new mappings
-        old_idx_to_new_idx = dict(zip(remain_old_obj_inds, new_obj_inds, strict=False))
+        old_idx_to_new_idx = dict(
+            zip(remain_old_obj_inds, new_obj_inds, strict=False)
+        )
         self.inference_state["obj_id_to_idx"] = dict(
             zip(new_obj_ids, new_obj_inds, strict=False)
         )

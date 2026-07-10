@@ -320,9 +320,8 @@ class YoloHandler(QObject):
             # Assuming that the user wants to change the project path
             self.yolo.project_path = self.w.project_path
 
-        status = (
-            self.w.save_object_organizer()
-        )  # This is safe, since it checks whether a video was loaded
+        # This is safe, since it checks whether a video was loaded
+        self.w.save_object_organizer()
         # TODO: Could make `prepare_labels` async as well ...
         try:
             # After saving the object organizer, extract info from all
