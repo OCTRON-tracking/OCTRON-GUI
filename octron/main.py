@@ -1536,10 +1536,10 @@ class octron_widget(QWidget):
         # this could be anything in the future ... let's see if we need it
         video_layers = []
         # Loop through all layers and check if they are video layers
-        for l in self._viewer.layers:
+        for layer in self._viewer.layers:
             try:
-                if l._basename() == "Image" and "VIDEO" in l.name:
-                    video_layers.append(l)
+                if layer._basename() == "Image" and "VIDEO" in layer.name:
+                    video_layers.append(layer)
             except Exception as e:
                 show_error(f"Error when checking layer: {e}")
 

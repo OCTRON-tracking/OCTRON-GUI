@@ -132,7 +132,8 @@ def _open_ffmpeg_writer(output_path, fps, width, height, encoder):
         + [str(output_path)]
     )
     # stderr -> temp file (not an unread PIPE, which could deadlock the encode).
-    stderr_file = tempfile.TemporaryFile(mode="w+b")
+    # The file outlives this function; _FfmpegWriter closes it.
+    stderr_file = tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=stderr_file)
     return _FfmpegWriter(proc, stderr_file, encoder, output_path)
 

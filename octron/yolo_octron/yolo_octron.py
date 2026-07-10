@@ -508,8 +508,8 @@ class YOLO_octron:
                                     # No objects found after filtering
                                     continue
                                 unique_labels = np.unique(mask_labeled)
-                                for l in unique_labels:
-                                    if l == 0:
+                                for lbl in unique_labels:
+                                    if lbl == 0:
                                         # Background
                                         continue
                                     else:
@@ -518,7 +518,7 @@ class YOLO_octron:
                                             mask_current_array
                                         )
                                         mask_current_array[
-                                            mask_labeled == l
+                                            mask_labeled == lbl
                                         ] = 1
                                         mask_polys.append(
                                             get_polygons(mask_current_array)

@@ -1,4 +1,5 @@
 # YOLO training related helpers
+import importlib.util
 import json
 from pathlib import Path
 
@@ -300,7 +301,7 @@ def collect_labels(
                 num_ch=None,
                 verbose=False,
             )  # Not doing hash comparison here!
-            assert status == True
+            assert status
             assert loaded_masks is not None
             # Do some sanity checks
             assert num_frames == loaded_masks.shape[0]
@@ -451,9 +452,7 @@ def draw_polygons(
 
     """
     # Check if cv2 is installed correctly
-    try:
-        import cv2
-    except ModuleNotFoundError:
+    if importlib.util.find_spec("cv2") is None:
         logger.error("Please install cv2 first, via pip install opencv-python")
         return
     # ... and matplotlib

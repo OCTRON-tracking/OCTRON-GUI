@@ -194,12 +194,12 @@ def watershed_mask(
     )  # this is the segmentation
     masks = []
     areas = []
-    for l in np.unique(labels):
-        if l == 0:
+    for lbl in np.unique(labels):
+        if lbl == 0:
             # That's background
             continue
         labelmask = np.zeros_like(labels)
-        labelmask[labels == l] = 1
+        labelmask[labels == lbl] = 1
         masks.append(labelmask)
         areas.append(np.sum(labelmask))
 
