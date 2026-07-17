@@ -50,6 +50,9 @@
     <property name="sizeConstraint">
      <enum>QLayout::SizeConstraint::SetNoConstraint</enum>
     </property>
+    <property name="topMargin">
+     <number>10</number>
+    </property>
     <item alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop">
      <widget class="QLabel" name="octron_logo">
       <property name="enabled">
@@ -381,6 +384,44 @@
                 <height>180</height>
                </size>
               </property>
+              <property name="contextMenuPolicy">
+               <enum>Qt::ContextMenuPolicy::DefaultContextMenu</enum>
+              </property>
+              <property name="autoFillBackground">
+               <bool>false</bool>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">QTableView {
+    background-color: transparent;
+    gridline-color: transparent;
+}
+QTableView::item {
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid #555;
+}
+QHeaderView {
+    background-color: transparent;
+}
+QHeaderView::section {
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid #555;
+    padding: 2px 4px;
+}
+QTableCornerButton::section {
+    background-color: transparent;
+}</string>
+              </property>
+              <property name="frameShape">
+               <enum>QFrame::Shape::NoFrame</enum>
+              </property>
+              <property name="frameShadow">
+               <enum>QFrame::Shadow::Plain</enum>
+              </property>
+              <property name="lineWidth">
+               <number>1</number>
+              </property>
               <property name="editTriggers">
                <set>QAbstractItemView::EditTrigger::AnyKeyPressed|QAbstractItemView::EditTrigger::EditKeyPressed|QAbstractItemView::EditTrigger::SelectedClicked</set>
               </property>
@@ -418,7 +459,10 @@
                <number>85</number>
               </attribute>
               <attribute name="horizontalHeaderHighlightSections">
-               <bool>false</bool>
+               <bool>true</bool>
+              </attribute>
+              <attribute name="horizontalHeaderStretchLastSection">
+               <bool>true</bool>
               </attribute>
               <attribute name="verticalHeaderVisible">
                <bool>false</bool>
@@ -1239,7 +1283,7 @@ This will delete the masks on the current frame but no other (already annotated)
           <x>0</x>
           <y>0</y>
           <width>402</width>
-          <height>475</height>
+          <height>461</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="train_vertical_layout" stretch="0,0,0">

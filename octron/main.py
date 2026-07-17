@@ -935,9 +935,12 @@ class octron_widget(QWidget):
             # Configure the table appearance
             # Prevent resizing of table columns by disabling interactive resizing
             header = self.existing_data_table.horizontalHeader()
-            header.setSectionResizeMode(QHeaderView.Fixed)
             header.setSectionsMovable(False)
-            header.setStretchLastSection(True)
+            header.setStretchLastSection(False)
+            # "Folder name" stretches to fill; the rest auto-size to their contents.
+            header.setSectionResizeMode(0, QHeaderView.Stretch)
+            for _col in range(1, self.label_table_model.columnCount()):
+                header.setSectionResizeMode(_col, QHeaderView.ResizeToContents)
             # Connect double-click event on table rows 
             self.existing_data_table.doubleClicked.connect(self.on_label_table_double_clicked)
             # Enable right-click context menu
@@ -1330,6 +1333,8 @@ class octron_widget(QWidget):
                 self.annotate_layer_create_groupbox.setEnabled(False)
                 # Reset naming of annotation tab 
                 self.main_toolbox.setItemText(1, "Generate annotation data")
+                # Video layer removed -- re-enable the drop area for a new video.
+                self._update_video_drop_state()
             # Reset the flag 
             self.remove_current_layer = False
     
@@ -1436,9 +1441,27 @@ class octron_widget(QWidget):
             logger.debug(f"VIDEO LAYER >>> {layer_name}")
             self.main_toolbox.widget(1).setEnabled(True) 
             self.main_toolbox.setItemText(1, f"Generate annotation data for: {self.current_video_hash}")
+            # A video is now loaded -- lock the drop area until it is removed.
+            self._update_video_drop_state()
 
         return
         
+    def _update_video_drop_state(self):
+        """
+        Enable the project video-drop area only when no video layer exists.
+
+        A project holds one video at a time, so while a video layer is
+        displayed the drop area is disabled and its text tells the user to
+        delete the video layer before a new video can be added. Once the
+        video layer is removed, the drop area is re-enabled.
+        """
+        video_loaded = self.video_layer is not None
+        self.video_file_drop_widget.set_locked(
+            video_loaded,
+            message=("🎥 A video is loaded.\n"
+                     "Delete the video layer to add a new video."),
+        )
+
     def on_mp4_file_dropped_area(self, video_paths):
         """
         Adds video layer on freshly dropped mp4 file.
