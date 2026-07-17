@@ -27,7 +27,7 @@ classifiers = [
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "setuptools",
-    "napari==0.7.1",
+    "napari==0.8.0",
     "numpy>=2.1.0",
     "qtpy>=2.4.3",
     "torch>=2.5.1",
@@ -61,7 +61,7 @@ dependencies = [
 [project.optional-dependencies]
 pyqt5 = ["PyQt5>=5.15.11"]
 pyqt6 = ["PyQt6>=6.10.0"]
-all = ["napari[pyqt6]==0.7.1"]
+all = ["napari[pyqt6]==0.8.0"]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
