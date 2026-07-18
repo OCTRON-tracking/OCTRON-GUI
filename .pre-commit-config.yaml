@@ -28,6 +28,8 @@ repos:
           - id: mypy
             additional_dependencies:
                 - types-setuptools
+                - types-requests
+                - types-PyYAML
     - repo: https://github.com/mgedmin/check-manifest
       rev: "0.50"
       hooks:
