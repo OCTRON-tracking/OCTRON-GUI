@@ -1,4 +1,5 @@
-# Plotting helpers
+"""Plotting helpers."""
+
 from loguru import logger
 
 
@@ -11,19 +12,30 @@ def make_linear_colormap(
     percentile=100,
 ):
     """Create color map - linear version.
+
     Uses seaborn color_palette() function to create color map.
 
     Parameters
     ----------
-        - array: 1-D Numpy array to loop over and create colors for
-        - cmap: Color palette name or list of colors of a (custom) palette
-        - desat: seaborn specific desaturation of color palette. 1 = no desaturation.
-        - reference_numbers: reference array (to use instead of input array)
-        - percentile: To get rid of outlier artefacts, use percentile < 100 as maximum
+    array : np.ndarray
+        1-D Numpy array to loop over and create colors for.
+    cmap : str or list, optional
+        Color palette name or list of colors of a (custom) palette.
+    desat : float, optional
+        Seaborn specific desaturation of color palette.
+        1 = no desaturation.
+    reference_numbers : np.ndarray or None, optional
+        Reference array (to use instead of input array).
+    categorical : bool, optional
+        If True, treat array values as discrete categories instead of
+        a continuous range.
+    percentile : float, optional
+        To get rid of outlier artefacts, use percentile < 100 as maximum.
 
     Returns
     -------
-        - colors: array of length len(array) of specified palette
+    colors : np.ndarray
+        Array of length len(array) of specified palette.
 
     """
     # Hide imports here
@@ -103,7 +115,8 @@ def get_outline(mask):
     Parameters
     ----------
     mask : np.ndarray
-        Binary mask where the object is represented by 1s and the background by 0s.
+        Binary mask where the object is represented by 1s and the
+        background by 0s.
 
     Returns
     -------

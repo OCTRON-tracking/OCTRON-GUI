@@ -1,3 +1,5 @@
+"""Qt handler wiring the YOLO training/prediction GUI to the octron core."""
+
 import shutil
 import time
 from pathlib import Path
@@ -27,7 +29,20 @@ from octron.yolo_octron.gui.region_props_dialog import (
 
 
 class YoloHandler(QObject):
+    """Wire the YOLO training and prediction GUI to the octron core logic."""
+
     def __init__(self, parent_widget, yolo_octron):
+        """Initialize the handler, storing widget/core refs and YOLO device.
+
+        Parameters
+        ----------
+        parent_widget : QWidget
+            Main octron widget that owns the GUI controls this handler
+            wires up.
+        yolo_octron : object
+            Core YOLO octron object providing training/prediction logic.
+
+        """
         super().__init__()
         self.w = parent_widget  # main.py -> octron_widget
         self.yolo = yolo_octron
@@ -37,7 +52,8 @@ class YoloHandler(QObject):
             self.device_label = "cuda"  # torch.device("cuda")
         elif torch.backends.mps.is_available():
             self.device_label = "mps"  # "mps" # torch.device("mps")
-            # print(f'MPS is available, but not yet supported. Using CPU instead.')
+            # print(f'MPS is available, but not yet supported.
+            # Using CPU instead.')
         else:
             self.device_label = "cpu"  # torch.device("cpu")
         logger.info(f'Using YOLO device: "{self.device_label}"')
@@ -59,6 +75,7 @@ class YoloHandler(QObject):
         )
 
     def connect_signals(self):
+        """Wire parent-widget buttons/spinboxes to handler entrypoints."""
         # Wire buttons/spinboxes to handler entrypoints
         # These are all in the parent widget in main.py
         self.w.generate_training_data_btn.clicked.connect(
@@ -95,14 +112,19 @@ class YoloHandler(QObject):
         )
 
     def on_resume_toggled(self, checked):
-        """When the resume checkbox is toggled, disable/enable model and image size
-        dropdowns to signal that these options are ignored when resuming.
+        """Toggle enabled state of model/image-size dropdowns on resume.
+
+        When the resume checkbox is toggled, disable/enable model and
+        image size dropdowns to signal that these options are ignored
+        when resuming.
         """
         self.w.yolomodel_list.setEnabled(not checked)
         self.w.yoloimagesize_list.setEnabled(not checked)
 
     def on_trained_model_changed(self, index):
-        """When the user selects a trained model, check its task type and
+        """Enable/disable mask-related prediction options for the model.
+
+        When the user selects a trained model, check its task type and
         enable/disable mask-related prediction options accordingly.
         """
         if index <= 0:
@@ -133,9 +155,10 @@ class YoloHandler(QObject):
             self.w.detailed_extraction_checkBox.setChecked(False)
 
     def refresh_trained_model_list(self):
-        """Refresh the trained model list combobox with the current models in the project directory.
-        Each entry gets a colored square indicator showing whether the model is a
-        segmentation (purple) or detection (blue) model.
+        """Refresh the trained model list combobox with project models.
+
+        Each entry gets a colored square indicator showing whether the
+        model is a segmentation (purple) or detection (blue) model.
         """
         # Clear the old list, and re-instantiate
         self.w.yolomodel_trained_list.clear()
@@ -218,10 +241,10 @@ class YoloHandler(QObject):
     #######################################################################################################
 
     def init_training_data_threaded(self):
-        """This function manages the creation of polygon data and the subsequent
-        creation / the export of training data.
-        It kicks off the pipeline by calling the polygon generation function.
+        """Manage creation and export of polygon-based training data.
 
+        It kicks off the pipeline by calling the polygon generation
+        function.
         """
         # Whenever the button "Generate" is clicked,
         # the training data generation pipeline is started anew.
@@ -240,7 +263,8 @@ class YoloHandler(QObject):
         self.yolo.clean_training_dir = (
             self.w.train_data_overwrite_checkBox.isChecked()
         )
-        # Inform YOLO of the current train mode before project_path triggers directory setup
+        # Inform YOLO of the current train mode before project_path
+        # triggers directory setup
         self.yolo.train_mode = self.w.train_mode
 
         # --- Overwrite: warn user before deleting anything ---
@@ -268,11 +292,14 @@ class YoloHandler(QObject):
                     warning_dialog.setIcon(QMessageBox.Warning)
                     warning_dialog.setWindowTitle("Overwrite Training Data")
                     warning_dialog.setText(
-                        "You are about to delete existing training data and model checkpoints."
+                        "You are about to delete existing training data "
+                        "and model checkpoints."
                     )
                     warning_dialog.setInformativeText(
-                        f"Train mode has changed from '{existing_mode}' to '{self.w.train_mode}'. "
-                        "The training data will be regenerated and model checkpoints will be removed.\n\n"
+                        f"Train mode has changed from '{existing_mode}' "
+                        f"to '{self.w.train_mode}'. "
+                        "The training data will be regenerated and "
+                        "model checkpoints will be removed.\n\n"
                         "Do you want to proceed?"
                     )
                     warning_dialog.setStandardButtons(
@@ -283,7 +310,8 @@ class YoloHandler(QObject):
                         return
                     shutil.rmtree(model_subdir)
                     logger.info(
-                        f"Removed model checkpoint directory '{model_subdir.as_posix()}'"
+                        f"Removed model checkpoint directory "
+                        f"'{model_subdir.as_posix()}'"
                     )
                 else:
                     # Only training data will be deleted
@@ -294,7 +322,8 @@ class YoloHandler(QObject):
                         "You are about to overwrite existing training data."
                     )
                     warning_dialog.setInformativeText(
-                        "The training data directory will be removed and regenerated. "
+                        "The training data directory will be removed "
+                        "and regenerated. "
                         "Model checkpoints will be preserved.\n\n"
                         "Do you want to proceed?"
                     )
@@ -310,10 +339,12 @@ class YoloHandler(QObject):
                     f'Removed training data directory "{data_path.as_posix()}"'
                 )
 
-            # Cleanup handled here; prevent _setup_training_directories from cleaning again
+            # Cleanup handled here; prevent _setup_training_directories
+            # from cleaning again
             self.yolo.clean_training_dir = False
 
-        # Set the project_path (which also takes care of setting up training subfolders)
+        # Set the project_path (which also takes care of setting up
+        # training subfolders)
         if not self.yolo.project_path:
             self.yolo.project_path = self.w.project_path
         elif self.yolo.project_path != self.w.project_path:
@@ -328,7 +359,8 @@ class YoloHandler(QObject):
             # available .json files in the project directory
             self.yolo.prepare_labels(
                 prune_empty_labels=prune,
-                min_num_frames=5,  # hardcoded ... less than 5 frames are not useful
+                # hardcoded ... less than 5 frames are not useful
+                min_num_frames=5,
                 verbose=True,
             )
         except AssertionError as e:
@@ -340,7 +372,8 @@ class YoloHandler(QObject):
         if not self.yolo.clean_training_dir and (
             self.yolo.data_path is not None and self.yolo.data_path.exists()
         ):
-            # Check if the existing config was generated with the same train_mode
+            # Check if the existing config was generated with the same
+            # train_mode
             existing_config_path = self.yolo.data_path / "yolo_config.yaml"
             if existing_config_path.exists():
                 with open(existing_config_path) as f:
@@ -348,25 +381,31 @@ class YoloHandler(QObject):
                 existing_mode = existing_config.get("train_mode", "segment")
                 if existing_mode != self.w.train_mode:
                     msg = (
-                        f"Train mode mismatch: existing training data was generated for '{existing_mode}' "
+                        f"Train mode mismatch: existing training data "
+                        f"was generated for '{existing_mode}' "
                         f"but current mode is '{self.w.train_mode}'. "
-                        f"Please enable 'Overwrite' to regenerate training data or switch mode."
+                        f"Please enable 'Overwrite' to regenerate "
+                        f"training data or switch mode."
                     )
                     logger.info(msg)
                     show_error(msg)
                     return
-            # TODO: Since we just generated the labels_dict (in prepare_labels above),
-            # a rudimentary check is actually possible, comparing the total number of expected labeled
-            # frames and the number of images in the training folder. I am skipping any checks for now.
+            # TODO: Since we just generated the labels_dict (in
+            # prepare_labels above), a rudimentary check is actually
+            # possible, comparing the total number of expected labeled
+            # frames and the number of images in the training folder.
+            # I am skipping any checks for now.
             # Show a warning dialog that user must dismiss
             warning_dialog = QMessageBox()
             warning_dialog.setIcon(QMessageBox.Warning)
             warning_dialog.setWindowTitle("Existing Training Data")
             warning_dialog.setText("Training data directory already exists.")
             warning_dialog.setInformativeText(
-                "The existing training data will be used without regeneration. "
+                "The existing training data will be used without "
+                "regeneration. "
                 "No checks are performed on the training data folder. "
-                "If you want to regenerate the data, please check the 'Overwrite' option."
+                "If you want to regenerate the data, please check the "
+                "'Overwrite' option."
             )
             warning_dialog.setStandardButtons(QMessageBox.Ok)
             warning_dialog.exec_()
@@ -375,7 +414,8 @@ class YoloHandler(QObject):
             self._on_training_data_finished()
 
             logger.info(
-                f"Training data path '{self.yolo.data_path.as_posix()}' already exists. Using existing directory."
+                f"Training data path '{self.yolo.data_path.as_posix()}' "
+                f"already exists. Using existing directory."
             )
             return
 
@@ -391,12 +431,13 @@ class YoloHandler(QObject):
         return
 
     def _polygon_generation(self):
-        """MAIN MANAGER FOR POLYGON GENERATION
-        polygon_worker()
+        """Manage the polygon_worker() thread worker.
+
         Manages thread worker for generating polygons.
         """
         # Check if the worker has already run and was not interrupted.
-        # If so, do not create a new worker, but just call the callback function.
+        # If so, do not create a new worker, but just call the callback
+        # function.
         if (
             not self.bbox_or_polygon_interrupt
             and self.bbox_or_polygon_generated
@@ -447,9 +488,10 @@ class YoloHandler(QObject):
         self.w.train_polygons_label.setEnabled(True)
 
     def _polygon_yielded(self, value):
-        """polygon_worker()
-        Called upon yielding from the batch polygon generation thread worker.
-        Updates the progress bar and label text next to it.
+        """Handle a yield from the polygon_worker() thread worker.
+
+        Called upon yielding from the batch polygon generation thread
+        worker. Updates the progress bar and label text next to it.
         """
         no_entry, total_label_dict, label, frame_no, total_frames = value
         self.w.train_polygons_overall_progressbar.setMaximum(total_label_dict)
@@ -459,8 +501,10 @@ class YoloHandler(QObject):
         self.w.train_polygons_label.setText(label)
 
     def _on_polygon_finished(self):
-        """polygon_worker()
-        Callback for when polygon generation worker has finished executing.
+        """Handle completion of the polygon_worker() thread worker.
+
+        Callback for when polygon generation worker has finished
+        executing.
         """
         self.w.train_polygons_overall_progressbar.setValue(0)
         self.w.train_polygons_frames_progressbar.setValue(0)
@@ -487,9 +531,10 @@ class YoloHandler(QObject):
             pass
 
     def _bbox_generation(self):
-        """MAIN MANAGER FOR BBOX GENERATION
-        bbox_worker()
-        Manages thread worker for generating bounding boxes (detect mode).
+        """Manage the bbox_worker() thread worker.
+
+        Manages thread worker for generating bounding boxes
+        (detect mode).
         """
         # Check if the worker has already run and was not interrupted.
         if (
@@ -536,9 +581,10 @@ class YoloHandler(QObject):
         self.w.train_polygons_label.setEnabled(True)
 
     def _bbox_yielded(self, value):
-        """bbox_worker()
-        Called upon yielding from the batch bbox generation thread worker.
-        Updates the progress bar and label text next to it.
+        """Handle a yield from the bbox_worker() thread worker.
+
+        Called upon yielding from the batch bbox generation thread
+        worker. Updates the progress bar and label text next to it.
         """
         no_entry, total_label_dict, label, frame_no, total_frames = value
         self.w.train_polygons_overall_progressbar.setMaximum(total_label_dict)
@@ -548,8 +594,10 @@ class YoloHandler(QObject):
         self.w.train_polygons_label.setText(label)
 
     def _on_bbox_finished(self):
-        """bbox_worker()
-        Callback for when bbox generation worker has finished executing.
+        """Handle completion of the bbox_worker() thread worker.
+
+        Callback for when bbox generation worker has finished
+        executing.
         """
         self.w.train_polygons_overall_progressbar.setValue(0)
         self.w.train_polygons_frames_progressbar.setValue(0)
@@ -573,7 +621,7 @@ class YoloHandler(QObject):
             pass
 
     def _training_data_export(self):
-        """MAIN MANAGER FOR TRAINING DATA EXPORT."""
+        """Manage the training_data_worker() thread worker."""
         if not self.training_data_interrupt and self.training_data_generated:
             self._on_training_data_finished()
             return
@@ -629,9 +677,11 @@ class YoloHandler(QObject):
         self.w.train_polygons_label.setEnabled(True)
 
     def _training_data_yielded(self, value):
-        """training_data_worker()
-        Called upon yielding from the batch training data generation thread worker.
-        Updates the progress bar and label text next to it.
+        """Handle a yield from the training_data_worker() thread worker.
+
+        Called upon yielding from the batch training data generation
+        thread worker. Updates the progress bar and label text next
+        to it.
         """
         no_entry, total_label_dict, label, split, frame_no, total_frames = (
             value
@@ -643,8 +693,10 @@ class YoloHandler(QObject):
         self.w.train_export_label.setText(f"{label} ({split})")
 
     def _on_training_data_finished(self):
-        """training_data_worker()
-        Callback for when training data generation worker has finished executing.
+        """Handle completion of the training_data_worker() thread worker.
+
+        Callback for when training data generation worker has finished
+        executing.
         """
         self.w.generate_training_data_btn.setStyleSheet("")
         self.w.generate_training_data_btn.setText("▷ Generate")
@@ -675,7 +727,7 @@ class YoloHandler(QObject):
     #######################################################################################################
 
     def init_yolo_training_threaded(self):
-        """This function manages the training of the YOLO model."""
+        """Manage the training of the YOLO model."""
         if self.training_finished:
             return
         # Sanity check
@@ -688,16 +740,19 @@ class YoloHandler(QObject):
 
         if not self.yolo.config_path and self.yolo.config_path.exists():
             show_warning(
-                f"No YOLO config .yaml was found under '{self.yolo.config_path}'"
+                f"No YOLO config .yaml was found under "
+                f"'{self.yolo.config_path}'"
             )
 
-        # Verify that train_mode in the config matches the current GUI selection
+        # Verify that train_mode in the config matches the current
+        # GUI selection
         with open(self.yolo.config_path) as f:
             config = yaml.safe_load(f)
         config_mode = config.get("train_mode", "segment")
         if config_mode != self.w.train_mode:
             msg = (
-                f"Train mode mismatch: training data was generated for '{config_mode}' "
+                f"Train mode mismatch: training data was generated "
+                f"for '{config_mode}' "
                 f"but current mode is '{self.w.train_mode}'. "
                 f"Please regenerate training data or switch mode."
             )
@@ -714,7 +769,8 @@ class YoloHandler(QObject):
             return
         self.save_period = int(self.w.save_period_input.value())
 
-        # Check for resume first: model/image-size selections are irrelevant when resuming.
+        # Check for resume first: model/image-size selections are
+        # irrelevant when resuming.
         # The fresh/resume/continue decision and imgsz recovery live in core
         # (resolve_resume_state) so the CLI and GUI behave identically.
         self.resume_training = False
@@ -733,7 +789,8 @@ class YoloHandler(QObject):
                 if action == "init_from_checkpoint":
                     self.init_from_checkpoint = True
                     show_info(
-                        "Checkpoint is from a completed run. Continuing training from last.pt "
+                        "Checkpoint is from a completed run. Continuing "
+                        "training from last.pt "
                         "as initialization (new run), not strict resume."
                     )
                 else:
@@ -745,10 +802,12 @@ class YoloHandler(QObject):
                     show_warning("Could not load checkpoint model.")
                     return
                 logger.info(
-                    f"Resumed image size from checkpoint: {self.image_size_yolo}"
+                    f"Resumed image size from checkpoint: "
+                    f"{self.image_size_yolo}"
                 )
             else:
-                # 'fresh': resume requested but no usable checkpoint (last.pt) found.
+                # 'fresh': resume requested but no usable checkpoint
+                # (last.pt) found.
                 logger.info(
                     "No checkpoint found (last.pt), starting fresh training."
                 )
@@ -775,18 +834,22 @@ class YoloHandler(QObject):
             if self.image_size_yolo % 32 != 0:
                 show_warning("Training image size must be divisible by 32")
                 return
-            # If a previous model folder exists, warn and delete before fresh training
+            # If a previous model folder exists, warn and delete
+            # before fresh training
             model_subdir = self.yolo.training_path / "training"
             if model_subdir.exists():
                 warning_dialog = QMessageBox()
                 warning_dialog.setIcon(QMessageBox.Warning)
                 warning_dialog.setWindowTitle("Existing Model Found")
                 warning_dialog.setText(
-                    "You are about to delete a previous model and its checkpoints."
+                    "You are about to delete a previous model and "
+                    "its checkpoints."
                 )
                 warning_dialog.setInformativeText(
-                    f"A previous training run exists at:\n'{model_subdir.as_posix()}'\n\n"
-                    "Starting fresh training will remove it. Do you want to proceed?"
+                    f"A previous training run exists at:\n"
+                    f"'{model_subdir.as_posix()}'\n\n"
+                    "Starting fresh training will remove it. Do you "
+                    "want to proceed?"
                 )
                 warning_dialog.setStandardButtons(
                     QMessageBox.Yes | QMessageBox.No
@@ -796,9 +859,11 @@ class YoloHandler(QObject):
                     return
                 shutil.rmtree(model_subdir)
                 logger.info(
-                    f"Removed previous model directory '{model_subdir.as_posix()}'"
+                    f"Removed previous model directory "
+                    f"'{model_subdir.as_posix()}'"
                 )
-            # LOAD YOLO MODEL (select seg or detect variant based on current train_mode)
+            # LOAD YOLO MODEL (select seg or detect variant based on
+            # current train_mode)
             logger.info(
                 f"Loading YOLO model {model_id} (mode: {self.w.train_mode})"
             )
@@ -864,6 +929,7 @@ class YoloHandler(QObject):
 
     def _update_training_progress(self, progress_info):
         """Handle training progress updates from the worker thread.
+
         When finished, enable the next step.
 
         Parameters
@@ -886,7 +952,8 @@ class YoloHandler(QObject):
         self.w.train_finishtime_label.setText(f"↬ {finish_time_str}")
 
         logger.info(
-            f"Epoch {current_epoch}/{total_epochs} - Time for epoch: {epoch_time:.1f}s"
+            f"Epoch {current_epoch}/{total_epochs} - "
+            f"Time for epoch: {epoch_time:.1f}s"
         )
         logger.info(f"Estimated time remaining: {remaining_time:.1f} seconds")
         logger.info(f"Estimated finish time: {finish_time_str}")
@@ -902,8 +969,10 @@ class YoloHandler(QObject):
             # Re-enable annotation tab (was disabled during training)
             self.w.main_toolbox.widget(1).setEnabled(True)
             # Re-enable training data generation section
-            # (matches the 'training data tab enabled' state from refresh_label_table_list)
-            # The train groupbox stays disabled until the user goes through data generation again.
+            # (matches the 'training data tab enabled' state from
+            # refresh_label_table_list)
+            # The train groupbox stays disabled until the user goes
+            # through data generation again.
             self.w.segmentation_bbox_decision_groupbox.setEnabled(True)
             self.w.train_generate_groupbox.setEnabled(True)
             self.w.generate_training_data_btn.setStyleSheet("")
@@ -929,7 +998,8 @@ class YoloHandler(QObject):
 
     # Boxmot tracker selection / tuning handling
     def on_tracker_selection_change(self, index):
-        """Handle tracker selection change in the dropdown list
+        """Handle tracker selection change in the dropdown list.
+
         Enable/disable tune button based on selection.
         """
         if index > 0:  # Any tracker selected (not the header item)
@@ -947,7 +1017,8 @@ class YoloHandler(QObject):
             self.w.yolomodel_tracker_list.setToolTip("")
 
     def on_tune_tracker_clicked(self):
-        """This is the "Tune" button displayed next to the tracker selection list.
+        """Handle clicks on the "Tune" button next to the tracker list.
+
         Open configuration dialog for the selected tracker.
         """
         index = self.w.yolomodel_tracker_list.currentIndex()
@@ -988,8 +1059,9 @@ class YoloHandler(QObject):
                 )
 
     def on_detailed_extraction_clicked(self):
-        """When the user clicks on the 'Detailed' checkbox, open the
-        region properties configuration dialog.
+        """Open the region properties configuration dialog.
+
+        Triggered when the user clicks on the 'Detailed' checkbox.
         If the user cancels, uncheck the box.
         """
         if self.w.detailed_extraction_checkBox.isChecked():
@@ -1010,11 +1082,13 @@ class YoloHandler(QObject):
             self.selected_region_properties = None
 
     def on_one_object_per_label_clicked(self):
-        """When the user clicks on one_object_per_label ("1 Subject") in the GUI:
+        """Update tracker controls when "1 Subject" is toggled.
+
+        When the user clicks on one_object_per_label ("1 Subject") in
+        the GUI:
         - Select the first tracker in the list of Trackers
         - disable the tracker selection dropdown
         - disable the tune (tracker) button.
-
         """
         is_checked = self.w.single_subject_checkBox.isChecked()
 
@@ -1032,7 +1106,8 @@ class YoloHandler(QObject):
 
     # YOLO Prediction handling
     def on_iou_thresh_change(self, value):
-        """Callback for self.w.predict_iou_thresh_spinbox.
+        """Handle changes to self.w.predict_iou_thresh_spinbox.
+
         If IOU threshold is < 0.01,
         check and disable the 'single_subject_checkBox'.
         This is because at IOU < 0.01, only one object will be tracked
@@ -1046,7 +1121,8 @@ class YoloHandler(QObject):
             self.w.single_subject_checkBox.setChecked(False)
 
     def on_mp4_predict_dropped_area(self, video_paths):
-        """Adds .mp4 files for YOLO video prediction.
+        """Add .mp4 files for YOLO video prediction.
+
         Callback for the prediction drop area.
         """
         vdict = self.videos_to_predict
@@ -1081,7 +1157,8 @@ class YoloHandler(QObject):
             logger.info(f"Added video {p.name} to prediction list.")
 
     def on_video_prediction_change(self):
-        """Handles removal of one or more videos from the YOLO prediction list.
+        """Handle removal of one or more videos from the prediction list.
+
         Callback for the currentIndexChanged signal.
         """
         lst = self.w.videos_for_prediction_list
@@ -1124,8 +1201,10 @@ class YoloHandler(QObject):
             lst.setCurrentIndex(0)
 
     def init_yolo_prediction_threaded(self):
-        """This function manages the prediction of videos
-        with custom trained YOLO models.
+        """Manage the prediction of videos with custom trained models.
+
+        Manages the prediction of videos with custom trained YOLO
+        models.
         """
         if not self.w.project_path:
             show_warning("Please select a project directory first.")
@@ -1139,10 +1218,12 @@ class YoloHandler(QObject):
             show_warning("Please select a YOLO model")
             return
         model_name = self.w.yolomodel_trained_list.currentText()
-        # The self.trained_models dictionary contains the model name as last 5 folder names
-        # in the project path as key, and the model path as value
+        # The self.trained_models dictionary contains the model name
+        # as last 5 folder names in the project path as key, and the
+        # model path as value
         assert model_name in self.trained_models, (
-            f"Model {model_name} not found in trained models: {self.trained_models}"
+            f"Model {model_name} not found in trained models: "
+            f"{self.trained_models}"
         )
         self.model_predict_path = self.trained_models[model_name]
         # Tracker
@@ -1256,6 +1337,7 @@ class YoloHandler(QObject):
 
     def _update_prediction_progress(self, progress_info):
         """Handle prediction progress updates from the worker thread.
+
         Updates progress bars and displays timing information.
 
         Parameters
@@ -1313,11 +1395,13 @@ class YoloHandler(QObject):
                     save_dir=save_dir
                 ):
                     logger.debug(
-                        f"Adding tracking result to viewer | Label: {label}, Track ID: {track_id}"
+                        f"Adding tracking result to viewer | "
+                        f"Label: {label}, Track ID: {track_id}"
                     )
 
         elif stage == "skipped_video":
-            # Video was skipped (output folder already exists, overwrite=False)
+            # Video was skipped (output folder already exists,
+            # overwrite=False)
             video_name = progress_info.get("video_name", "")
             video_index = progress_info.get("video_index", 0)
             total_videos = progress_info.get("total_videos", 1)
@@ -1331,7 +1415,8 @@ class YoloHandler(QObject):
             self.w.predict_overall_progressbar.setValue(video_index + 1)
 
         elif stage == "complete":
-            # Reset progress bars (UI re-enabling is handled by _on_yolo_prediction_finished)
+            # Reset progress bars (UI re-enabling is handled by
+            # _on_yolo_prediction_finished)
             self.w.predict_current_video_progressbar.setValue(0)
             self.w.predict_overall_progressbar.setValue(0)
             self.w.predict_current_video_progressbar.setEnabled(False)
@@ -1342,9 +1427,11 @@ class YoloHandler(QObject):
             self.w.predict_finish_time_label.setEnabled(False)
 
     def _on_yolo_prediction_finished(self):
-        """Connected to the worker's `finished` signal.
-        Always re-enables the prediction UI, regardless of how the worker ended
-        (normal completion, all videos skipped, or early exit due to error).
+        """Handle the worker's `finished` signal.
+
+        Always re-enables the prediction UI, regardless of how the
+        worker ended (normal completion, all videos skipped, or early
+        exit due to error).
         """
         # Re-enable UI elements
         self.w.predict_start_btn.setStyleSheet("")
@@ -1363,7 +1450,8 @@ class YoloHandler(QObject):
         self.w.predict_iou_thresh_spinbox.setEnabled(True)
         self.w.prediction_iou_label.setEnabled(True)
         self.w.skip_frames_analysis_spinBox.setEnabled(True)
-        # Only re-enable mask-related controls if the selected model is a segmentation model
+        # Only re-enable mask-related controls if the selected model
+        # is a segmentation model
         model_name = self.w.yolomodel_trained_list.currentText()
         model_path = self.trained_models.get(model_name)
         is_segment = (

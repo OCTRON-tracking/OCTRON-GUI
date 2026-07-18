@@ -1,7 +1,7 @@
-"""Dialog for configuring which scikit-image region properties
-are extracted during YOLO segmentation prediction.
+"""Dialog for configuring scikit-image region properties to extract.
 
-Modeled after BoxmotTrackerConfigDialog in tracking/tracker_config_ui.py.
+Extracted during YOLO segmentation prediction. Modeled after
+BoxmotTrackerConfigDialog in tracking/tracker_config_ui.py.
 """
 
 import re
@@ -31,17 +31,22 @@ _ORIGINAL_DEFAULTS = ("area",)
 
 
 class RegionPropertiesDialog(QDialog):
-    """Modal dialog that displays all scikit-image region property options
-    in a two-column layout with a checkbox next to each one.
+    """Modal dialog that displays scikit-image region property options.
+
+    Options are shown in a two-column layout with a checkbox next to
+    each one.
     """
 
     def __init__(self, parent=None, current_selection=None):
-        """Parameters
+        """Initialize the dialog and build the checkbox UI.
+
+        Parameters
         ----------
         parent : QWidget
             Parent widget.
         current_selection : set or tuple or list, optional
-            Currently enabled property names.  Defaults to DEFAULT_REGION_PROPERTIES.
+            Currently enabled property names.  Defaults to
+            DEFAULT_REGION_PROPERTIES.
 
         """
         super().__init__(parent)
@@ -205,12 +210,15 @@ class RegionPropertiesDialog(QDialog):
     # Public accessor
     # ------------------------------------------------------------------
     def get_config(self):
-        """Return the selected properties (mirrors BoxmotTrackerConfigDialog API)."""
+        """Return the selected properties.
+
+        Mirrors the BoxmotTrackerConfigDialog API.
+        """
         return self.get_selected_properties()
 
 
 def open_region_properties_dialog(parent, current_selection=None):
-    """Opens a modal dialog to configure region properties.
+    """Open a modal dialog to configure region properties.
 
     Returns the selected properties as a tuple, or None if cancelled.
     """

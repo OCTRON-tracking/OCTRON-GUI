@@ -1,4 +1,5 @@
-# Code for checking the availability of the YOLO models
+"""Code for checking the availability of the YOLO models."""
+
 from pathlib import Path
 
 import requests
@@ -9,17 +10,21 @@ from octron.url_check import check_url_availability
 
 
 def download_yolo_model(url, fpath, overwrite=False):
-    """Parameters
+    """Download the YOLO model file from a URL.
+
+    Parameters
     ----------
     url : str
         URL to download the model from.
-        For example "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l-seg.pt"
+        For example "https://github.com/ultralytics/assets/releases/
+        download/v8.3.0/yolo11l-seg.pt"
     fpath : str or Path
-        Destination path to save the model to. For example "yolo_octron/models/yolo11l-seg.pt"
+        Destination path to save the model to. For example
+        "yolo_octron/models/yolo11l-seg.pt"
     overwrite : bool
         If True, overwrite the file if it already exists.
-        If False, skip the download if the file already exists. Default is False.
-
+        If False, skip the download if the file already exists.
+        Default is False.
 
     """
     fpath = Path(fpath)
@@ -49,9 +54,9 @@ def check_yolo_models(
     force_download=False,
 ):
     """Check the availability of the YOLO model.
+
     Optionally download the model file if they are not available
     or if force_download is set to True.
-
 
     Parameters
     ----------
@@ -89,9 +94,10 @@ def check_yolo_models(
 
     models_yaml_path = Path(models_yaml_path)
     assert models_yaml_path.exists(), f"Path {models_yaml_path} does not exist"
-    # Downloaded weights live in the per-user cache (config.get_yolo_models_dir()),
-    # NOT inside the installed package (which may be read-only and is wiped on
-    # reinstall). The manifest YAML stays bundled with the package.
+    # Downloaded weights live in the per-user cache
+    # (config.get_yolo_models_dir()), NOT inside the installed package
+    # (which may be read-only and is wiped on reinstall). The manifest
+    # YAML stays bundled with the package.
     from octron import config
 
     yolo_model_path = config.get_yolo_models_dir()
@@ -122,7 +128,8 @@ def check_yolo_models(
                 )
             else:
                 logger.info(
-                    f"Trying to download {path_key} for {model} (force_download={force_download})"
+                    f"Trying to download {path_key} for {model} "
+                    f"(force_download={force_download})"
                 )
                 model_name = model_path.name
                 model_url = f"{YOLO_BASE_URL}/{model_name}"

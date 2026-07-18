@@ -1,4 +1,5 @@
-# YOLO training related helpers
+"""YOLO training related helpers."""
+
 import importlib.util
 import json
 from pathlib import Path
@@ -27,8 +28,9 @@ def find_files_with_depth_limit(base_path, pattern, max_depth=1):
     """
     results = []
 
-    # A non-existent directory yields no matches. This avoids a FileNotFoundError
-    # from glob/iterdir on a path that hasn't been created yet.
+    # A non-existent directory yields no matches. This avoids a
+    # FileNotFoundError from glob/iterdir on a path that hasn't been
+    # created yet.
     if not base_path.is_dir():
         return results
 
@@ -50,10 +52,11 @@ def find_files_with_depth_limit(base_path, pattern, max_depth=1):
 
 
 def load_object_organizer(file_path):
-    """Load object organizer .json from disk and return
-    its content as dictionary.
-    The .json file itself has been created via the save_to_disk method in
-    the object_organizer class (octron.sam_octron.object_organizer.py).
+    """Load object organizer .json from disk and return its content.
+
+    Returns the content as a dictionary. The .json file itself has been
+    created via the save_to_disk method in the object_organizer class
+    (octron.sam_octron.object_organizer.py).
 
     Parameters
     ----------
@@ -156,11 +159,13 @@ def collect_labels(
     verbose=False,
 ):
     """Extract info from project path.
+
     Find all the object organizer json files and load them.
-    The object organizer json files contain the information about the annotations
-    (the zarr arrays) as well as the associated video files.
-    Both object organizer as well as zarr arrays (as attribute) contain the video hash.
-    This hash is used to check if the correct video file is associated with the zarr array.
+    The object organizer json files contain the information about the
+    annotations (the zarr arrays) as well as the associated video files.
+    Both object organizer as well as zarr arrays (as attribute) contain
+    the video hash. This hash is used to check if the correct video
+    file is associated with the zarr array.
 
     Sanity checks:
     1. Data shape info in the zarr array and
@@ -174,11 +179,16 @@ def collect_labels(
     ----------
     project_path : str or Path : Path to the project root directory.
         The jsons are saved in subfolders.
+    subfolder : str or Path, optional
+        If given, only search for object organizer json files within
+        this subfolder of project_path. Defaults to None (search the
+        whole project root directory).
     prune_empty_labels : bool : Whether to prune frames that
                                 do not have annotation across all labels.
     min_num_frames : int : Minimum number of frames required
                            for training data generation.
     verbose : bool : Whether to print debug info.
+        Default is False.
 
     Returns
     -------
@@ -191,10 +201,14 @@ def collect_labels(
                 values: dict, video
                     dict:
                         keys: label, frames, masks, color
-                        values: label (str), # Name of the label corresponding to current ID
-                                frames (np.array), # Annotated frame indices for the label
-                                masks (list of zarr arrays), # Mask zarr arrays
-                                color (list) # Color of the label (RGBA, [0,1])
+                        values: label (str), # Name of the label
+                                    corresponding to current ID
+                                frames (np.array), # Annotated frame
+                                    indices for the label
+                                masks (list of zarr arrays), # Mask
+                                    zarr arrays
+                                color (list) # Color of the label
+                                    (RGBA, [0,1])
                     video: FastVideoReader object
 
     """
@@ -227,10 +241,12 @@ def collect_labels(
     from octron.sam_octron.helpers.video_loader import get_vfile_hash
 
     label_dict = {}
-    # Create a (new) global mapping of label names to IDs for consistency across directories
-    # This is important since the user might decide to add multiple labels with the same name
-    # but in different orders across video projects. I.e. a label "worm" might have ID 0 in one
-    # project and ID 1 in another. We want to make sure that the label ID to label name association
+    # Create a (new) global mapping of label names to IDs for
+    # consistency across directories. This is important since the
+    # user might decide to add multiple labels with the same name
+    # but in different orders across video projects. I.e. a label
+    # "worm" might have ID 0 in one project and ID 1 in another. We
+    # want to make sure that the label ID to label name association
     # is consistent across all projects.
     label_id_map = {}
     current_label_id = 0
@@ -314,18 +330,28 @@ def collect_labels(
             annotated_indices = get_annotated_frames(loaded_masks)
             if verbose:
                 logger.info(
-                    f"Found {len(annotated_indices)} annotated frames for label {label} in {object_organizer.parent.name}"
+                    f"Found {len(annotated_indices)} annotated frames "
+                    f"for label {label} in "
+                    f"{object_organizer.parent.name}"
                 )
             # if prune_empty_labels:
 
             #     # Also get rid of frames where the mask is all zeros
             #     # Why?
-            #     # Because frames that are not annotated and accidentally skipped contribute to
-            #     # "background" masks in YOLO. This will just spoil the actual training success.
-            #     summed = np.sum(loaded_masks, axis=(1,2)) # TODO: This is a heavy computation!!
-            #     annotated_indices = np.intersect1d(annotated_indices, np.where(summed > 0)[0])
+            #     # Because frames that are not annotated and
+            #     # accidentally skipped contribute to
+            #     # "background" masks in YOLO. This will just spoil
+            #     # the actual training success.
+            #     summed = np.sum(loaded_masks, axis=(1,2))
+            #     # TODO: This is a heavy computation!!
+            #     annotated_indices = np.intersect1d(
+            #         annotated_indices, np.where(summed > 0)[0]
+            #     )
             #     if verbose:
-            #         print(f'PRUNING: {len(annotated_indices)} remain after removing empty frames')
+            #         print(
+            #             f'PRUNING: {len(annotated_indices)} remain '
+            #             'after removing empty frames'
+            #         )
             labels[label_id]["frames"].extend(annotated_indices)
 
             expected_video_hash_zarr = loaded_masks.attrs.get(
@@ -335,8 +361,9 @@ def collect_labels(
                 "video_hash"
             ]
 
-            # Resolve so the same physical video referenced via different path
-            # strings maps to one key (keeps the single-video assert below honest).
+            # Resolve so the same physical video referenced via
+            # different path strings maps to one key (keeps the
+            # single-video assert below honest).
             video_file_path = (
                 project_path
                 / Path(entry["prediction_layer_metadata"]["video_file_path"])
@@ -362,7 +389,8 @@ def collect_labels(
         # of failing later with an unbound video_file_path.
         if not video_hash_dict:
             logger.warning(
-                f"Object organizer '{object_organizer.parent.name}' has no entries; skipping."
+                f"Object organizer '{object_organizer.parent.name}' "
+                f"has no entries; skipping."
             )
             continue
 
@@ -374,7 +402,9 @@ def collect_labels(
             ]
             if verbose:
                 logger.debug(
-                    f"Label {labels[label_id]['label']} has {len(labels[label_id]['frames'])} annotated frames"
+                    f"Label {labels[label_id]['label']} has "
+                    f"{len(labels[label_id]['frames'])} annotated "
+                    f"frames"
                 )
 
         # Prune frames that do not have annotation across all labels
@@ -386,17 +416,21 @@ def collect_labels(
                 labels[label_id]["frames"] = common_frames
                 if verbose:
                     logger.debug(
-                        f"PRUNING: Label {labels[label_id]['label']} has {len(labels[label_id]['frames'])} common frames"
+                        f"PRUNING: Label {labels[label_id]['label']} "
+                        f"has {len(labels[label_id]['frames'])} "
+                        f"common frames"
                     )
 
-        # Assert that there is a minimum number of frames available for training data generation
+        # Assert that there is a minimum number of frames available
+        # for training data generation
         if min_num_frames > 0:
             for label_id in labels:
                 no_frames_label = len(labels[label_id]["frames"])
                 label = labels[label_id]["label"]
                 path = object_organizer.parent.as_posix()
                 assert no_frames_label >= min_num_frames, (
-                    f'Not enough frames for label "{label}" in "{path}": {no_frames_label} < {min_num_frames}'
+                    f'Not enough frames for label "{label}" in '
+                    f'"{path}": {no_frames_label} < {min_num_frames}'
                 )
 
         # Add the video file path and data to the dictionary
@@ -407,8 +441,9 @@ def collect_labels(
         labels["video"] = video
         label_dict[object_organizer.parent.as_posix()] = labels
 
-    # Assert that label_id to label associations are congruent across label_dict
-    # i.e. the numerical label_id is always associated with the same label name across all entries
+    # Assert that label_id to label associations are congruent across
+    # label_dict, i.e. the numerical label_id is always associated
+    # with the same label name across all entries
     label_ids = []
     label_idnames = []
     for labels in label_dict.values():
@@ -418,7 +453,8 @@ def collect_labels(
             label_ids.append(label_id)
             label_idnames.append(f"{label_id}-{labels[label_id]['label']}")
     assert len(set(label_ids)) == len(set(label_idnames)), (
-        "A label id to label name association is not congruent across label_dict"
+        "A label id to label name association is not congruent "
+        "across label_dict"
     )
 
     return label_dict
@@ -430,9 +466,10 @@ def draw_polygons(
     max_to_plot=2,
     randomize=False,
 ):
-    """Helper.
-    Draw the polygons on the video frames, after having created the labels
-    dictionary via the collect_labels() function.
+    """Draw the polygons on the video frames.
+
+    Frames come from the labels dictionary created via the
+    collect_labels() function.
 
     Parameters
     ----------
@@ -441,14 +478,20 @@ def draw_polygons(
             values: dict
                 keys: label, frames, masks, polygons, color
                 values: label (str), # Name of the label
-                         frames (np.array), # Annotated frame indices for the label
-                         masks (list of zarr arrays), # Masks for each frame
-                         polygons (dict) # Polygons for each frame index
-                         color (list) # Color of the label (RGBA, [0,1])
+                         frames (np.array), # Annotated frame indices
+                             for the label
+                         masks (list of zarr arrays), # Masks for
+                             each frame
+                         polygons (dict) # Polygons for each frame
+                             index
+                         color (list) # Color of the label
+                             (RGBA, [0,1])
     video_data : np.array : Video data array
+        Array of video frames to draw the polygons onto.
     max_to_plot : int : Maximum number of frames to plot per label
+        Default is 2.
     randomize : bool : Whether to plot random frames
-
+        Default is False.
 
     """
     # Check if cv2 is installed correctly
@@ -514,7 +557,8 @@ def draw_polygons(
                         facecolor="black",  # Background color
                         alpha=0.7,  # Transparency
                         edgecolor="none",  # No edge color
-                        boxstyle="round,pad=0.3",  # Rounded corners with padding
+                        boxstyle="round,pad=0.3",  # Rounded corners
+                        # with padding
                     ),
                     ha="center",  # Horizontal alignment
                     va="center",  # Vertical alignment
@@ -540,11 +584,16 @@ def train_test_val(
 
     Parameters
     ----------
-    frame_indices : np.array : Array of frame indices
-    training_fraction : float : Fraction of training data
-    validation_fraction : float : Fraction of validation data
-    random_seed : int : Random seed for reproducibility
-    verbose : bool : Whether to print sizes of the splits
+    frame_indices : np.array
+        Array of frame indices
+    training_fraction : float
+        Fraction of training data
+    validation_fraction : float
+        Fraction of validation data
+    random_seed : int
+        Random seed for reproducibility
+    verbose : bool
+        Whether to print sizes of the splits
 
     Returns
     -------
@@ -560,7 +609,8 @@ def train_test_val(
         "Training fraction should be greater than validation fraction"
     )
     assert len(frame_indices) >= 3, (
-        f"Need at least 3 frames to split into train/val/test, got {len(frame_indices)}"
+        f"Need at least 3 frames to split into train/val/test, "
+        f"got {len(frame_indices)}"
     )
 
     # Shuffle the indices

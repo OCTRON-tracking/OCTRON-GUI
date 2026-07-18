@@ -1,3 +1,5 @@
+"""Helpers for loading and querying YOLO/OCTRON prediction results."""
+
 import ast
 import json
 import warnings
@@ -16,8 +18,12 @@ from tqdm import tqdm
 
 
 class YOLO_results:
+    """Load and query YOLO/OCTRON prediction results (video, CSVs, zarr)."""
+
     def __init__(self, results_dir, verbose=True, **kwargs):
-        """Parameters
+        """Initialize by locating and loading the prediction results.
+
+        Parameters
         ----------
         results_dir : str or Path
             Path to the results directory. This should be the directory
@@ -29,13 +35,13 @@ class YOLO_results:
             - csv_header_lines : int, optional
                 Number of header lines in the CSV files. The default is 7.
 
-
         """
         # Ignore specific Zarr warning about .DS_Store
         # That happens on Mac ... might exception handling here.
         warnings.filterwarnings(
             "ignore",
-            message="Object at .DS_Store is not recognized as a component of a Zarr hierarchy.",
+            message="Object at .DS_Store is not recognized as a component "
+            "of a Zarr hierarchy.",
             category=UserWarning,
             module="zarr.core.group",
         )
@@ -79,6 +85,7 @@ class YOLO_results:
 
     def _load_metadata(self):
         """Load prediction_metadata.json if it exists in the results directory.
+
         Extracts model_classes and stores the full metadata dict.
         """
         meta_path = self.results_dir / "prediction_metadata.json"
@@ -86,11 +93,13 @@ class YOLO_results:
             try:
                 with open(meta_path) as f:
                     self.metadata = json.load(f)
-                # Extract model classes {str_id: str_label} -> {int_id: str_label}
+                # Extract model classes {str_id: str_label} ->
+                # {int_id: str_label}
                 raw_classes = self.metadata.get("model_classes", None)
                 if raw_classes:
                     self.classes = {int(k): v for k, v in raw_classes.items()}
-                # Extract video dimensions as fallback (overridden by video/zarr if available)
+                # Extract video dimensions as fallback (overridden by
+                # video/zarr if available)
                 video_info = self.metadata.get("video_info", {})
                 if video_info:
                     self.num_frames = video_info.get(
@@ -107,7 +116,8 @@ class YOLO_results:
                     logger.warning(f"Could not load prediction metadata: {e}")
         elif self.verbose:
             logger.info(
-                f"No prediction_metadata.json found in '{self.results_dir.name}'"
+                f"No prediction_metadata.json found in "
+                f"'{self.results_dir.name}'"
             )
 
     def _candidate_video_path(self):
@@ -132,7 +142,7 @@ class YOLO_results:
         return None
 
     def find_video(self):
-        """Locate the original video associated with this prediction output and probe it.
+        """Locate the video for this prediction output and probe it.
 
         OCTRON normally saves results into
         "<video_dir>/octron_predictions/<video>_<tracker>/" (video two levels
@@ -148,19 +158,20 @@ class YOLO_results:
             logger.warning(
                 f"No video found for '{results_dir.name}' "
                 f"(looked for {stem}.mp4 next to and one level above the "
-                f"prediction folder). Use --video to specify the path explicitly."
+                f"prediction folder). Use --video to specify the path "
+                f"explicitly."
             )
         self.video, self.video_dict = None, None
 
     def _init_video_from_path(self, video_path):
-        """Use a caller-supplied video path directly, bypassing auto-detection."""
+        """Use a caller-supplied video path, bypassing auto-detection."""
         vp = Path(video_path)
         if not vp.exists():
             raise FileNotFoundError(f"Video not found: {vp}")
         self._set_video(vp)
 
     def _set_video(self, video_path):
-        """Open *video_path* with the RGB reader, probe it, and set video state.
+        """Open *video_path* with the RGB reader, probe it, and set state.
 
         Shared by find_video (auto-detection) and _init_video_from_path
         (caller-supplied) so both keep read_format='rgb24' and identical
@@ -189,6 +200,7 @@ class YOLO_results:
         return max(0, n - self.csv_header_lines - 1)
 
     def find_csv(self):
+        """Locate the tracking CSV files in the results directory."""
         results_dir = self.results_dir
         csvs = natsorted(results_dir.rglob("*track_*.csv"))
         if not csvs and self.verbose:
@@ -200,19 +212,23 @@ class YOLO_results:
             self.csvs = csvs
             if self.verbose:
                 logger.info(
-                    f"Found {len(csvs)} tracking CSV files in '{results_dir.name}'"
+                    f"Found {len(csvs)} tracking CSV files in "
+                    f"'{results_dir.name}'"
                 )
 
     def find_zarr_root(self):
         """Find the zarr archive (if it exists) and open the root group.
-        Detection predictions have no zarr — this is expected and not an error.
+
+        Detection predictions have no zarr — this is expected and not
+        an error.
         """
         results_dir = self.results_dir
         zarrs = list(results_dir.rglob("predictions.zarr"))
         if len(zarrs) == 0:
             if self.verbose:
                 logger.info(
-                    f"No zarr archive in '{results_dir.name}' (detection predictions)"
+                    f"No zarr archive in '{results_dir.name}' "
+                    f"(detection predictions)"
                 )
             return
         if len(zarrs) > 1:
@@ -267,11 +283,14 @@ class YOLO_results:
                 )
                 if self.verbose:
                     logger.debug(
-                        f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}"
+                        f"Extracted video dimensions from zarr: "
+                        f"{self.num_frames} frames, "
+                        f"{self.width}x{self.height}"
                     )
 
     def get_track_ids_labels(self, csv_header_lines=None):
-        """Compare track IDs that are present across csv files and the zarr archive.
+        """Compare track IDs present across CSV files and the zarr archive.
+
         Track IDs are stored in the csvs (column "track_id"),
         and the zarr root as ".array_keys()".
         Corresponding label names are stored in the csvs (column "label").
@@ -279,7 +298,8 @@ class YOLO_results:
         Creates
         -------
         self.track_ids : list
-            Set of list of track IDs that are present in both the csvs and the zarr archive.
+            Set of list of track IDs that are present in both the csvs
+            and the zarr archive.
         self.labels : list
             Set of list of labels that are present in the csvs.
         self.track_id_label : dict
@@ -327,7 +347,8 @@ class YOLO_results:
                             )
                         elif self.verbose:
                             logger.warning(
-                                f"Column 'track_id' not found in {csv_file.name}"
+                                f"Column 'track_id' not found in "
+                                f"{csv_file.name}"
                             )
                         if "label" in df.columns:
                             assert set(df["label"].unique()) == set(
@@ -340,7 +361,8 @@ class YOLO_results:
                             logger.warning(
                                 f"Column 'label' not found in {csv_file.name}"
                             )
-                        # Collect per-track frame indices for later cross-validation
+                        # Collect per-track frame indices for later
+                        # cross-validation
                         if (
                             "track_id" in df.columns
                             and "frame_idx" in df.columns
@@ -352,7 +374,8 @@ class YOLO_results:
                     except Exception as e:
                         if self.verbose:
                             logger.warning(
-                                f"Could not read track_ids and labels from {csv_file.name}: {e}"
+                                f"Could not read track_ids and labels "
+                                f"from {csv_file.name}: {e}"
                             )
 
                 # Write to a dictionary, sort the track_id key
@@ -376,7 +399,8 @@ class YOLO_results:
             else:
                 if self.verbose:
                     logger.warning(
-                        "No CSV files found, cannot extract track IDs from CSVs."
+                        "No CSV files found, cannot extract track IDs "
+                        "from CSVs."
                     )
                 return [], [], {}, {}
 
@@ -393,12 +417,14 @@ class YOLO_results:
         if zarr_ids:
             # Segmentation results: zarr and CSV track IDs must match
             assert set(zarr_ids) == set(csv_ids), (
-                f"Track IDs zarr and CSVs do not match: {set(zarr_ids) - set(csv_ids)}"
+                f"Track IDs zarr and CSVs do not match: "
+                f"{set(zarr_ids) - set(csv_ids)}"
             )
         elif self.verbose:
             # Detection results: no mask arrays in zarr, rely on CSVs only
             logger.info(
-                "No mask track IDs in zarr (detection model). Using CSV track IDs only."
+                "No mask track IDs in zarr (detection model). Using "
+                "CSV track IDs only."
             )
 
         self.track_ids = sorted(csv_ids)
@@ -409,7 +435,8 @@ class YOLO_results:
         )
         if self.verbose:
             logger.info(
-                f"Found {len(self.track_id_label)} unique track IDs in zarr and CSVs: {self.track_id_label}"
+                f"Found {len(self.track_id_label)} unique track IDs in "
+                f"zarr and CSVs: {self.track_id_label}"
             )
 
     def get_track_id_for_label(self, label):
@@ -453,12 +480,14 @@ class YOLO_results:
         return label
 
     def define_colors(self, label_n=10, n_colors_submap=50):
-        """Color handling: Recreate the colors here for the masks
-        This is a bit of a hack, but it works if the n_labels and n_colors_submap
-        match the original parameters used to create the colormap.
-        So, if we don't change these parameters, the colors will be the same, because
-        we are looking up object IDs from the original model classes
-        (See self.get_color_for_track_id()).
+        """Recreate the colors used for the masks.
+
+        This is a bit of a hack, but it works if the n_labels and
+        n_colors_submap match the original parameters used to create
+        the colormap. So, if we don't change these parameters, the
+        colors will be the same, because we are looking up object IDs
+        from the original model classes (See
+        self.get_color_for_track_id()).
         """
         from octron.sam_octron.helpers.octron_colors import (
             create_label_colors,
@@ -483,18 +512,19 @@ class YOLO_results:
 
     def get_color_for_track_id(self, track_id):
         """Get the color for a given track ID.
+
         I am using the same method here that I use to define the colors
         during annotation in OCTRON.
-        This is a bit of a hack, but it works if the n_labels and n_colors_submap
-        match the original parameters used to create the colormap.
-        So, if we don't change these parameters, the colors will be the same, because
-        we are looking up object IDs from the original model classes.
+        This is a bit of a hack, but it works if the n_labels and
+        n_colors_submap match the original parameters used to create
+        the colormap. So, if we don't change these parameters, the
+        colors will be the same, because we are looking up object IDs
+        from the original model classes.
 
         Parameters
         ----------
         track_id : int
             The track ID to search for.
-
 
         Returns
         -------
@@ -516,7 +546,8 @@ class YOLO_results:
         ]  # Get the label for this specific track_id
 
         # Get model class definitions {int_id: str_label}
-        # Priority: self.classes (from metadata JSON or zarr root), then mask array attrs
+        # Priority: self.classes (from metadata JSON or zarr root),
+        # then mask array attrs
         classes = self.classes
         if classes is None and self.has_masks:
             all_mask_data = self.get_mask_data()
@@ -531,19 +562,24 @@ class YOLO_results:
                 f"Model class definitions not found for track_id {track_id}."
             )
 
-        # Find the original integer class ID from the model's definition for this track's label
+        # Find the original integer class ID from the model's
+        # definition for this track's label
         original_class_id_keys = self._find_keys_for_value(classes, label)
         if not original_class_id_keys:
             raise ValueError(
-                f"Label '{label}' not found in model class definitions: {classes}"
+                f"Label '{label}' not found in model class "
+                f"definitions: {classes}"
             )
         if len(original_class_id_keys) > 1 and self.verbose:
             logger.warning(
-                f"Label '{label}' maps to multiple original class IDs in model definition: {original_class_id_keys}. Using first one: {original_class_id_keys[0]}."
+                f"Label '{label}' maps to multiple original class IDs "
+                f"in model definition: {original_class_id_keys}. Using "
+                f"first one: {original_class_id_keys[0]}."
             )
         original_class_id = int(original_class_id_keys[0])
 
-        # Determine the occurrence index of this track_id among all tracks sharing the same label string
+        # Determine the occurrence index of this track_id among all
+        # tracks sharing the same label string
         # This is used to pick a distinct sub-color.
         all_track_ids_for_this_label_str = sorted(
             self._find_keys_for_value(self.track_id_label, label)
@@ -566,9 +602,10 @@ class YOLO_results:
         ]
         obj_color = all_labels_submaps[label_color_index][subcolor_index]
 
-        # Import napari colormap support lazily. Importing napari.utils at module
-        # import time triggers Pydantic json_encoders deprecation warnings from a
-        # dependency even when users only do `from octron import YOLO_results`.
+        # Import napari colormap support lazily. Importing napari.utils
+        # at module import time triggers Pydantic json_encoders
+        # deprecation warnings from a dependency even when users only
+        # do `from octron import YOLO_results`.
         from octron import _suppress_known_dependency_warnings
 
         with _suppress_known_dependency_warnings():
@@ -580,7 +617,7 @@ class YOLO_results:
         )
         return obj_color, napari_color
 
-    #### CORE DATA EXTRACTION ##############################################################
+    #### CORE DATA EXTRACTION ################################################
 
     def get_tracking_data(
         self,
@@ -591,8 +628,7 @@ class YOLO_results:
         track_ids=None,
         min_observations=0,
     ):
-        """Get the tracking data for all csvs in a dictionary
-        of track_id -> tracking columns.
+        """Get the tracking data for all csvs, keyed by track_id.
 
         Returns
         -------
@@ -601,7 +637,8 @@ class YOLO_results:
             tracking data is a dictionary with the keys:
             - 'label': The label for the track ID
             - 'data': The tracking data (pandas.DataFrame)
-            - 'features': The features (pandas.DataFrame), like area, eccentricity, etc.
+            - 'features': The features (pandas.DataFrame), like area,
+              eccentricity, etc.
 
         """
         EXPECTED_CSV_COLUMNS = [
@@ -650,6 +687,7 @@ class YOLO_results:
 
         def _resolve_tuples(series, col_name, csv_name):
             """Parse tuple-string cells and average them into scalars.
+
             Cells that are already numeric are left unchanged.
             Tuple strings like '(120.5, 85.3)' are parsed and averaged.
 
@@ -686,7 +724,8 @@ class YOLO_results:
 
         tracking_data = {}
         for csv_file in self.csvs:
-            # Extract track_id from filename to skip unwanted CSVs without reading them
+            # Extract track_id from filename to skip unwanted CSVs
+            # without reading them
             if track_ids is not None:
                 m = _re.search(r"_track_(\d+)\.csv$", csv_file.name)
                 if m and int(m.group(1)) not in set(track_ids):
@@ -701,7 +740,8 @@ class YOLO_results:
             try:
                 df = pd.read_csv(csv_file, skiprows=self.csv_header_lines)
                 assert set(EXPECTED_CSV_COLUMNS).issubset(df.columns), (
-                    f"CSV file {csv_file.name} does not contain all expected columns: {EXPECTED_CSV_COLUMNS}"
+                    f"CSV file {csv_file.name} does not contain all "
+                    f"expected columns: {EXPECTED_CSV_COLUMNS}"
                 )
 
                 # Build FEATURE_COLUMNS dynamically: base columns that exist,
@@ -746,11 +786,14 @@ class YOLO_results:
                 # Interpolate?
                 if interpolate and not is_continuous:
                     assert self.num_frames is not None, (
-                        "Number of frames (self.num_frames) not set. Cannot interpolate."
+                        "Number of frames (self.num_frames) not set. "
+                        "Cannot interpolate."
                     )
                     if self.verbose:
                         logger.debug(
-                            f"Frames are not continuous for track_id {track_id} in {csv_file.name}... interpolating"
+                            f"Frames are not continuous for track_id "
+                            f"{track_id} in {csv_file.name}... "
+                            f"interpolating"
                         )
                     df_position_interp = pd.DataFrame(
                         {"frame_idx": range(0, self.num_frames)}
@@ -793,7 +836,8 @@ class YOLO_results:
                             limit_area=None,
                         )
                     )
-                    # After interpolation, get the valid frame indices from the tracking DataFrame
+                    # After interpolation, get the valid frame indices
+                    # from the tracking DataFrame
                     valid_frames = df_position_interp.dropna(
                         subset=["pos_x", "pos_y"]
                     )["frame_idx"].values
@@ -809,7 +853,8 @@ class YOLO_results:
                         df_position_interp["frame_idx"].to_numpy(),
                         df_features_interp["frame_idx"].to_numpy(),
                     ), (
-                        "Frame mismatch between tracking and feature dataframes after interpolation."
+                        "Frame mismatch between tracking and feature "
+                        "dataframes after interpolation."
                     )
 
                     df_position = df_position_interp.copy()
@@ -824,7 +869,8 @@ class YOLO_results:
                 if sigma > 0:
                     if self.verbose:
                         logger.debug(
-                            f"Smoothing position data for track_id {track_id} with sigma={sigma}"
+                            f"Smoothing position data for track_id "
+                            f"{track_id} with sigma={sigma}"
                         )
                     cols_to_smooth = [
                         col
@@ -851,7 +897,8 @@ class YOLO_results:
             except Exception as e:
                 if self.verbose:
                     logger.warning(
-                        f"Could not read tracking data from {csv_file.name}: {e}"
+                        f"Could not read tracking data from "
+                        f"{csv_file.name}: {e}"
                     )
         return tracking_data
 
@@ -864,8 +911,9 @@ class YOLO_results:
         sigma=0,
     ):
         """Get the tracking data (positions) for a given label.
-        If the label maps to multiple track IDs, a warning is issued (if verbose=True)
-        and data for the first track ID is returned.
+
+        If the label maps to multiple track IDs, a warning is issued
+        (if verbose=True) and data for the first track ID is returned.
 
         Parameters
         ----------
@@ -874,16 +922,20 @@ class YOLO_results:
         interpolate : bool, optional
             Whether to interpolate missing frames. Default is True.
         interpolate_method : str, optional
-            Method for interpolation if `interpolate` is True. Default is 'linear'.
+            Method for interpolation if `interpolate` is True.
+            Default is 'linear'.
         interpolate_limit : int, optional
-            Maximum number of consecutive NaNs to fill. Default is None (no limit).
+            Maximum number of consecutive NaNs to fill. Default is
+            None (no limit).
         sigma : float, optional
-            Sigma for Gaussian smoothing of position data. If 0, no smoothing. Default is 0.
+            Sigma for Gaussian smoothing of position data. If 0, no
+            smoothing. Default is 0.
 
         Returns
         -------
         pandas.DataFrame
-            The tracking data (positions) for the (first) track ID associated with the given label.
+            The tracking data (positions) for the (first) track ID
+            associated with the given label.
 
         """
         if self.track_id_label is None:
@@ -905,7 +957,8 @@ class YOLO_results:
         track_id_to_use = list_of_track_ids[0]
         if len(list_of_track_ids) > 1 and self.verbose:
             logger.warning(
-                f"Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
+                f"Label '{label}' maps to multiple track IDs: "
+                f"{list_of_track_ids}. "
                 f"Using data for the first track ID: {track_id_to_use}."
             )
 
@@ -917,15 +970,18 @@ class YOLO_results:
         )
         if track_id_to_use not in all_tracking_data:
             raise ValueError(
-                f"Track ID '{track_id_to_use}' (for label '{label}') not found in processed tracking data."
+                f"Track ID '{track_id_to_use}' (for label '{label}') "
+                f"not found in processed tracking data."
             )
 
         return all_tracking_data[track_id_to_use]["data"]
 
     def get_features_for_label(self, label):
         """Get the features for a given label.
-        If the label maps to multiple track IDs, a warning is issued (if verbose=True)
-        and features for the first track ID are returned.
+
+        If the label maps to multiple track IDs, a warning is issued
+        (if verbose=True) and features for the first track ID are
+        returned.
 
         Parameters
         ----------
@@ -935,7 +991,8 @@ class YOLO_results:
         Returns
         -------
         pandas.DataFrame
-            The features for the (first) track ID associated with the given label.
+            The features for the (first) track ID associated with the
+            given label.
 
         """
         if self.track_id_label is None:
@@ -953,29 +1010,33 @@ class YOLO_results:
         track_id_to_use = list_of_track_ids[0]
         if len(list_of_track_ids) > 1 and self.verbose:
             logger.warning(
-                f"Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
-                f"Using features for the first track ID: {track_id_to_use}."
+                f"Label '{label}' maps to multiple track IDs: "
+                f"{list_of_track_ids}. "
+                f"Using features for the first track ID: "
+                f"{track_id_to_use}."
             )
 
         # Note: get_tracking_data() computes both 'data' and 'features'.
-        # We call it here without interpolation/smoothing args as features are typically not interpolated/smoothed.
+        # We call it here without interpolation/smoothing args as
+        # features are typically not interpolated/smoothed.
         all_tracking_data = self.get_tracking_data(interpolate=False, sigma=0)
 
         if track_id_to_use not in all_tracking_data:
             raise ValueError(
-                f"Track ID '{track_id_to_use}' (for label '{label}') not found in processed tracking data."
+                f"Track ID '{track_id_to_use}' (for label '{label}') "
+                f"not found in processed tracking data."
             )
 
         return all_tracking_data[track_id_to_use]["features"]
 
     def get_mask_data(self, close_holes=False):
-        """Get the mask data for all track IDs in a dictionary
-        of track_id -> mask data.
+        """Get the mask data for all track IDs, keyed by track_id.
 
         Parameters
         ----------
         close_holes : bool, optional
-            If True, close small holes in the masks using skimage.morphology.remove_small_holes.
+            If True, close small holes in the masks using
+            skimage.morphology.remove_small_holes.
             Default is False.
 
         Returns
@@ -985,7 +1046,8 @@ class YOLO_results:
             mask_data is a dictionary with the keys:
             - 'label': The label for the track ID
             - 'data': The mask data (zarr.Array)
-            - 'frame_indices': The frame indices for which data exist in this mask data array.
+            - 'frame_indices': The frame indices for which data exist
+              in this mask data array.
 
         """
         if self.zarr_root is None:
@@ -1003,15 +1065,19 @@ class YOLO_results:
                     width = masks.shape[2]
                     if self.num_frames is not None:
                         assert num_frames == self.num_frames, (
-                            f"Number of frames in mask data ({num_frames}) does not match number of frames in video ({self.num_frames})."
+                            f"Number of frames in mask data "
+                            f"({num_frames}) does not match number of "
+                            f"frames in video ({self.num_frames})."
                         )
                     if self.height is not None:
                         assert height == self.height, (
-                            f"Height in mask data ({height}) does not match height in video ({self.height})."
+                            f"Height in mask data ({height}) does not "
+                            f"match height in video ({self.height})."
                         )
                     if self.width is not None:
                         assert width == self.width, (
-                            f"Width in mask data ({width}) does not match width in video ({self.width})."
+                            f"Width in mask data ({width}) does not "
+                            f"match width in video ({self.width})."
                         )
                     # Find out which indices have data
                     from octron.sam_octron.helpers.sam_zarr import (
@@ -1021,7 +1087,9 @@ class YOLO_results:
                     frame_indices = get_annotated_frames(masks)
                     if len(frame_indices) == 0 and self.verbose:
                         logger.warning(
-                            f"No valid frames found for track ID '{track_id}' (label '{label}') in mask data."
+                            f"No valid frames found for track ID "
+                            f"'{track_id}' (label '{label}') in mask "
+                            f"data."
                         )
                     if len(frame_indices) and close_holes:
                         for f in tqdm(
@@ -1054,7 +1122,8 @@ class YOLO_results:
             except Exception as e:
                 if self.verbose:
                     logger.warning(
-                        f"Could not read mask data for track ID {track_id}: {e}"
+                        f"Could not read mask data for track ID "
+                        f"{track_id}: {e}"
                     )
 
         # ── Frame-level alignment check: zarr masks vs CSV tracking ──
@@ -1081,7 +1150,8 @@ class YOLO_results:
                             else ""
                         )
                         parts.append(
-                            f"  {len(mask_only)} frames in zarr masks only: {preview}{suffix}"
+                            f"  {len(mask_only)} frames in zarr masks "
+                            f"only: {preview}{suffix}"
                         )
                     if csv_only:
                         preview = sorted(csv_only)[:10]
@@ -1091,7 +1161,8 @@ class YOLO_results:
                             else ""
                         )
                         parts.append(
-                            f"  {len(csv_only)} frames in CSV tracking only: {preview}{suffix}"
+                            f"  {len(csv_only)} frames in CSV tracking "
+                            f"only: {preview}{suffix}"
                         )
                     warnings.warn("\n".join(parts), UserWarning, stacklevel=2)
 
@@ -1099,23 +1170,28 @@ class YOLO_results:
 
     def get_masks_for_label(self, label, close_holes=False):
         """Get the mask data for a given label.
-        If the label maps to multiple track IDs, a warning is issued (if verbose=True)
-        and masks for the first track ID are returned.
+
+        If the label maps to multiple track IDs, a warning is issued
+        (if verbose=True) and masks for the first track ID are
+        returned.
 
         Parameters
         ----------
         label : str
             The label to search for.
         close_holes : bool, optional
-            If True, close small holes in the masks using skimage.morphology.remove_small_holes.
+            If True, close small holes in the masks using
+            skimage.morphology.remove_small_holes.
             Default is False.
 
         Returns
         -------
         mask_data_array : zarr.Array
-            The mask data for the (first) track ID associated with the given label.
+            The mask data for the (first) track ID associated with the
+            given label.
         frame_indices : numpy.ndarray
-            The frame indices for which data exist in this mask data array.
+            The frame indices for which data exist in this mask data
+            array.
 
         """
         if self.track_id_label is None:
@@ -1132,14 +1208,16 @@ class YOLO_results:
         track_id_to_use = list_of_track_ids[0]
         if len(list_of_track_ids) > 1 and self.verbose:
             logger.warning(
-                f"Label '{label}' maps to multiple track IDs: {list_of_track_ids}. "
+                f"Label '{label}' maps to multiple track IDs: "
+                f"{list_of_track_ids}. "
                 f"Using masks for the first track ID: {track_id_to_use}."
             )
 
         all_mask_data = self.get_mask_data(close_holes=close_holes)
         if track_id_to_use not in all_mask_data:
             raise ValueError(
-                f"Track ID '{track_id_to_use}' (for label '{label}') not found in mask data."
+                f"Track ID '{track_id_to_use}' (for label '{label}') "
+                f"not found in mask data."
             )
 
         specific_mask_data = all_mask_data[track_id_to_use]["data"]
@@ -1147,7 +1225,8 @@ class YOLO_results:
         return specific_mask_data, frame_indices
 
     def get_frame_indices(self):
-        """Helper to just return the frame indices for all track IDs.
+        """Return the frame indices for all track IDs.
+
         This is coupled to .get_mask_data() and is called from there,
         since frame indices can be different across track IDs.
 
@@ -1163,8 +1242,9 @@ class YOLO_results:
 
     def get_masked_video_frames(self, label, frame_indices):
         """Get the masked video frames for a given label and frame indices.
-        If the label maps to multiple track IDs, a warning is issued (if verbose=True)
-        and masks for the first track ID are used.
+
+        If the label maps to multiple track IDs, a warning is issued
+        (if verbose=True) and masks for the first track ID are used.
 
         Parameters
         ----------
@@ -1176,9 +1256,11 @@ class YOLO_results:
         Returns
         -------
         masked_frames : list or numpy.ndarray
-            The masked video frames for the given label and frame indices.
+            The masked video frames for the given label and frame
+            indices.
             If only one frame is requested, a numpy array is returned.
-            If multiple frames are requested, a list of numpy arrays is returned, one for each frame.
+            If multiple frames are requested, a list of numpy arrays
+            is returned, one for each frame.
 
         """
         if self.video is None:
@@ -1203,29 +1285,37 @@ class YOLO_results:
         return masked_frames
 
     def __repr__(self) -> str:
+        """Return a concise summary of the results directory and video info."""
         if (
             self.num_frames is not None
             and self.width is not None
             and self.height is not None
         ):
-            return f"YOLO_results\n{self.results_dir}\n{self.num_frames} frames, {self.width}x{self.height}"
+            return (
+                f"YOLO_results\n{self.results_dir}\n{self.num_frames} "
+                f"frames, {self.width}x{self.height}"
+            )
         else:
             return f"YOLO_results\n{self.results_dir}"
 
     def __str__(self) -> str:
+        """Return a concise summary of the results directory and video info."""
         if (
             self.num_frames is not None
             and self.width is not None
             and self.height is not None
         ):
-            return f"YOLO_results\n{self.results_dir}\n{self.num_frames} frames, {self.width}x{self.height}"
+            return (
+                f"YOLO_results\n{self.results_dir}\n{self.num_frames} "
+                f"frames, {self.width}x{self.height}"
+            )
         else:
             return f"YOLO_results\n{self.results_dir}"
 
-    #### OTHER HELPERS #######################################################################
+    #### OTHER HELPERS ########################################################
 
     def _find_keys_for_value(self, data_dict, value_to_find):
-        """Helper to find all keys in a dictionary that map to a specific value."""
+        """Find all keys in a dictionary that map to a specific value."""
         if data_dict is None:
             return []
         return [

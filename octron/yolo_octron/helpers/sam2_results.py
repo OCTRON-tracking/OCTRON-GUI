@@ -1,3 +1,5 @@
+"""Helpers for loading and analyzing SAM2 annotation results."""
+
 import warnings
 from pathlib import Path
 
@@ -15,8 +17,12 @@ from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
 
 
 class ANNOT_results:
+    """Load and analyze SAM2 annotation results stored as Zarr archives."""
+
     def __init__(self, annotation_dir, verbose=True, **kwargs):
-        """Parameters
+        """Initialize by locating annotation folders and Zarr archives.
+
+        Parameters
         ----------
         annotation_dir : str or Path
             Path to the annotation directory.
@@ -27,19 +33,20 @@ class ANNOT_results:
             - csv_header_lines : int, optional
                 Number of header lines in the CSV files. The default is 7.
 
-
         """
         # Ignore specific Zarr warning about .DS_Store
         # That happens on Mac ... might exception handling here.
         warnings.filterwarnings(
             "ignore",
-            message="Object at .DS_Store is not recognized as a component of a Zarr hierarchy.",
+            message="Object at .DS_Store is not recognized as a "
+            "component of a Zarr hierarchy.",
             category=UserWarning,
             module="zarr.core.group",
         )
         warnings.filterwarnings(
             "ignore",
-            message=r"Object at (\.DS_Store|desktop\.ini) is not recognized as a component of a Zarr hierarchy.",
+            message=r"Object at (\.DS_Store|desktop\.ini) is not "
+            r"recognized as a component of a Zarr hierarchy.",
             category=UserWarning,
             module="zarr.core.group",
         )
@@ -57,7 +64,7 @@ class ANNOT_results:
         self.create_zarr_dict()
 
     def get_annotation_folder_info(self, annotation_folder):
-        """ """
+        """Log creation date and video file name from video_info.txt."""
         annotation_folder = Path(annotation_folder)
         assert annotation_folder.exists(), (
             "Annotation folder path does not exist"
@@ -78,18 +85,20 @@ class ANNOT_results:
                 logger.info(f"Video file name: {video_path.name}")
 
     def find_zarrs(self):
+        """Find and sort all Zarr archives in the annotation directory."""
         self.zarr_archives = natsorted(
             Path(self.annotation_dir).rglob("[!video]*.zarr")
         )
         if self.verbose:
             logger.info(
-                f"Found {len(self.zarr_archives)} zarr archives\n{self.zarr_archives}"
+                f"Found {len(self.zarr_archives)} zarr archives\n"
+                f"{self.zarr_archives}"
             )
 
     def create_zarr_dict(self):
-        """Finds Zarr archives, populates a dictionary mapping labels to mask arrays,
-        and extracts video dimensions and non-empty frame indices.
+        """Find Zarr archives and populate label-to-mask-array mapping.
 
+        Also extracts video dimensions and non-empty frame indices.
         This populates
         - self.zarr_dict
         - self.frame_indices_dict (non empty frame indices)
@@ -126,7 +135,9 @@ class ANNOT_results:
                 )
                 if self.verbose:
                     logger.debug(
-                        f"Extracted video dimensions from zarr: {self.num_frames} frames, {self.width}x{self.height}"
+                        f"Extracted video dimensions from zarr: "
+                        f"{self.num_frames} frames, "
+                        f"{self.width}x{self.height}"
                     )
             # Check which indices are empty
             self.frame_indices_dict[label_name] = get_annotated_frames(
@@ -134,10 +145,10 @@ class ANNOT_results:
             )
 
     def create_tracking_dict(self):
-        """Loop over the zarr dictionary and all masks inside,
-        and extract the centroid of each mask.
-        This throws an error if more than one region is detected per frame.
+        """Loop over the zarr dictionary and all masks to get centroids.
 
+        Extracts the centroid of each mask. This throws an error if more
+        than one region is detected per frame.
 
         """
         for label, masks in self.zarr_dict.items():
@@ -156,13 +167,16 @@ class ANNOT_results:
                     if len(props) > 1:
                         # For now, taking the largest
                         logger.warning(
-                            f"Multiple regions found for {label} at frame idx {frame_idx}. Using the largest one."
+                            f"Multiple regions found for {label} at "
+                            f"frame idx {frame_idx}. Using the "
+                            f"largest one."
                         )
                         largest_region = max(props, key=lambda x: x.area)
                         centroid = largest_region.centroid
                     elif len(props) == 1:
                         centroid = props[0].centroid
-                    else:  # Should not happen if np.any(m) is true, but for safety
+                    else:  # Should not happen if np.any(m) is true,
+                        # but for safety
                         centroid = (np.nan, np.nan)
                     df_list.append(
                         {
@@ -182,21 +196,29 @@ class ANNOT_results:
             self.tracking_dict[label] = df
 
     def __repr__(self) -> str:
+        """Return a summary string with frame count and dimensions."""
         if (
             self.num_frames is not None
             and self.width is not None
             and self.height is not None
         ):
-            return f"Annotations\n{self.num_frames} frames, {self.width}x{self.height}"
+            return (
+                f"Annotations\n{self.num_frames} frames, "
+                f"{self.width}x{self.height}"
+            )
         else:
             return "Annotations\n"
 
     def __str__(self) -> str:
+        """Return a summary string with frame count and dimensions."""
         if (
             self.num_frames is not None
             and self.width is not None
             and self.height is not None
         ):
-            return f"Annotations\n{self.num_frames} frames, {self.width}x{self.height}"
+            return (
+                f"Annotations\n{self.num_frames} frames, "
+                f"{self.width}x{self.height}"
+            )
         else:
             return "Annotations\n"

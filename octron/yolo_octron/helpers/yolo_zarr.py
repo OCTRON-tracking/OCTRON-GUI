@@ -1,4 +1,8 @@
-# Very similar to the SAM2 zarr function - maybe unite in the future
+"""Zarr store helpers for YOLO prediction data.
+
+Very similar to the SAM2 zarr function - maybe unite in the future.
+"""
+
 import shutil
 from datetime import datetime
 
@@ -14,7 +18,8 @@ def create_prediction_store(
     zarr_path,
     verbose=False,
 ):
-    """Creates a zarr store (LocalStore) for storing and retrieving prediction data.
+    """Create a zarr store (LocalStore) for prediction data.
+
     This can then be supplemented with data during prediction.
 
     Parameters
@@ -50,7 +55,7 @@ def create_prediction_zarr(
     video_hash=None,
     verbose=False,
 ):
-    """Creates a zarr archive for storing and retrieving prediction data.
+    """Create a zarr archive for storing and retrieving prediction data.
 
     Parameters
     ----------
@@ -111,7 +116,8 @@ def create_prediction_zarr(
         create_kwargs["shards"] = shards
         if verbose:
             logger.debug(
-                f"Sharding enabled: {shard_size} frames per shard, {chunk_size} frames per chunk"
+                f"Sharding enabled: {shard_size} frames per shard, "
+                f"{chunk_size} frames per chunk"
             )
 
     image_zarr = zarr.create_array(**create_kwargs)

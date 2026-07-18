@@ -1,5 +1,8 @@
-# Polygon helpers for training data extraction
-# Also contains helpers for mask manipulation / polygon generation
+"""Polygon helpers for training data extraction.
+
+Also contains helpers for mask manipulation / polygon generation.
+"""
+
 import numpy as np
 from skimage import measure
 from skimage.morphology import binary_opening, disk
@@ -12,14 +15,14 @@ def find_objects_in_mask(
     intensity_image=None,
     extra_properties=None,
 ):
-    """Find all objects in a binary mask using connected component labeling.
-    This is run initially to gain an understanding of the objects in the masks,
-    i.e. know their median area, etc.
+    """Find all objects in a binary mask using connected component labels.
+
+    This is run initially to gain an understanding of the objects in
+    the masks, i.e. know their median area, etc.
 
     See Also
     --------
-    https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops
-
+    skimage.measure.regionprops
 
     Parameters
     ----------
@@ -38,11 +41,13 @@ def find_objects_in_mask(
         Passed directly to skimage.measure.regionprops_table.
         Safely ignored when no intensity properties are requested.
     extra_properties : tuple of callables, optional
-        Custom measurement functions passed to skimage.measure.regionprops_table.
+        Custom measurement functions passed to
+        skimage.measure.regionprops_table.
         Each function must accept a region mask as its first argument.
-        If the function requires an intensity image, it must accept it as the
-        second argument. The function name becomes the property/column name.
-        See https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops_table
+        If the function requires an intensity image, it must accept it
+        as the second argument. The function name becomes the
+        property/column name.
+        See skimage.measure.regionprops_table.
 
     Returns
     -------
@@ -84,7 +89,8 @@ def find_objects_in_mask(
         valid_indices = props["area"] >= min_area
         valid_labels = props["label"][valid_indices]
 
-        # Create a mapping from old labels to new labels or 0 (for removed regions)
+        # Create a mapping from old labels to new labels or 0
+        # (for removed regions)
         label_mapping = np.zeros(labels.max() + 1, dtype=np.int32)
         label_mapping[valid_labels] = np.arange(1, len(valid_labels) + 1)
 
@@ -136,21 +142,26 @@ def watershed_mask(
 
     Parameters
     ----------
-    mask : np.array : Binary mask where objects have value 1
-                      and background has value 0
-    footprint_diameter : float : Diameter of the footprint for peak_local_max()
-    min_size_ratio : float : Minimum size ratio of a mask towards
-                            the largest mask to keep a mask
-    p_norm : int : Norm to use for peak_local_max(). Default is 2 (Euclidean)
-    plot : bool : Whether to plot the results
-
+    mask : np.array
+        Binary mask where objects have value 1
+        and background has value 0
+    footprint_diameter : float
+        Diameter of the footprint for peak_local_max()
+    min_size_ratio : float
+        Minimum size ratio of a mask towards
+        the largest mask to keep a mask
+    p_norm : int
+        Norm to use for peak_local_max(). Default is 2 (Euclidean)
+    plot : bool
+        Whether to plot the results
 
     Returns
     -------
-    labels : np.array : Segmented mask, where 0 is background
-                        and each object has a unique integer value
-    masks : list : List of binary masks for each object
-
+    labels : np.array
+        Segmented mask, where 0 is background
+        and each object has a unique integer value
+    masks : list
+        List of binary masks for each object
 
     """
     try:
@@ -242,33 +253,40 @@ def watershed_mask(
 
 
 def merge_multi_segment(segments):
-    """This function is copied from ultralytics/utils/ops.py.
+    """Merge multiple segments into one, copied from ultralytics/utils/ops.py.
 
-    Merge multiple segments into one list by connecting the coordinates with the minimum distance between each segment.
-    This function connects these coordinates with a thin line to merge all segments into one.
+    Connects the coordinates with the minimum distance between each
+    segment. This function connects these coordinates with a thin line
+    to merge all segments into one.
 
     Parameters
     ----------
-    segments (List[np.ndarray]): A list of segments, where each segment is a NumPy array of shape (N, 2).
+    segments : List[np.ndarray]
+        A list of segments, where each segment is a NumPy array of
+        shape (N, 2).
 
     Returns
     -------
-    s (List[np.ndarray]): A list of connected segments represented as NumPy arrays.
+    s : List[np.ndarray]
+        A list of connected segments represented as NumPy arrays.
 
     """
 
     def _min_index(arr1, arr2):
-        """Find a pair of indexes with the shortest distance between two arrays of 2D points.
+        """Find indexes with the shortest distance between two point arrays.
 
         Parameters
         ----------
-        arr1 (np.ndarray): A NumPy array of shape (N, 2) representing N 2D points.
-        arr2 (np.ndarray): A NumPy array of shape (M, 2) representing M 2D points.
+        arr1 : np.ndarray
+            A NumPy array of shape (N, 2) representing N 2D points.
+        arr2 : np.ndarray
+            A NumPy array of shape (M, 2) representing M 2D points.
 
         Returns
         -------
-        min_index1 (tuple): A tuple containing the indexes of the points with the
-                            shortest distance in arr1 and arr2 respectively.
+        min_index1 : tuple
+            A tuple containing the indexes of the points with the
+            shortest distance in arr1 and arr2 respectively.
 
         """
         dis = ((arr1[:, None, :] - arr2[None, :, :]) ** 2).sum(-1)
@@ -289,7 +307,8 @@ def merge_multi_segment(segments):
         # Forward connection
         if k == 0:
             for i, idx in enumerate(idx_list):
-                # Middle segments have two indexes, reverse the index of middle segments
+                # Middle segments have two indexes, reverse the index
+                # of middle segments
                 if len(idx) == 2 and idx[0] > idx[1]:
                     idx = idx[::-1]
                     segments[i] = segments[i][::-1, :]
@@ -317,11 +336,13 @@ def get_polygons(mask):
 
     Parameters
     ----------
-    mask : np.array : Mask image, composed of 0s and 1s, where 1
+    mask : np.array
+        Mask image, composed of 0s and 1s, where 1 marks the object.
 
     Returns
     -------
-    polygon_points : np.array : Polygon points for the extracted binary mask(s)
+    polygon_points : np.array
+        Polygon points for the extracted binary mask(s)
 
     """
     try:
@@ -362,17 +383,23 @@ def polygon_to_mask(
 
     Parameters
     ----------
-    empty_mask : np.array : Empty mask to fill with the polygon
-    polygons : np.array : Polygon points for the extracted binary mask(s)
-    smooth_sigma : float : Sigma for Gaussian smoothing
-    opening_radius : int : Radius for binary opening
-    model_imgsz : int : Image size the model was using for training
-                        (default is 640)
-                        This is used to scale the mask before opening
+    empty_mask : np.array
+        Empty mask to fill with the polygon
+    polygons : np.array
+        Polygon points for the extracted binary mask(s)
+    smooth_sigma : float
+        Sigma for Gaussian smoothing
+    opening_radius : int
+        Radius for binary opening
+    model_imgsz : int
+        Image size the model was using for training
+        (default is 640)
+        This is used to scale the mask before opening
 
     Returns
     -------
-    mask : np.array : Mask for the polygon(s) with dtype int8
+    mask : np.array
+        Mask for the polygon(s) with dtype int8
 
     """
     try:
@@ -419,8 +446,8 @@ def polygon_to_mask(
             mask = cv2.resize(mask, (w0, h0), interpolation=cv2.INTER_AREA)
 
     # Convert mask to int8
-    # This is because the zarr array is created as int8 to use -1 as a placeholder
-    # ... and threshold to a binary mask
+    # This is because the zarr array is created as int8 to use -1 as
+    # a placeholder ... and threshold to a binary mask
     mask = mask.astype("int8")
     return mask
 
@@ -430,11 +457,15 @@ def postprocess_mask(mask, opening_radius):
 
     Parameters
     ----------
-    opening_radius : int : Radius for binary opening
+    mask : np.array
+        Mask to postprocess.
+    opening_radius : int
+        Radius for binary opening
 
     Returns
     -------
-    mask : np.array : Postprocessed mask with dtype uint8
+    mask : np.array
+        Postprocessed mask with dtype uint8
 
     """
     if opening_radius > 0:
