@@ -116,7 +116,7 @@ def check_sam3_models(models_yaml_path, force_download=False):
         return {}
 
     # Verify checkpoint paths from YAML actually exist (in the per-user cache)
-    for model_id, model in models_dict.items():
+    for _model_id, model in models_dict.items():
         ckpt_path = checkpoints_dir / Path(model["checkpoint_path"]).name
         if not ckpt_path.exists():
             print(f"⚠️ {ckpt_path} not found after download attempt.")

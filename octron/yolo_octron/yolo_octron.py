@@ -3686,10 +3686,10 @@ class YOLO_octron:
             for (
                 track_id,
                 label,
-                color,
+                _color,
                 napari_colormap,
-                tracking_df,
-                features_df,
+                _tracking_df,
+                _features_df,
                 masks,
             ) in results_per_track:
                 if masks is not None:
@@ -3705,11 +3705,11 @@ class YOLO_octron:
             for (
                 track_id,
                 label,
-                color,
-                napari_colormap,
+                _color,
+                _napari_colormap,
                 tracking_df,
                 features_df,
-                masks,
+                _masks,
             ) in results_per_track:
                 viewer.add_tracks(
                     tracking_df.values,
@@ -3731,7 +3731,7 @@ class YOLO_octron:
             track_id,
             label,
             color,
-            napari_colormap,
+            _napari_colormap,
             tracking_df,
             features_df,
             masks,

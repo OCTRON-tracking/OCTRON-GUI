@@ -483,7 +483,8 @@ class octron_widget(QWidget):
             model_name = self.sam_model_list.currentText()
         # Reverse lookup model_id
         model_found = False
-        for model_id, model in self.sam2models_dict.items():
+        # B007: model_id is read after the loop (reverse lookup)
+        for model_id, model in self.sam2models_dict.items():  # noqa: B007
             if model["name"] == model_name:
                 model_found = True
                 break
@@ -527,7 +528,8 @@ class octron_widget(QWidget):
             model_name = self.sam_model_list.currentText()
         # Reverse lookup model_id
         model_found = False
-        for model_id, model in self.sam3models_dict.items():
+        # B007: model_id is read after the loop (reverse lookup)
+        for model_id, model in self.sam3models_dict.items():  # noqa: B007
             if model["name"] == model_name:
                 model_found = True
                 break

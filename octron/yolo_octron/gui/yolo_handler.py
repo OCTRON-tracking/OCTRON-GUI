@@ -761,7 +761,10 @@ class YoloHandler(QObject):
                 return
             model_name = self.w.yolomodel_list.currentText()
             # Reverse lookup model_id
-            for model_id, model in self.w.yolomodels_dict.items():
+            # B007: model_id is read after the loop (reverse lookup)
+            for model_id, model in (  # noqa: B007
+                self.w.yolomodels_dict.items()
+            ):
                 if model["name"] == model_name:
                     break
             index_imagesize_list = self.w.yoloimagesize_list.currentIndex()

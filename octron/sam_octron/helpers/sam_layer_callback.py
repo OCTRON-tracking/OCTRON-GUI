@@ -695,7 +695,7 @@ class sam_octron_callbacks:
                     )
             except Exception:
                 # Trying again for sam hq
-                for i, out_obj_id in enumerate(out_obj_ids):
+                for _i, out_obj_id in enumerate(out_obj_ids):
                     mask = out_mask_logits[0][out_mask_logits[0] == out_obj_id]
                     mask = mask.cpu().numpy().astype(np.uint8)
                     yield (
