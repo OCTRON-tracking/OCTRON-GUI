@@ -1,4 +1,5 @@
-# Code for checking the availability of the SAM2 model configurations and checkpoints
+"""Check the availability of the SAM2 model configurations and checkpoints."""
+
 from pathlib import Path
 
 import requests
@@ -9,17 +10,21 @@ from octron.url_check import check_url_availability
 
 
 def download_sam2_checkpoint(url, fpath, overwrite=False):
-    """Parameters
+    """Download a SAM2 checkpoint file from a URL.
+
+    Parameters
     ----------
     url : str
         URL to download the model from.
-        For example "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"
+        For example
+        "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"
     fpath : str or Path
-        Destination path to save the model to. For example "sam_octron/checkpoints/sam2.1_hiera_large.pt"
+        Destination path to save the model to. For example
+        "sam_octron/checkpoints/sam2.1_hiera_large.pt"
     overwrite : bool
         If True, overwrite the file if it already exists.
-        If False, skip the download if the file already exists. Default is False.
-
+        If False, skip the download if the file already exists. Default
+        is False.
 
     """
     fpath = Path(fpath)
@@ -49,9 +54,10 @@ def check_sam2_models(
     models_yaml_path,
     force_download=False,
 ):
-    """Check the availability of the SAM2 model configurations and checkpoints.
-    Optionally download the files if they are not available or if force_download is set to True.
+    """Check the availability of the SAM2 model configs and checkpoints.
 
+    Optionally download the files if they are not available or if
+    force_download is set to True.
 
     Parameters
     ----------
@@ -130,11 +136,13 @@ def check_sam2_models(
         # Check if the checkpoint file exists. If not, download it.
         if model_checkpt_path.exists() and not force_download:
             logger.info(
-                f"Checkpoint file {model_checkpt_path} exists. Skipping download."
+                f"Checkpoint file {model_checkpt_path} exists. "
+                f"Skipping download."
             )
         else:
             logger.info(
-                f"Trying to download the checkpoint file (force_download={force_download})"
+                f"Trying to download the checkpoint file "
+                f"(force_download={force_download})"
             )
             checkpoint_path = model_checkpt_path
             checkpoint_name = checkpoint_path.name

@@ -1,3 +1,5 @@
+"""Video file probing and hashing helpers, built on PyAV."""
+
 import hashlib
 from pathlib import Path
 
@@ -6,7 +8,7 @@ from loguru import logger
 
 
 def probe_video(file_path, verbose=True):
-    """Open video file with pyav and return some basic information about the video.
+    """Open a video file with pyav and return basic video information.
 
     Parameters
     ----------

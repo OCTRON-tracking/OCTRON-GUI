@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""Standalone Qt GUI to convert MP4 videos to GIFs via ffmpeg."""
 
 import subprocess
 import time
@@ -38,6 +39,7 @@ class DropArea(QFrame):
     """Widget that accepts file drops."""
 
     def __init__(self, parent=None):
+        """Initialize the drop area frame."""
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setMinimumSize(100, 150)
@@ -118,13 +120,14 @@ class DropArea(QFrame):
 
 class MP4ToGifConverter(QMainWindow):
     """Main application window.
-    The goal is to provide a simple interface to convert MP4, MOV, and AVI files to GIFs.
-    This is a task that is often useful when compressing / sharing short video clips.
 
-
+    Provides a simple interface to convert MP4, MOV, and AVI files to
+    GIFs, a task that is often useful when compressing / sharing short
+    video clips.
     """
 
     def __init__(self):
+        """Build the converter window and its widgets."""
         super().__init__()
         self.setWindowTitle("Video to GIF Converter")
         self.setMinimumSize(300, 700)  # Increased from 300, 500 to 500, 650
@@ -326,7 +329,8 @@ class MP4ToGifConverter(QMainWindow):
         skip_frames = self.skip_spinner.value()
         resize_width = self.resize_spinner.value()
 
-        # Map quality to ffmpeg settings - use multiple parameters for better control
+        # Map quality to ffmpeg settings - use multiple parameters for
+        # better control
         quality_settings = {
             0: {
                 "bayer_scale": 1,
@@ -554,13 +558,15 @@ class MP4ToGifConverter(QMainWindow):
                         f"From {input_size:.1f}MB to {output_size:.1f}MB"
                     )
                     self.status_label.setText(
-                        f"Converted {input_path.name} in {elapsed_time:.1f}s - "
+                        f"Converted {input_path.name} in "
+                        f"{elapsed_time:.1f}s - "
                         f"From {input_size:.1f}MB to {output_size:.1f}MB"
                     )
                     successful += 1
                 else:
                     self.status_label.setText(
-                        f"Error: Output file is empty or missing for {input_path.name}"
+                        f"Error: Output file is empty or missing for "
+                        f"{input_path.name}"
                     )
 
             except subprocess.CalledProcessError as e:
@@ -576,7 +582,8 @@ class MP4ToGifConverter(QMainWindow):
         # Re-enable UI
         self.setEnabled(True)
         self.status_label.setText(
-            f"Completed! Successfully converted {successful}/{total_files} files."
+            f"Completed! Successfully converted "
+            f"{successful}/{total_files} files."
         )
 
     def closeEvent(self, event):

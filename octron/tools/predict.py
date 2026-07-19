@@ -1,7 +1,7 @@
 """OCTRON prediction pipeline.
 
-Wraps ``YOLO_octron.predict_batch()`` into a single callable usable from the CLI
-or programmatically.
+Wraps ``YOLO_octron.predict_batch()`` into a single callable usable from
+the CLI or programmatically.
 
 Local prediction caching (staging output on a fast local disk, then moving each
 finished video to its final destination) now lives in core ``predict_batch`` so
@@ -110,7 +110,8 @@ def run_predict(
         found = next((c for c in candidates if c.exists()), None)
         if found is None:
             raise FileNotFoundError(
-                f"model_path is a directory but no best.pt found inside: {model_path}"
+                f"model_path is a directory but no best.pt found "
+                f"inside: {model_path}"
             )
         model_path = found
 
@@ -123,9 +124,10 @@ def run_predict(
     logger.disable("boxmot")
 
     # Unwrap a Device enum to its plain string value (mirrors run_training).
-    # boxmot's select_device() calls str(device).lower(); a (str, Enum) member
-    # stringifies to e.g. "Device.mps" -> "device.mps", which it then misreads
-    # as a CUDA device and rejects. Passing the bare value ("mps") avoids that.
+    # boxmot's select_device() calls str(device).lower(); a (str, Enum)
+    # member stringifies to e.g. "Device.mps" -> "device.mps", which it
+    # then misreads as a CUDA device and rejects. Passing the bare value
+    # ("mps") avoids that.
     device = device.value if hasattr(device, "value") else str(device)
 
     if device == "auto":
@@ -134,9 +136,10 @@ def run_predict(
     yolo = YOLO_octron()
 
     _wall_start = time.time()
-    # Consumer-side fps: timestamps of the last _FPS_WINDOW seconds of frames.
-    # Time-based eviction means stall outliers fall out of the window immediately
-    # after the stall ends, avoiding both mean-poisoning and median bimodal issues.
+    # Consumer-side fps: timestamps of the last _FPS_WINDOW seconds of
+    # frames. Time-based eviction means stall outliers fall out of the
+    # window immediately after the stall ends, avoiding both
+    # mean-poisoning and median bimodal issues.
     _FPS_WINDOW = 5.0  # seconds
     _fps_ts: deque[float] = deque()
     _current_video_frames = 0
@@ -179,8 +182,10 @@ def run_predict(
             if stage == "skipped_video":
                 _close_progress()
                 logger.warning(
-                    f"Skipped {progress.get('video_name', '')} — predictions already "
-                    f"exist at {progress.get('save_dir', '')}. Use --overwrite to replace."
+                    f"Skipped {progress.get('video_name', '')} — "
+                    f"predictions already exist at "
+                    f"{progress.get('save_dir', '')}. "
+                    f"Use --overwrite to replace."
                 )
                 continue
 
@@ -205,8 +210,9 @@ def run_predict(
                 _current_video_frames = total_f
                 _fps_ts.clear()  # reset fps window per video
                 _close_progress()
+                total_videos = progress.get("total_videos", "?")
                 logger.info(
-                    f"Video {video_index + 1}/{progress.get('total_videos', '?')}: "
+                    f"Video {video_index + 1}/{total_videos}: "
                     f"{progress.get('video_name', '')}  ({total_f:,} frames)"
                 )
 
@@ -225,16 +231,20 @@ def run_predict(
 
             pct = 100.0 * frame / total_f if total_f > 0 else 0.0
             eta_s = int((total_f - frame) / fps) if fps > 0 else 0
-            eta_str = f"{eta_s // 3600:02d}:{(eta_s % 3600) // 60:02d}:{eta_s % 60:02d}"
+            eta_h, eta_rem = divmod(eta_s, 3600)
+            eta_m, eta_sec = divmod(eta_rem, 60)
+            eta_str = f"{eta_h:02d}:{eta_m:02d}:{eta_sec:02d}"
 
             if now_t - _last_print_t >= _PRINT_INTERVAL:
+                progress_msg = (
+                    f"{frame:,}/{total_f:,} | {pct:.1f}% | "
+                    f"{fps:.1f} fps | ETA: {eta_str}"
+                )
                 if debug:
-                    logger.info(
-                        f"[progress] {frame:,}/{total_f:,} | {pct:.1f}% | {fps:.1f} fps | ETA: {eta_str}"
-                    )
+                    logger.info(f"[progress] {progress_msg}")
                 else:
                     print(
-                        f"\r\033[K  {frame:,}/{total_f:,} | {pct:.1f}% | {fps:.1f} fps | ETA: {eta_str}",
+                        f"\r\033[K  {progress_msg}",
                         end="",
                         flush=True,
                     )

@@ -1,3 +1,5 @@
+"""Build the SAM3 Octron model from a checkpoint via ultralytics."""
+
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -22,7 +24,8 @@ def build_sam3_octron(
     Parameters
     ----------
     ckpt_path : str
-        Path to the SAM3 model checkpoint file (.pt) for the interactive/tracking model.
+        Path to the SAM3 model checkpoint file (.pt) for the
+        interactive/tracking model.
     semantic : bool
         If True, also build the SAM3SemanticModel detector and return a
         SAM3_semantic_octron that composes detection + tracking (Mode B).
@@ -60,11 +63,13 @@ def build_sam3_octron(
             torch.backends.cudnn.allow_tf32 = True
     elif device.type == "mps":
         logger.info(
-            "⚠️ Support for MPS devices is preliminary. SAM 3 is trained with CUDA and might "
-            "give numerically different outputs and sometimes degraded performance on MPS. "
+            "⚠️ Support for MPS devices is preliminary. SAM 3 is "
+            "trained with CUDA and might give numerically different "
+            "outputs and sometimes degraded performance on MPS. "
         )
 
-    # Build SAM3Model via ultralytics (handles checkpoint loading + key remapping)
+    # Build SAM3Model via ultralytics (handles checkpoint loading + key
+    # remapping)
     sam3_model = build_interactive_sam3(ckpt_path)
     sam3_model = sam3_model.to(device)
     if mode == "eval":

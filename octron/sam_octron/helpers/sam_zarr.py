@@ -1,3 +1,5 @@
+"""Zarr-backed storage helpers for OCTRON image and mask data."""
+
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -113,7 +115,8 @@ def create_image_zarr(
     video_hash_abbrev=None,
     verbose=False,
 ):
-    """Creates a zarr archive for storing and retrieving image data.
+    """Create a zarr archive for storing and retrieving image data.
+
     Depending on the number of channels, the zarr array will have shape
     (num_frames, num_ch, image_height, image_width) or
     (num_frames, image_height, image_width).
@@ -210,8 +213,9 @@ def load_image_zarr(
     video_hash_abrrev=None,
     verbose=True,
 ):
-    """Loads an existing zarr archive for storing and retrieving image data,
-    and checks if the stored array has the expected parameters.
+    """Load an existing zarr archive for storing and retrieving image data.
+
+    Checks if the stored array has the expected parameters.
 
     Parameters
     ----------
@@ -271,7 +275,8 @@ def load_image_zarr(
         expected_shape = (num_frames, image_height, image_width)
     if image_zarr.shape != expected_shape:
         logger.warning(
-            f"Shape mismatch: expected {expected_shape}, got {image_zarr.shape}"
+            f"Shape mismatch: expected {expected_shape}, "
+            f"got {image_zarr.shape}"
         )
         return None, False
 
@@ -280,7 +285,8 @@ def load_image_zarr(
     # else:
     #     expected_chunks = (chunk_size, image_height, image_width)
     # if image_zarr.chunks != expected_chunks:
-    #     print(f"Chunk size mismatch: expected {expected_chunks}, got {image_zarr.chunks}")
+    #     print(f"Chunk size mismatch: expected {expected_chunks}, "
+    #           f"got {image_zarr.chunks}")
     #     return None, False
 
     # Check video hash if provided
@@ -288,7 +294,8 @@ def load_image_zarr(
         stored_hash = image_zarr.attrs.get("video_hash", None)
         if stored_hash != video_hash_abrrev:
             logger.error(
-                f"❌ Video hash mismatch: expected {video_hash_abrrev}, got {stored_hash}"
+                f"❌ Video hash mismatch: expected "
+                f"{video_hash_abrrev}, got {stored_hash}"
             )
             return None, False
         elif verbose:
@@ -318,8 +325,8 @@ class OctoZarr:
     just lazy load them when needed, and save them
     into zarr, so the second time they are accessed, the access is faster.
 
-    This should be optimized...  This is a lot (!) of back and forth (torch->numpy and back)
-
+    This should be optimized...  This is a lot (!) of back and forth
+    (torch->numpy and back)
 
     """
 
@@ -332,6 +339,7 @@ class OctoZarr:
         normalize_mean=True,
         normalize_std=True,
     ):
+        """Wrap a zarr array with lazy-loading, caching image retrieval."""
         self.zarr_array = zarr_array
         self.saved_indices = []
 
@@ -345,7 +353,8 @@ class OctoZarr:
         self.normalize_mean = normalize_mean
         self.normalize_std = normalize_std
 
-        # Choose normalization constants based on whether we scale to (0,1) or keep (0,255)
+        # Choose normalization constants based on whether we scale to
+        # (0,1) or keep (0,255)
         if self.normalize_scale:
             # ImageNet normalization (for 0-1 range)
             img_mean = (0.485, 0.456, 0.406)
@@ -379,7 +388,8 @@ class OctoZarr:
             0  # Keep track of where you are in the cache currently
         )
 
-        # Add loader interface attributes to make it compatible with ultralytics loaders
+        # Add loader interface attributes to make it compatible with
+        # ultralytics loaders
         self.mode = "video"  # Set mode as video
         self.bs = 1  # Batch size (process one frame at a time)
         self.frame = 0  # Current frame index
@@ -396,6 +406,7 @@ class OctoZarr:
 
     @property
     def indices_in_store(self):
+        """List of frame indices already saved to the zarr store."""
         return self.saved_indices
 
     def _save_to_zarr(self, batch, indices):
@@ -459,12 +470,14 @@ class OctoZarr:
         """Check if the images are already in the zarr store.
 
         The logic is the following:
-        - Enable "quick" loading of single indices without saving them into zarr array. This would
-          just slow things down.
-        - Enable slightly slower loading from and saving to zarr for batches of images
+        - Enable "quick" loading of single indices without saving them
+          into zarr array. This would just slow things down.
+        - Enable slightly slower loading from and saving to zarr for
+          batches of images
 
         Generally for multiple images (batches):
-        For those images that are not in the store, prefetch them from the napari data layer, then
+        For those images that are not in the store, prefetch them from
+        the napari data layer, then
         - Resize the images
         - Normalize the images
         - Save the images to the zarr array
@@ -491,7 +504,8 @@ class OctoZarr:
                 imgs_cached
             )
 
-        # Cover cases for which there are indices left (images that are not in the rolling cache)
+        # Cover cases for which there are indices left (images that
+        # are not in the rolling cache)
         # Subtract the cached indices from the indices
         indices = np.setdiff1d(indices, self.cached_indices)
         if len(indices) == 1:
@@ -532,7 +546,7 @@ class OctoZarr:
         return imgs_torch.squeeze()
 
     def __getitem__(self, frame_idx):
-        """Normal "get" function."""
+        """Return the image(s) for the given frame index, list, or slice."""
         if isinstance(frame_idx, slice):
             indices = np.arange(
                 frame_idx.start, frame_idx.stop, frame_idx.step
@@ -543,7 +557,8 @@ class OctoZarr:
             indices = [frame_idx]
         else:
             raise ValueError(
-                f"frame_idx should be int, list or slice, got {type(frame_idx)}"
+                f"frame_idx should be int, list or slice, got "
+                f"{type(frame_idx)}"
             )
 
         images = self.fetch(indices)
@@ -557,6 +572,7 @@ class OctoZarr:
 
     def __next__(self):
         """Return the next frame in the video sequence.
+
         Uses the fetch infrastructure to leverage caching and zarr storage.
 
         Returns:
@@ -580,4 +596,5 @@ class OctoZarr:
         return [path], [img], [info]
 
     def __repr__(self):
+        """Return the repr of the underlying zarr array."""
         return repr(self.zarr_array)

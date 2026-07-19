@@ -1,4 +1,5 @@
-# OCTRON SAM2 related callbacks
+"""OCTRON SAM2/SAM3 related napari layer callbacks."""
+
 import time
 import warnings
 
@@ -25,13 +26,13 @@ class sam_octron_callbacks:
     """Callback for octron and SAM2."""
 
     def __init__(self, octron):
-        # Store the reference to the main OCTRON widget
+        """Store the reference to the main OCTRON widget."""
         self.octron = octron
         self.viewer = octron._viewer
         self.left_right_click = None
 
     def on_mouse_press(self, layer, event):
-        """Generic function to catch left and right mouse clicks."""
+        """Catch left and right mouse clicks."""
         if event.type == "mouse_press":
             if event.button == 1:  # Left-click
                 self.left_right_click = "left"
@@ -39,12 +40,14 @@ class sam_octron_callbacks:
                 self.left_right_click = "right"
 
     def on_shapes_changed(self, event):
-        """Callback function for napari annotation "Shapes" layer.
-        This function is called whenever changes are made to annotation shapes.
-        It extracts the mask from the shapes layer and runs the predictor on it.
+        """Handle changes to the napari annotation "Shapes" layer.
 
-        There is one special case for the "rectangle tool", which acts as "box input"
-        to SAM2 instead of creating an input mask.
+        This function is called whenever changes are made to annotation
+        shapes. It extracts the mask from the shapes layer and runs the
+        predictor on it.
+
+        There is one special case for the "rectangle tool", which acts
+        as "box input" to SAM2 instead of creating an input mask.
 
         """
         shapes_layer = event.source
@@ -65,7 +68,8 @@ class sam_octron_callbacks:
             # SAM3 semantic mode: all shape editing is deferred to the
             # "▷ Run" button, so ignore every callback here.
             if isinstance(predictor, SAM3_semantic_octron):
-                # Disable batch predict buttons while unprocessed rectangles exist
+                # Disable batch predict buttons while unprocessed
+                # rectangles exist
                 if action == "added":
                     self.octron.predict_next_batch_btn.setEnabled(False)
                     self.octron.predict_next_oneframe_btn.setEnabled(False)
@@ -241,7 +245,8 @@ class sam_octron_callbacks:
                 predictor.detector.names = []
 
         logger.info(
-            f'SAM3 Mode B: Running detection for "{text_prompt}" with {len(all_boxes)} box prompt(s)...'
+            f'SAM3 Mode B: Running detection for "{text_prompt}" with '
+            f"{len(all_boxes)} box prompt(s)..."
         )
 
         # Read detection threshold from GUI input
@@ -253,12 +258,14 @@ class sam_octron_callbacks:
                 conf_threshold = float(thresh_text)
             except (ValueError, TypeError):
                 show_error(
-                    f'Invalid detection threshold: "{thresh_text}". Must be a number between 0 and 1.'
+                    f'Invalid detection threshold: "{thresh_text}". '
+                    f"Must be a number between 0 and 1."
                 )
                 return None
             if not (0.0 <= conf_threshold <= 1.0):
                 show_error(
-                    f"Detection threshold {conf_threshold} out of range. Must be between 0 and 1."
+                    f"Detection threshold {conf_threshold} out of "
+                    f"range. Must be between 0 and 1."
                 )
                 return None
 
@@ -282,8 +289,8 @@ class sam_octron_callbacks:
         if best_score < _TEXT_FALLBACK_THRESH:
             # Text prompt isn't helping — fall back to box-only ("visual")
             logger.debug(
-                f'  ↳ Text "{text_prompt}" produced low scores (max {best_score:.3f}), '
-                f"retrying with box-only mode..."
+                f'  ↳ Text "{text_prompt}" produced low scores '
+                f"(max {best_score:.3f}), retrying with box-only mode..."
             )
             if hasattr(predictor, "detector"):
                 if hasattr(predictor.detector, "text_embeddings"):
@@ -302,12 +309,14 @@ class sam_octron_callbacks:
 
         n_detections = pred_masks.shape[0]
 
-        # Sort detections by confidence (descending) so highest confidence gets priority
+        # Sort detections by confidence (descending) so highest
+        # confidence gets priority
         sorted_indices = pred_scores.argsort(descending=True)
 
         # Encode each detected mask with a unique 1-based object ID
-        # (0 = background). Higher-confidence masks get priority for overlapping pixels:
-        # stamp highest-confidence first, only fill pixels still at 0.
+        # (0 = background). Higher-confidence masks get priority for
+        # overlapping pixels: stamp highest-confidence first, only fill
+        # pixels still at 0.
         id_mask = np.zeros_like(pred_masks[0].cpu().numpy(), dtype=np.int16)
         for rank, idx in enumerate(sorted_indices):
             mask_id = rank + 1  # 1-based IDs
@@ -323,8 +332,9 @@ class sam_octron_callbacks:
         )
         n_objects = len(np.unique(id_mask)) - 1  # Exclude background
         logger.info(
-            f"SAM3 Mode B: Detected {n_detections} objects ({n_objects} encoded) "
-            f"using {n_boxes} box prompt(s). Max score: {max_score:.3f}"
+            f"SAM3 Mode B: Detected {n_detections} objects "
+            f"({n_objects} encoded) using {n_boxes} box prompt(s). "
+            f"Max score: {max_score:.3f}"
         )
 
         # Update visual layer
@@ -357,9 +367,11 @@ class sam_octron_callbacks:
         return id_mask
 
     def feed_rectangles_to_predictor(self):
-        """Collect all drawn rectangles from SAM3 semantic shapes layers,
-        feed them as box prompts to the predictor, then clear the shapes.
-        Called when the user clicks the '▷ Run' button.
+        """Feed drawn rectangles to the SAM3 semantic predictor.
+
+        Collects all drawn rectangles from SAM3 semantic shapes layers
+        as box prompts, feeds them to the predictor, then clears the
+        shapes. Called when the user clicks the '▷ Run' button.
         """
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
 
@@ -426,8 +438,10 @@ class sam_octron_callbacks:
         self.octron.predict_next_oneframe_btn.setEnabled(True)
 
     def on_points_changed(self, event):
-        """Callback function for napari annotation "Points" layer.
-        This function is called whenever changes are made to annotation points.
+        """Handle changes to the napari annotation "Points" layer.
+
+        This function is called whenever changes are made to
+        annotation points.
 
         """
         points_layer = event.source
@@ -451,9 +465,11 @@ class sam_octron_callbacks:
 
         if isinstance(predictor, SAM3_semantic_octron) and action == "added":
             show_warning(
-                "SAM3 semantic mode does not support point prompts for detection. "
-                "Point prompts will perform single-object segmentation only. "
-                "Use the rectangle tool (box prompt) for semantic detection of all similar objects."
+                "SAM3 semantic mode does not support point prompts for "
+                "detection. Point prompts will perform single-object "
+                "segmentation only. Use the rectangle tool (box "
+                "prompt) for semantic detection of all similar "
+                "objects."
             )
 
         # Get the corresponding mask layer
@@ -524,14 +540,17 @@ class sam_octron_callbacks:
         return
 
     def prefetch_images(self):
-        """Thread worker for prefetching images for fast processing in the viewer
-        This also initializes the SAM2 model if it is not yet initialized.
-        WHY? Because we need the SAM2 model to register the fetched images in its inference state.
+        """Prefetch images in a background thread for fast viewer processing.
+
+        This also initializes the SAM2 model if it is not yet
+        initialized. WHY? Because we need the SAM2 model to register
+        the fetched images in its inference state.
         TODO: There might be a more elegant way to handle this.
         """
         predictor = self.octron.predictor
         assert predictor, "No model loaded."
-        self.octron.init_sam2_model()  # This initializes the model if it is not yet initialized
+        # This initializes the model if it is not yet initialized
+        self.octron.init_sam2_model()
 
         viewer = self.octron._viewer
         video_layer = self.octron.video_layer
@@ -552,7 +571,8 @@ class sam_octron_callbacks:
             return
 
         logger.debug(
-            f"⚡️ Prefetching {len(image_indices)} images, skipping {skip_frames - 1} frames | start: {current_frame}"
+            f"⚡️ Prefetching {len(image_indices)} images, skipping "
+            f"{skip_frames - 1} frames | start: {current_frame}"
         )
         _ = predictor.images[image_indices]
 
@@ -583,18 +603,21 @@ class sam_octron_callbacks:
                         )
             t1 = time.perf_counter()
             logger.debug(
-                f"⚡️ Pre-computed backbone features for {len(prefetch_indices)} frames in {t1 - t0:.2f}s"
+                f"⚡️ Pre-computed backbone features for "
+                f"{len(prefetch_indices)} frames in {t1 - t0:.2f}s"
             )
 
     def next_predict(self):
-        """Threaded function to run the predictor forward on exactly one frame.
+        """Run the predictor forward on exactly one frame (threaded).
+
         Uses SAM2 => propagate_in_video function.
 
         """
         # Prefetch images if they are not cached yet
         # For this, reset the chunk_size to 1
         # This will ensure we are only prefetching one frame
-        # At the end of the function, we will reset the chunk_size to the original value
+        # At the end of the function, we will reset the chunk_size to
+        # the original value
         skip_frames = self.octron.skip_frames_spinbox.value()
         if skip_frames < 1:
             skip_frames = 1  # Just hard reset any unrealistic values here
@@ -624,7 +647,8 @@ class sam_octron_callbacks:
             processing_order=image_idxs
         ):
             last_run = counter == 1
-            # Single GPU→CPU transfer for all objects instead of N separate ones
+            # Single GPU→CPU transfer for all objects instead of N
+            # separate ones
             all_masks = (out_mask_logits > 0).cpu().numpy().astype(np.uint8)
             for i, out_obj_id in enumerate(out_obj_ids):
                 yield (
@@ -639,13 +663,15 @@ class sam_octron_callbacks:
 
         end_time = time.time()
         logger.debug(
-            f"Start idx {current_frame} | Predicted 1 frame in {end_time - start_time:.2f} seconds"
+            f"Start idx {current_frame} | Predicted 1 frame in "
+            f"{end_time - start_time:.2f} seconds"
         )
         self.octron.chunk_size = chunk_size_real
         return
 
     def batch_predict(self):
-        """Threaded function to run the predictor forward on a batch of frames.
+        """Run the predictor forward on a batch of frames (threaded).
+
         Uses SAM2 => propagate_in_video function.
 
         """
@@ -681,7 +707,8 @@ class sam_octron_callbacks:
         ):
             last_run = counter == end_frame
             try:
-                # Single GPU→CPU transfer for all objects instead of N separate ones
+                # Single GPU→CPU transfer for all objects instead of N
+                # separate ones
                 all_masks = (
                     (out_mask_logits > 0).cpu().numpy().astype(np.uint8)
                 )
@@ -710,7 +737,9 @@ class sam_octron_callbacks:
 
         end_time = time.time()
         logger.debug(
-            f"Start idx {current_frame} | Predicted {self.octron.chunk_size} frames in {end_time - start_time:.2f} seconds"
+            f"Start idx {current_frame} | Predicted "
+            f"{self.octron.chunk_size} frames in "
+            f"{end_time - start_time:.2f} seconds"
         )
 
         return

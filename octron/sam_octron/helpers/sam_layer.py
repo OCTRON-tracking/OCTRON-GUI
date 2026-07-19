@@ -1,4 +1,5 @@
-# This file contains helper functions to add layers to the napari viewer through OCTRON
+"""Helper functions to add layers to the napari viewer through OCTRON."""
+
 import warnings
 from pathlib import Path
 
@@ -26,7 +27,8 @@ def add_sam_mask_layer(
     video_hash_abrrev=None,
     label_id=None,
 ):
-    """Generic mask layer for napari and SAM2.
+    """Add a generic mask layer for napari and SAM2.
+
     Initiates the mask layer, a napari labels layer instance,
     and fixes it's color to "base_color'.
 
@@ -42,9 +44,13 @@ def add_sam_mask_layer(
         Path to the project directory.
     color : str or list
         Color of the mask layer. w
-    video_hash_abbrev : str, optional
+    video_hash_abrrev : str, optional
         Abbreviated hash of the video file. This is used as
         a unique identifier for the corresponding video file throughout.
+    label_id : int, optional
+        Stable label index used to pick the semantic colormap slice
+        when restoring a multi-ID semantic mask from a previous
+        session.
 
     Returns
     -------
@@ -82,11 +88,13 @@ def add_sam_mask_layer(
             )
             if status:
                 logger.info(
-                    f"Prediction (mask) layer data found at {zarr_file_path.as_posix()}"
+                    f"Prediction (mask) layer data found at "
+                    f"{zarr_file_path.as_posix()}"
                 )
             else:
                 show_error(
-                    f"Failed to load Zarr array from {zarr_file_path.as_posix()}"
+                    f"Failed to load Zarr array from "
+                    f"{zarr_file_path.as_posix()}"
                 )
         if not zarr_file_path.exists() or not status:
             layer_data = create_image_zarr(
@@ -148,8 +156,9 @@ def add_sam_shapes_layer(
     color,
     semantic_mode=False,
 ):
-    """Generic shapes layer for napari and SAM2.
-    Initiates the shapes layer, a napari shapes layer instance,.
+    """Add a generic shapes layer for napari and SAM2.
+
+    Initiates the shapes layer, a napari shapes layer instance.
 
     Parameters
     ----------
@@ -159,8 +168,11 @@ def add_sam_shapes_layer(
         Video layer = video layer object
     name : str
         Name of the new shapes layer.
-    base_color : str or list
+    color : str or list
         Color of the shapes layer.
+    semantic_mode : bool
+        If True, hide the shape-editing buttons that are not relevant
+        to semantic (multi-object) annotation. Default False.
 
     Returns
     -------
@@ -217,8 +229,9 @@ def add_sam_points_layer(
     viewer,
     name,
 ):
-    """Generic points layer for napari and SAM2.
-    Initiates the points layer, a napari points layer instance,.
+    """Add a generic points layer for napari and SAM2.
+
+    Initiates the points layer, a napari points layer instance.
 
     Parameters
     ----------
@@ -256,7 +269,8 @@ def add_annotation_projection(
     object_organizer,
     label,
 ):
-    """Creates a average projection of all masks for a given label.
+    """Create an average projection of all masks for a given label.
+
     This visualizes the current annotation state for a given label
     and lets the user decide on the quality of the annotation.
 
@@ -268,11 +282,11 @@ def add_annotation_projection(
         Object organizer instance.
     label : str
         Label for which to create the projection.
-    name : str
 
     """
     # Retrieve colors which are saved as part of the object organizer
-    # since there they are used to assign unique colors to newly created label suffix combinations
+    # since there they are used to assign unique colors to newly
+    # created label suffix combinations
     (label_colors, indices_max_diff_labels, _) = object_organizer.all_colors()
 
     collected_mask_data = []  # Data from prediction layers

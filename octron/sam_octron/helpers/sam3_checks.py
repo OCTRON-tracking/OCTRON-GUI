@@ -1,4 +1,5 @@
-# Code for checking the availability of the SAM3 model checkpoint and config
+"""Check the availability of the SAM3 model checkpoint and config."""
+
 from pathlib import Path
 
 import yaml
@@ -51,9 +52,10 @@ def download_sam3_file(filename, local_dir, overwrite=False):
 
 
 def check_sam3_models(models_yaml_path, force_download=False):
-    """Load SAM3 model definitions from a YAML file and ensure the
-    checkpoint files are available locally (downloading from
-    HuggingFace if missing).
+    """Load SAM3 model definitions from a YAML file.
+
+    Ensures the checkpoint files are available locally (downloading
+    from HuggingFace if missing).
 
     Parameters
     ----------

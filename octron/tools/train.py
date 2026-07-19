@@ -48,7 +48,11 @@ def run_training(
     save_period : int
         Save a checkpoint every N epochs.
     train_mode : str
-        'segment' for instance segmentation, 'detect' for bounding-box detection.
+        'segment' for instance segmentation, 'detect' for bounding-box
+        detection.
+    overwrite : bool
+        Train from scratch, discarding any existing checkpoint. Overwrite
+        always wins over ``resume``.
     resume : bool
         Resume training from an existing last.pt checkpoint.
     skip_split : bool
@@ -110,9 +114,8 @@ def run_training(
         imagesz = state["imgsz"]
         yolo.load_model(state["checkpoint"], train_mode=train_mode)
     else:
-        print(
-            f"Loading model: {model.value if hasattr(model, 'value') else model}..."
-        )
+        model_name = model.value if hasattr(model, "value") else model
+        print(f"Loading model: {model_name}...")
         yolo.load_model(model, train_mode=train_mode)
 
     # --- Step 6: train (core resolves a cached AutoBatch size for CUDA) ---

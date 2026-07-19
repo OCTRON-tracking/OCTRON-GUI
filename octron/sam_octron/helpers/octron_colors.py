@@ -1,4 +1,4 @@
-# Create a continuous colormap and cmap_range for each label
+"""Create a continuous colormap and cmap_range for each label."""
 
 import cmasher as cmr
 import numpy as np
@@ -6,10 +6,10 @@ import numpy as np
 
 def create_label_colors(cmap="cmr.tropical", n_labels=10, n_colors_submap=250):
     """Create label submaps from cmap.
+
     Each submap is a list of colors that represent a label.
     For this, the cmap is being divided into n_labels submaps.
     Each submap is then divided into n_colors_submap colors.
-
 
     Parameters
     ----------
@@ -71,6 +71,7 @@ def get_semantic_cmap_range(label_id, slice_width=0.25):
 
 def create_semantic_colormap(n_objects, label_id=None):
     """Create a DirectLabelColormap for multi-ID semantic masks.
+
     Uses cmr.neon with maximally-different reordering so each
     object ID is visually distinct.
 
@@ -108,12 +109,15 @@ def create_semantic_colormap(n_objects, label_id=None):
 
 
 def sample_maximally_different(seq):
-    """Given an ascending list of numbers, return a new ordering
-    where each subsequent number is chosen such that its minimum
-    absolute difference to all previously picked numbers is maximized.
+    """Reorder an ascending sequence to maximize spread between picks.
 
-    I added this to choose colors that are maximally different from each other,
-    both for labels as well as for sub-label (same label, different suffix).
+    Given an ascending list of numbers, return a new ordering where each
+    subsequent number is chosen such that its minimum absolute
+    difference to all previously picked numbers is maximized.
+
+    This is used to choose colors that are maximally different from
+    each other, both for labels as well as for sub-label (same label,
+    different suffix).
 
     Example:
         Input:  [1, 2, 3, 4, 5]
@@ -126,8 +130,9 @@ def sample_maximally_different(seq):
     sample = [seq[0]]
     remaining = list(seq[1:])
     while remaining:
-        # For each candidate, compute the minimum distance to any element in sample,
-        # then select the candidate with the maximum such distance.
+        # For each candidate, compute the minimum distance to any
+        # element in sample, then select the candidate with the
+        # maximum such distance.
         candidate = max(
             remaining, key=lambda x: min(abs(x - s) for s in sample)
         )

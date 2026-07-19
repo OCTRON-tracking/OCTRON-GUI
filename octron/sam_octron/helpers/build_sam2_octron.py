@@ -1,3 +1,5 @@
+"""Build the SAM2/SAM2-HQ Octron model from a Hydra config and checkpoint."""
+
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -43,6 +45,8 @@ def build_sam2_octron(
             binarize_mask_from_pts_for_mem_enc = True
             fill_hole_area = 8
     **kwargs : dict
+        Additional keyword arguments; accepted for interface
+        compatibility but currently unused.
 
     """
     # Is this HQ or normal SAM2?
@@ -71,9 +75,11 @@ def build_sam2_octron(
             torch.backends.cudnn.allow_tf32 = True
     elif device.type == "mps":
         logger.info(
-            "⚠️ Support for MPS devices is preliminary. SAM 2 is trained with CUDA and might "
-            "give numerically different outputs and sometimes degraded performance on MPS. "
-            "See e.g. https://github.com/pytorch/pytorch/issues/84936 for a discussion."
+            "⚠️ Support for MPS devices is preliminary. SAM 2 is trained "
+            "with CUDA and might give numerically different outputs and "
+            "sometimes degraded performance on MPS. See e.g. "
+            "https://github.com/pytorch/pytorch/issues/84936 for a "
+            "discussion."
         )
 
     # Hydra configuration
@@ -89,13 +95,18 @@ def build_sam2_octron(
     if apply_postprocessing:
         hydra_overrides_extra = hydra_overrides_extra.copy()
         hydra_overrides_extra += [
-            # dynamically fall back to multi-mask if the single mask is not stable
+            # dynamically fall back to multi-mask if the single mask is
+            # not stable
             "++model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
             "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.05",
             "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
-            # the sigmoid mask logits on interacted frames with clicks in the memory encoder so that the encoded masks are exactly as what users see from clicking
+            # the sigmoid mask logits on interacted frames with clicks
+            # in the memory encoder so that the encoded masks are
+            # exactly as what users see from clicking
             "++model.binarize_mask_from_pts_for_mem_enc=true",
-            # fill small holes in the low-res masks up to `fill_hole_area` (before resizing them to the original video resolution)
+            # fill small holes in the low-res masks up to
+            # `fill_hole_area` (before resizing them to the original
+            # video resolution)
             "++model.fill_hole_area=4",
         ]
     hydra_overrides.extend(hydra_overrides_extra)
@@ -105,7 +116,8 @@ def build_sam2_octron(
     # Clear existing Hydra instance if it exists
     if GlobalHydra.instance().is_initialized():
         GlobalHydra.instance().clear()
-    # I am hardcoding the config path here because I don't want to use the hydra config path
+    # I am hardcoding the config path here because I don't want to use
+    # the hydra config path
     with initialize(config_path="../configs/sam2.1", version_base=None):
         # Read config and init model
         cfg = compose(config_name=config_name, overrides=hydra_overrides)

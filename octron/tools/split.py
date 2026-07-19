@@ -53,8 +53,9 @@ def run_split(
         train_mode.value if hasattr(train_mode, "value") else str(train_mode)
     )
 
-    # Validate fractions up front using the core guard (also enforced inside
-    # prepare_split) so the CLI fails before any model, label, or geometry work.
+    # Validate fractions up front using the core guard (also enforced
+    # inside prepare_split) so the CLI fails before any model, label, or
+    # geometry work.
     YOLO_octron._validate_split_fractions(train_fraction, val_fraction)
 
     yolo = YOLO_octron(
@@ -67,7 +68,8 @@ def run_split(
     print("Preparing labels...")
     yolo.prepare_labels()
 
-    # --- Step 2: generate geometry (polygons for segment, bboxes for detect) ---
+    # --- Step 2: generate geometry (polygons for segment, bboxes for
+    # detect) ---
     print(
         "Generating polygons..."
         if train_mode == "segment"
@@ -112,7 +114,8 @@ def run_split(
         total_frames,
     ) in yolo.create_training_data():
         print(
-            f"  [{no_entry}/{total}] {label} ({split}): frame {frame_no}/{total_frames}",
+            f"  [{no_entry}/{total}] {label} ({split}): "
+            f"frame {frame_no}/{total_frames}",
             end="\r",
         )
     print()

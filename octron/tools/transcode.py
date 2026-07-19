@@ -2,11 +2,11 @@
 
 Transcodes video files and multi-frame TIFF stacks to MP4 (H.264) using ffmpeg.
 
-The per-input work lives in the GUI-free :func:`transcode_one` helper so the CLI
-(:func:`run_transcode`) and the napari reader dialog (``octron/reader.py``) share
-one implementation. Encoder selection, codec arguments, and the even-dimension
-filter come from :mod:`octron.tools._ffmpeg`, which is also used by the render
-pipeline.
+The per-input work lives in the GUI-free :func:`transcode_one` helper so
+the CLI (:func:`run_transcode`) and the napari reader dialog
+(``octron/reader.py``) share one implementation. Encoder selection, codec
+arguments, and the even-dimension filter come from
+:mod:`octron.tools._ffmpeg`, which is also used by the render pipeline.
 """
 
 import subprocess
@@ -95,13 +95,15 @@ def _load_tiff_as_rgb(path):
     n_c = sizes.get("C", 0)
 
     logger.info(
-        f"TIFF detected: axes='{axes}' shape={stack.shape} dtype={stack.dtype} "
+        f"TIFF detected: axes='{axes}' shape={stack.shape} "
+        f"dtype={stack.dtype} "
         f"| T={n_t} Z={n_z} C={n_c} "
         f"H={sizes.get('Y', '?')} W={sizes.get('X', '?')} "
         f"| {path.name}"
     )
 
-    # Reject TIFFs with both a time AND a Z axis — ambiguous for video conversion
+    # Reject TIFFs with both a time AND a Z axis — ambiguous for video
+    # conversion
     if n_t > 0 and n_z > 0:
         logger.warning(
             f"Skipped '{path.name}': TIFF contains both a time axis "
@@ -205,11 +207,13 @@ def transcode_one(
     crf : int
         Constant Rate Factor (0–51). Lower means better quality. Default 23.
     overwrite : bool
-        Pass ffmpeg's ``-y`` so it overwrites an existing output. Default False.
+        Pass ffmpeg's ``-y`` so it overwrites an existing output. Default
+        False.
     fps : float, optional
-        Output framerate. For videos this reinterprets the source timestamps
-        (changing playback speed); for TIFF stacks it sets the playback fps.
-        Defaults to source fps for videos and 20 fps for TIFFs.
+        Output framerate. For videos this reinterprets the source
+        timestamps (changing playback speed); for TIFF stacks it sets the
+        playback fps. Defaults to source fps for videos and 20 fps for
+        TIFFs.
     keep_audio : bool
         Re-encode audio to AAC (128k) for video inputs. Default True. TIFF
         inputs are raw frames with no audio, so this is ignored for them.
@@ -233,8 +237,9 @@ def transcode_one(
     input_path = Path(input_path)
     output_path = Path(output_path)
     if encoder is None:
-        # Transcode standardises on libx264 (-preset superfast) for reproducible,
-        # widely-compatible output; nvenc is only used if libx264 is unavailable.
+        # Transcode standardises on libx264 (-preset superfast) for
+        # reproducible, widely-compatible output; nvenc is only used if
+        # libx264 is unavailable.
         encoder = detect_h264_encoder(prefer_hardware=False)
     codec_args = h264_codec_args(encoder, crf=crf, preset="superfast")
     is_tiff = input_path.suffix.lower() in TIFF_EXTENSIONS
@@ -310,8 +315,9 @@ def transcode_one(
             else ""
         )
         if stderr_msg:
+            last_line = stderr_msg.splitlines()[-1]
             logger.error(
-                f"Failed to transcode '{input_path.name}': {stderr_msg.splitlines()[-1]}"
+                f"Failed to transcode '{input_path.name}': {last_line}"
             )
         else:
             logger.error(f"Failed to transcode '{input_path.name}': {e}")
@@ -336,7 +342,7 @@ def run_transcode(
     fps=None,
     keep_audio=True,
 ):
-    """Transcode one or more video files (or multi-frame TIFF stacks) to MP4 (H.264).
+    """Transcode one or more video files (or TIFF stacks) to MP4 (H.264).
 
     Parameters
     ----------

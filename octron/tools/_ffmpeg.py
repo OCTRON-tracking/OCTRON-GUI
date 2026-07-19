@@ -1,12 +1,13 @@
 """Shared ffmpeg helpers for OCTRON's video tools.
 
-Centralises the H.264 encoder selection, codec-argument construction, and the
-even-dimension scaling filter so the transcode path (``octron/tools/transcode.py``
-and the napari reader dialog) and the render pipeline (``octron/tools/render.py``)
-all agree on how to drive ffmpeg.
+Centralises the H.264 encoder selection, codec-argument construction, and
+the even-dimension scaling filter so the transcode path
+(``octron/tools/transcode.py`` and the napari reader dialog) and the
+render pipeline (``octron/tools/render.py``) all agree on how to drive
+ffmpeg.
 
-Imports are deliberately light (stdlib only) so this is cheap to import from the
-CLI, the GUI reader, and core.
+Imports are deliberately light (stdlib only) so this is cheap to import
+from the CLI, the GUI reader, and core.
 """
 
 import contextlib
@@ -30,11 +31,11 @@ def detect_h264_encoder(prefer_hardware=True):
     Parameters
     ----------
     prefer_hardware : bool
-        When True (the default, used by the render pipeline) prefer the hardware
-        encoder ``h264_nvenc`` for speed, falling back to ``libx264``. When
-        False (used by the transcode path) prefer ``libx264`` for reproducible,
-        broadly-compatible output, falling back to ``h264_nvenc`` only if
-        libx264 is unavailable.
+        When True (the default, used by the render pipeline) prefer the
+        hardware encoder ``h264_nvenc`` for speed, falling back to
+        ``libx264``. When False (used by the transcode path) prefer
+        ``libx264`` for reproducible, broadly-compatible output, falling
+        back to ``h264_nvenc`` only if libx264 is unavailable.
 
     Returns
     -------
@@ -51,7 +52,8 @@ def detect_h264_encoder(prefer_hardware=True):
     """
     if shutil.which("ffmpeg") is None:
         raise RuntimeError(
-            "ffmpeg is required but was not found on PATH. Please install ffmpeg."
+            "ffmpeg is required but was not found on PATH. "
+            "Please install ffmpeg."
         )
     try:
         result = subprocess.run(
@@ -159,8 +161,9 @@ class _FfmpegWriter:
     def _nvenc_hint(self):
         if self._encoder == "h264_nvenc":
             return (
-                " The GPU encoder h264_nvenc failed to start -- your NVIDIA driver "
-                "may be too old for this ffmpeg build, or NVENC is unavailable. "
+                " The GPU encoder h264_nvenc failed to start -- your NVIDIA "
+                "driver may be too old for this ffmpeg build, or NVENC is "
+                "unavailable. "
                 "Retry with '--no-nvenc' (or '--encoder libx264')."
             )
         return ""
@@ -169,7 +172,8 @@ class _FfmpegWriter:
         try:
             self._proc.stdin.write(data)
         except (BrokenPipeError, OSError) as e:
-            # ffmpeg exited early: broken pipe on POSIX, OSError EINVAL on Windows.
+            # ffmpeg exited early: broken pipe on POSIX, OSError EINVAL on
+            # Windows.
             tail = self._stderr_tail()
             self.close(check=False)
             msg = (
