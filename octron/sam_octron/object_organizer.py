@@ -1,3 +1,5 @@
+"""Pydantic classes for organizing and managing tracking entries in OCTRON."""
+
 import datetime
 import json
 from pathlib import Path
@@ -15,6 +17,8 @@ from octron.sam_octron.helpers.sam_zarr import get_annotated_frames
 
 
 class Obj(BaseModel):
+    """A single tracked object entry (label, suffix, color, and layers)."""
+
     label: str
     suffix: str
     label_id: int | None = None
@@ -30,35 +34,44 @@ class Obj(BaseModel):
 
     @field_validator("color")
     def check_color_length(cls, v):
+        """Validate that ``color``, if given, is an RGBA list of length 4."""
         if v is not None and len(v) != 4:
             raise ValueError("Color must be a list of length 4")
         return v
 
     def __repr__(self) -> str:
+        """Return a debug-friendly representation of this object entry."""
         return (
-            f"Obj(label={self.label!r}, suffix={self.suffix!r}, label_id={self.label_id!r}, "
-            f"color={self.color!r}, prediction_layer={self.prediction_layer!r}, annotation_layer={self.annotation_layer!r})"
+            f"Obj(label={self.label!r}, suffix={self.suffix!r}, "
+            f"label_id={self.label_id!r}, color={self.color!r}, "
+            f"prediction_layer={self.prediction_layer!r}, "
+            f"annotation_layer={self.annotation_layer!r})"
         )
 
 
 class ObjectOrganizer(BaseModel):
-    """This module provides pydantic-based classes for organizing and managing tracking entries in OCTRON.
-    It is designed to help maintain a dictionary of object entries (named Obj, see above),
-    defined each by a unique ID,
-    that is also the one that SAM2 internally deals with,
-    and representing attributes such as label, a unique label ID, suffix, color.
+    """Organize and manage tracking entries (objects) in OCTRON.
+
+    Maintains a dictionary of object entries (named Obj, see above),
+    defined each by a unique ID, that is also the one that SAM2
+    internally deals with, and representing attributes such as label, a
+    unique label ID, suffix, color.
     CAVE: label ID and object ID are not the same! Label IDs are
-    unique for each label and are used to assign colors. The object ID is unique for each object and
-    are used by the SAM2 tracking module.
-    It also assigns a unique mask  (=prediction) layer and annotation layer to each object.
-    This way, all information for objects flowing through OCTRON is saved in one place.
+    unique for each label and are used to assign colors. The object ID
+    is unique for each object and are used by the SAM2 tracking module.
+    It also assigns a unique mask  (=prediction) layer and annotation
+    layer to each object.
+    This way, all information for objects flowing through OCTRON is
+    saved in one place.
 
-
-    I am using a color picking strategy that is based on the number of labels and suffixes.
-    A colormap is created (see self.all_colors) and then maximally different colors are picked
-    for each label and suffix combination.
-    Labels are assigned "slices" of a colormap and then each suffix is assigned a color from that slice.
-    You CAN assign a color yourself, but I would recommend using the internal strategy.
+    I am using a color picking strategy that is based on the number of
+    labels and suffixes.
+    A colormap is created (see self.all_colors) and then maximally
+    different colors are picked for each label and suffix combination.
+    Labels are assigned "slices" of a colormap and then each suffix is
+    assigned a color from that slice.
+    You CAN assign a color yourself, but I would recommend using the
+    internal strategy.
 
 
     Example usage:
@@ -85,8 +98,9 @@ class ObjectOrganizer(BaseModel):
     n_subcolors: int = 50
 
     def all_colors(self) -> tuple[list, list, list]:
-        """Create a list of colors for all labels. This is currently capped at 10,
-        which I think is reasonable.
+        """Create a list of colors for all labels.
+
+        This is currently capped at 10, which I think is reasonable.
         Returns a list of lists:
             -> label
                 -> colors for each label.
@@ -110,16 +124,18 @@ class ObjectOrganizer(BaseModel):
         )
 
     def exists_id(self, id_: int) -> bool:
+        """Return True if an entry with the given ID exists."""
         return id_ in self.entries
 
     def max_id(self) -> int:
+        """Return the largest entry ID, or 0 if there are no entries."""
         try:
             return max([e for e in self.entries])
         except ValueError:
             return 0
 
     def min_available_id(self) -> int:
-        """Find the minimum integer >= 0 that is not yet present as an ID in the object organizer."""
+        """Find the minimum integer >= 0 not yet used as an entry ID."""
         existing_ids = set(self.entries.keys())
         min_id = 0
         while min_id in existing_ids:
@@ -127,9 +143,11 @@ class ObjectOrganizer(BaseModel):
         return min_id
 
     def exists_label(self, label: str) -> bool:
+        """Return True if any entry has the given label."""
         return any(entry.label == label for entry in self.entries.values())
 
     def exists_suffix(self, suffix: str) -> bool:
+        """Return True if any entry has the given suffix."""
         return any(entry.suffix == suffix for entry in self.entries.values())
 
     def exists_combination(self, label: str, suffix: str) -> bool:
@@ -150,7 +168,7 @@ class ObjectOrganizer(BaseModel):
         ]
 
     def get_suffixes_by_label(self, label: str) -> list[str]:
-        """For a given label, return a list of all suffixes from entries matching that label."""
+        """Return all suffixes from entries matching the given label."""
         return [
             entry.suffix
             for entry in self.entries.values()
@@ -158,7 +176,7 @@ class ObjectOrganizer(BaseModel):
         ]
 
     def get_entry_by_label_suffix(self, label: str, suffix: str) -> Obj | None:
-        """Return the entry that matches the given label and suffix combination."""
+        """Return the entry matching the given label and suffix combination."""
         for entry in self.entries.values():
             if entry.label == label and entry.suffix == suffix:
                 return entry
@@ -195,6 +213,7 @@ class ObjectOrganizer(BaseModel):
         return layers
 
     def add_entry(self, id_: int, entry: Obj) -> bool:
+        """Add a new entry under the given ID, assigning label_id/color."""
         if id_ in self.entries:
             raise ValueError(f"ID {id_} already exists.")
         if (
@@ -238,6 +257,7 @@ class ObjectOrganizer(BaseModel):
         return True
 
     def update_entry(self, id_: int, entry: Obj) -> None:
+        """Replace the entry for the given ID, checking for clashes."""
         if id_ not in self.entries:
             raise ValueError(f"ID {id_} does not exist.")
         for eid, existing in self.entries.items():
@@ -247,7 +267,8 @@ class ObjectOrganizer(BaseModel):
                 and existing.suffix == entry.suffix
             ):
                 raise ValueError(
-                    f"Combination ({entry.label}, {entry.suffix}) already exists in ID {eid}."
+                    f"Combination ({entry.label}, {entry.suffix}) "
+                    f"already exists in ID {eid}."
                 )
         self.entries[id_] = entry
 
@@ -266,7 +287,8 @@ class ObjectOrganizer(BaseModel):
 
     def remove_entry(self, id_: int) -> Obj | None:
         """Remove the entry for the given id and return it.
-        Raises KeyError if id is not found.
+
+        Returns None if id is not found.
         """
         if id_ not in self.entries:
             return None
@@ -279,11 +301,13 @@ class ObjectOrganizer(BaseModel):
         serializable_data = {
             "entries": {},
             "settings": self.settings,
-            "time_last_changed": datetime.datetime.now().isoformat(),  # Add current timestamp in ISO format
+            # Add current timestamp in ISO format
+            "time_last_changed": datetime.datetime.now().isoformat(),
         }
         if not self.entries:
             logger.warning(
-                "⚠️ No entries to save. Deleting object organizer file and zarr files."
+                "⚠️ No entries to save. "
+                "Deleting object organizer file and zarr files."
             )
             if file_path.exists():
                 file_path.unlink()
@@ -301,7 +325,8 @@ class ObjectOrganizer(BaseModel):
             if obj.annotation_layer is not None:
                 serializable_obj["annotation_layer_metadata"] = {
                     "name": obj.annotation_layer.name,
-                    "type": obj.annotation_layer._basename(),  # 'Shapes' or 'Points'
+                    # 'Shapes' or 'Points'
+                    "type": obj.annotation_layer._basename(),
                     "visible": obj.annotation_layer.visible,
                     "opacity": obj.annotation_layer.opacity,
                 }
@@ -333,7 +358,7 @@ class ObjectOrganizer(BaseModel):
 
                 # Handle colormap serialization based on its type
                 colormap = obj.prediction_layer.colormap
-                # For DirectLabelColormap (from napari utils), extract the colors
+                # For DirectLabelColormap (napari utils), get the colors
                 if colormap is not None and hasattr(colormap, "name"):
                     serializable_obj["prediction_layer_metadata"][
                         "colormap_name"
@@ -348,9 +373,8 @@ class ObjectOrganizer(BaseModel):
                         "zarr_path"
                     ] = obj.prediction_layer.metadata["_zarr"].as_posix()
 
-            serializable_data["entries"][str(obj_id)] = (
-                serializable_obj  # Convert key to string for JSON compatibility
-            )
+            # Convert key to string for JSON compatibility
+            serializable_data["entries"][str(obj_id)] = serializable_obj
 
         # Write to file
         if file_path.exists():
@@ -365,9 +389,12 @@ class ObjectOrganizer(BaseModel):
         )
 
     def __repr__(self) -> str:
+        """Return a per-entry summary of the organizer."""
         output_lines = ["OCTRON ObjectOrganizer with entries:"]
         for id_, entry in self.entries.items():
             output_lines.append(
-                f"  ID {id_}: label='{entry.label}', suffix='{entry.suffix}', label_id='{entry.label_id}', color='{entry.color}'"
+                f"  ID {id_}: label='{entry.label}', "
+                f"suffix='{entry.suffix}', "
+                f"label_id='{entry.label_id}', color='{entry.color}'"
             )
         return "\n".join(output_lines)

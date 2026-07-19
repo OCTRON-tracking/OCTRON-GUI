@@ -1,3 +1,5 @@
+"""Helpers to load and resolve BoxMOT tracker configurations."""
+
 from pathlib import Path
 
 import yaml
@@ -5,6 +7,7 @@ import yaml
 
 def load_boxmot_trackers(trackers_yaml_path):
     """Load boxmot tracker overview .yaml.
+
     This yaml contains info about the tracker names, and where
     their configuration files are saved.
 
@@ -75,7 +78,8 @@ def list_available_trackers(trackers_dict):
     Returns
     -------
     available : dict
-        Dictionary of {tracker_id: display_name} for all trackers with available: true
+        Dictionary of {tracker_id: display_name} for all trackers
+        with available: true
         For example: {'ByteTrack': 'ByteTrack', 'OcSort': 'OcSort', ...}
 
     """
@@ -87,7 +91,7 @@ def list_available_trackers(trackers_dict):
 
 
 def resolve_tracker(tracker_name, trackers_dict):
-    """Resolve a user-provided tracker name to its tracker ID and info dictionary.
+    """Resolve a user-provided tracker name to its ID and info dict.
 
     This performs a flexible lookup in the following order:
     1. Exact key match (e.g. "ByteTrack")
@@ -109,7 +113,8 @@ def resolve_tracker(tracker_name, trackers_dict):
     tracker_id : str
         The canonical key in boxmot_trackers.yaml (e.g. "ByteTrack")
     tracker_info : dict
-        The info dictionary for that tracker (contains 'name', 'config_path', etc.)
+        The info dictionary for that tracker
+        (contains 'name', 'config_path', etc.)
 
     Raises
     ------
@@ -153,5 +158,6 @@ def resolve_tracker(tracker_name, trackers_dict):
         for tid, info in available.items()
     )
     raise ValueError(
-        f"Tracker '{tracker_name}' not found. Available trackers:\n{available_list}"
+        f"Tracker '{tracker_name}' not found. "
+        f"Available trackers:\n{available_list}"
     )

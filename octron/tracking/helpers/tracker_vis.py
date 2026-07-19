@@ -1,8 +1,10 @@
-# Add colored squares with QIcon
+"""Colored square icons (QIcon) for tracker visualisation."""
+
 from qtpy.QtGui import QColor, QIcon, QPainter, QPixmap
 
 
 def create_color_icon(color, size=16):
+    """Return a square QIcon filled with the given color."""
     pixmap = QPixmap(size, size)
     pixmap.fill(QColor(0, 0, 0, 0))  # Transparent background
     painter = QPainter(pixmap)

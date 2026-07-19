@@ -1,3 +1,5 @@
+"""Qt dialog for configuring BoxMOT tracker parameters."""
+
 import copy
 
 import yaml
@@ -23,7 +25,8 @@ from qtpy.QtWidgets import (
 
 trained_reid_models = config.TRAINED_URLS
 
-# Define the set of base tracker params (those are passed from all boxmot trackers during init)
+# Define the set of base tracker params
+# (those are passed from all boxmot trackers during init)
 BASEPARAMS = [
     "det_thresh",
     "max_age",
@@ -38,6 +41,8 @@ BASEPARAMS = [
 
 
 class BoxmotTrackerConfigDialog(QDialog):
+    """Dialog for configuring BoxMOT tracker parameters."""
+
     def __init__(
         self,
         parent=None,
@@ -45,14 +50,18 @@ class BoxmotTrackerConfigDialog(QDialog):
         tracker_config=None,
         config_path=None,
     ):
-        """Dialog for configuring tracker parameters.
+        """Set up the tracker configuration dialog.
 
         Parameters
         ----------
-        parent: Parent widget
-        tracker_id: ID of the tracker being configured
-        tracker_config: Dict containing the tracker configuration
-        config_path: Path to the YAML file where config will be saved
+        parent : QWidget, optional
+            Parent widget.
+        tracker_id : str, optional
+            ID of the tracker being configured.
+        tracker_config : dict, optional
+            Dict containing the tracker configuration.
+        config_path : str or Path, optional
+            Path to the YAML file where config will be saved.
 
         """
         super().__init__(parent)
@@ -310,7 +319,7 @@ class BoxmotTrackerConfigDialog(QDialog):
 def open_boxmot_tracker_config_dialog(
     parent, tracker_id, tracker_config, config_path
 ):
-    """Opens a modal dialog to configure BoxMOT tracker parameters."""
+    """Open a modal dialog to configure BoxMOT tracker parameters."""
     dialog = BoxmotTrackerConfigDialog(
         parent, tracker_id, tracker_config, config_path
     )
