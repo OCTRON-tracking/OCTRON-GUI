@@ -1,7 +1,8 @@
 """Tests for the cheap CSV row-count helper on YOLO_results.
 
 ``_csv_observation_count`` is the single place that encodes the tracking-CSV
-header offset (fixed metadata header lines + one column-header row); it backs the
+header offset (fixed metadata header lines + one column-header row);
+it backs the
 ``min_observations`` pre-filter in ``get_tracking_data``. The heavy
 ``YOLO_results.__init__`` is bypassed via ``__new__`` so no prediction data is
 needed.

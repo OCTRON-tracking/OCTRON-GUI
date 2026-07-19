@@ -13,7 +13,7 @@ from octron.tools.predict import run_predict
 
 
 def test_run_predict_empty_video_directory_raises(tmp_path):
-    """A directory with no .mp4 files should be rejected with a clear message."""
+    """A directory with no .mp4 files is rejected with a clear message."""
     empty_dir = tmp_path / "no_videos"
     empty_dir.mkdir()
     with pytest.raises(ValueError, match="No .mp4 files found"):
@@ -21,7 +21,7 @@ def test_run_predict_empty_video_directory_raises(tmp_path):
 
 
 def test_run_predict_empty_video_directory_via_str(tmp_path):
-    """Same check should apply when the directory is passed as a single string."""
+    """The same check applies when the directory is a single string."""
     empty_dir = tmp_path / "no_videos"
     empty_dir.mkdir()
     with pytest.raises(ValueError, match="No .mp4 files found"):
@@ -29,8 +29,9 @@ def test_run_predict_empty_video_directory_via_str(tmp_path):
 
 
 def test_run_predict_model_dir_without_best_pt_raises(tmp_path):
-    """model_path pointing at a directory with no recognised best.pt should error."""
-    # Need a real .mp4 so we get past video validation and into model_path checks.
+    """model_path at a directory with no recognised best.pt errors."""
+    # Need a real .mp4 so we get past video validation and into
+    # model_path checks.
     (tmp_path / "clip.mp4").write_bytes(b"")
     model_dir = tmp_path / "trained_run"
     model_dir.mkdir()
@@ -63,7 +64,8 @@ def test_run_predict_model_dir_with_weights_best_pt_resolves(tmp_path):
 # ---------------------------------------------------------------------------
 # device handling
 #
-# These stub run_predict's lazy heavy imports (YOLO_octron / auto_device) so the
+# These stub run_predict's lazy heavy imports (YOLO_octron /
+# auto_device) so the
 # device-normalisation logic can be exercised without torch/cv2/YOLO.
 # ---------------------------------------------------------------------------
 

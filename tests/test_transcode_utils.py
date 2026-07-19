@@ -232,7 +232,7 @@ def test_run_transcode_uses_libx264_not_hardware(tmp_path, monkeypatch):
 
 
 def test_run_transcode_passes_options_to_transcode_one(tmp_path, monkeypatch):
-    """run_transcode forwards crf/overwrite/fps/keep_audio + the detected encoder."""
+    """run_transcode forwards crf/overwrite/fps/keep_audio + encoder."""
     calls = []
     monkeypatch.setattr(tc, "detect_h264_encoder", lambda *a, **k: "libx264")
 
@@ -282,7 +282,8 @@ def test_run_transcode_reports_missing_ffmpeg(tmp_path, capsys, monkeypatch):
 
 
 def test_transcode_one_skips_unreadable_tiff(tmp_path):
-    # encoder is provided so detection (ffmpeg) is skipped; the TIFF read fails,
+    # encoder is provided so detection (ffmpeg) is skipped;
+    # the TIFF read fails,
     # so transcode_one returns False before any ffmpeg call.
     bad = tmp_path / "bad.tif"
     bad.write_bytes(b"not a real tiff")

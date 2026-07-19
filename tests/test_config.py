@@ -47,7 +47,8 @@ def test_unknown_key_in_file_is_ignored(cfg_path):
 
 
 def test_malformed_file_falls_back_to_defaults(cfg_path):
-    # Invalid YAML (mapping value where a scalar is expected) must not crash load().
+    # Invalid YAML (mapping value where a scalar is expected) must not
+    # crash load().
     cfg_path.write_text("a: b: c\n")
     merged = config.load()
     assert merged["prediction_cache_dir"] is None

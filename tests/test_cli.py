@@ -38,13 +38,17 @@ from typer.testing import CliRunner
 
 from octron.cli import app
 
-# Render help at a wide, plain (un-styled) width so option-name substring checks
+# Render help at a wide, plain (un-styled) width so option-name substring
+# checks
 # are stable across environments:
-#  - COLUMNS=200 keeps Rich from wrapping long flags (e.g. --tracklet-smooth-sigma).
-#    NOTE: do NOT set TERM=dumb — Rich then forces an 80-col "dumb terminal" and
+#  - COLUMNS=200 keeps Rich from wrapping long flags
+#    (e.g. --tracklet-smooth-sigma).
+#    NOTE: do NOT set TERM=dumb — Rich then forces an 80-col "dumb
+#    terminal" and
 #    ignores COLUMNS, which wraps long flags onto two lines.
 #  - NO_COLOR + clearing FORCE_COLOR stop CI from forcing ANSI styling (which
-#    otherwise splits substrings like '--mode'). _plain() below strips any that remain.
+#    otherwise splits substrings like '--mode'). _plain() below strips
+#    any that remain.
 runner = CliRunner(
     env={"COLUMNS": "200", "NO_COLOR": "1", "FORCE_COLOR": None}
 )
@@ -310,7 +314,8 @@ def test_gif_help():
     "cmd", ["download-yolo", "download-sam2", "download-sam3"]
 )
 def test_download_help(cmd):
-    # --help must not trigger any download (bodies lazy-import the check_* fns).
+    # --help must not trigger any download
+    # (bodies lazy-import the check_* fns).
     result = runner.invoke(app, [cmd, "--help"])
     assert result.exit_code == 0
     assert "--force" in _plain(result.output)
@@ -367,7 +372,8 @@ def test_enum_from_yaml_sanitizes_member_names(tmp_path):
     enum = _enum_from_yaml(
         "Tmp2", cat, available_only=True, fallback="bytetrack"
     )
-    # Values preserve the lower-cased catalog keys; members are valid identifiers.
+    # Values preserve the lower-cased catalog keys; members are valid
+    # identifiers.
     values = {m.value for m in enum}
     assert "3d-sort" in values
     assert "byte.track" in values

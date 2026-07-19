@@ -1,6 +1,7 @@
 """Tests for model-name resolution.
 
-Resolution now lives in core ``YOLO_octron.resolve_model_name`` (case-insensitive
+Resolution now lives in core ``YOLO_octron.resolve_model_name``
+(case-insensitive
 match against the model catalog), shared by the CLI and the GUI, replacing the
 old CLI-only ``_normalise_model_name``.
 
@@ -25,7 +26,7 @@ MODELS_YAML = (
 
 
 def _resolver():
-    """A YOLO_octron (no __init__) whose models_dict keys are the catalog names."""
+    """Build a YOLO_octron (no __init__) with catalog-name model keys."""
     with open(MODELS_YAML) as f:
         keys = list((yaml.safe_load(f) or {}).keys())
     obj = YOLO_octron.__new__(YOLO_octron)
@@ -80,7 +81,8 @@ def test_resolve_accepts_enum_like_object():
 
 
 # ---------------------------------------------------------------------------
-# Training-state helpers: config_path / _resolve_batch_size / resolve_resume_state
+# Training-state helpers:
+# config_path / _resolve_batch_size / resolve_resume_state
 #
 # These live in core so the CLI and GUI share one implementation. __init__ is
 # bypassed via __new__; only the attributes the helpers touch are set.
@@ -216,7 +218,8 @@ def test_resume_state_handles_imgsz_as_list(tmp_path):
 # Loading a video then returning to the project tab before generating any data
 # used to crash: the per-video subfolder (project/<hash>) doesn't exist yet, so
 # scanning it raised FileNotFoundError. It should yield no labels instead.
-# These early-return before any heavy (napari/zarr) imports, so they stay light.
+# These early-return before any heavy (napari/zarr) imports, so they
+# stay light.
 # ---------------------------------------------------------------------------
 
 

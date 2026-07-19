@@ -72,7 +72,9 @@ def test_run_split_rejects_invalid_fractions():
 
 
 def test_run_split_accepts_valid_fractions():
-    """Valid fractions pass the guard; later failure (missing project) is OK."""
+    """Valid fractions pass the guard; a later missing-project failure
+    is OK.
+    """
     with pytest.raises(Exception) as exc:
         run_split(
             project_path="/nope_for_test",
@@ -89,7 +91,7 @@ def test_run_split_accepts_valid_fractions():
 
 
 def _split_with_seed(frames, seed):
-    """Run prepare_split on a one-label fixture; return the (train, val, test) split."""
+    """Run prepare_split on a one-label fixture and return the split."""
     obj = YOLO_octron.__new__(YOLO_octron)
     obj.label_dict = {
         "sub": {
@@ -111,6 +113,8 @@ def test_prepare_split_is_reproducible_with_seed():
 
 
 def test_prepare_split_seed_changes_partition():
-    """A different seed must actually change the split (regression: seed was ignored)."""
+    """A different seed must change the split (regression: seed was
+    ignored).
+    """
     frames = list(range(30))
     assert _split_with_seed(frames, 1) != _split_with_seed(frames, 2)

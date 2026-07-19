@@ -4,7 +4,8 @@ Both now live in core ``YOLO_results.get_tracking_data`` (shared by the CLI
 render path and the napari GUI), so they are exercised here through that single
 core entry point rather than a render-local duplicate.
 
-A lightweight ``YOLO_results`` is built via ``__new__`` (bypassing ``__init__``),
+A lightweight ``YOLO_results`` is built via ``__new__`` (bypassing
+``__init__``),
 backed by one on-disk tracking CSV, so no video, zarr, or model is required.
 """
 
@@ -162,7 +163,8 @@ def test_interp_disabled_keeps_sparse(tmp_path):
 
 def test_interp_limit_partial_fill(tmp_path):
     # interior gap of 10 frames (1..10); limit=3 bridges only part of it,
-    # so the gap is NOT fully filled (linear + consecutive-NaN limit semantics).
+    # so the gap is NOT fully filled
+    # (linear + consecutive-NaN limit semantics).
     res = _results(tmp_path, [0, 11], [0.0, 110.0], [0.0, 0.0], num_frames=12)
     frames, xs, _ = _xy(res, interpolate=True, interpolate_limit=3)
     frames = list(frames)
@@ -181,10 +183,11 @@ def test_interp_does_not_fill_leading_gap(tmp_path):
 
 
 def test_interp_fills_trailing_gap_forward(tmp_path):
-    # Core linear interpolation (default limit_direction='forward') forward-fills
-    # the trailing gap — frames after the last detection up to num_frames — when
-    # no limit is set.  The removed render-local helper left these empty; for the
-    # CLI the trailing fill is bounded because --tracklet-interpolate always sets
+    # Core linear interpolation (default limit_direction='forward')
+    # forward-fills the trailing gap — frames after the last detection up
+    # to num_frames — when no limit is set.  The removed render-local
+    # helper left these empty; for the CLI the trailing fill is bounded
+    # because --tracklet-interpolate always sets
     # a finite limit (see test_interp_limit_partial_fill).  The leading gap is
     # still never filled (see test_interp_does_not_fill_leading_gap).
     res = _results(tmp_path, [0, 5], [0.0, 50.0], [0.0, 0.0], num_frames=10)

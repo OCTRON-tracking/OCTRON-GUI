@@ -21,7 +21,9 @@ def test_pydantic_json_encoders_warning_is_suppressed():
         # filter has precedence inside this isolated warnings context.
         octron._install_warning_filters()
         warnings.warn_explicit(
-            "`json_encoders` is deprecated. See https://docs.pydantic.dev/2.12/concepts/serialization/#custom-serializers for alternatives.",
+            "`json_encoders` is deprecated. See "
+            "https://docs.pydantic.dev/2.12/concepts/serialization/"
+            "#custom-serializers for alternatives.",
             DeprecationWarning,
             filename="pydantic/_internal/_generate_schema.py",
             lineno=319,
@@ -47,7 +49,7 @@ def test_warning_filter_does_not_hide_other_deprecations():
 
 
 def test_import_yolo_results_is_quiet_in_fresh_process():
-    """`from octron import YOLO_results` should not emit dependency warnings."""
+    """`from octron import YOLO_results` must not emit dep warnings."""
     repo_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(repo_root)
