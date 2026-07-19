@@ -3149,17 +3149,20 @@ class YOLO_octron:
             buffer_counts = {}  # track_id -> count
             mask_stores = {}  # track_id -> zarr array
 
+            # B023: the closure reads the buffer dicts of the current
+            # video-loop iteration only and is never called after the
+            # iteration ends, so late binding is safe here.
             def _flush_mask_buffer(track_id):
                 """Flush a track's mask buffer to disk."""
                 if (
-                    track_id not in buffer_counts
-                    or buffer_counts[track_id] == 0
+                    track_id not in buffer_counts  # noqa: B023
+                    or buffer_counts[track_id] == 0  # noqa: B023
                 ):
                     return
 
                 # Get the buffer and store
-                mask_buffer = mask_buffers[track_id]
-                mask_store = mask_stores[track_id]
+                mask_buffer = mask_buffers[track_id]  # noqa: B023
+                mask_store = mask_stores[track_id]  # noqa: B023
                 frame_indices = sorted(mask_buffer.keys())
                 stacked_masks = np.stack(
                     [mask_buffer[idx] for idx in frame_indices]
@@ -3168,8 +3171,8 @@ class YOLO_octron:
                 mark_frames_annotated(mask_store, frame_indices)
 
                 # Clear buffer
-                mask_buffers[track_id].clear()
-                buffer_counts[track_id] = 0
+                mask_buffers[track_id].clear()  # noqa: B023
+                buffer_counts[track_id] = 0  # noqa: B023
                 logger.debug(
                     f"Saved mask buffer for track {track_id} to zarr "
                     f"({len(frame_indices)} frames)"
