@@ -1,6 +1,8 @@
-# Main SAM3 predictor class for OCTRON
-# This wraps the ultralytics SAM3Model (which extends SAM2Model) with
-# the same OCTRON interface as SAM2_octron, using OctoZarr for image loading.
+"""Main SAM3 predictor class for OCTRON.
+
+This wraps the ultralytics SAM3Model (which extends SAM2Model) with the
+same OCTRON interface as SAM2_octron, using OctoZarr for image loading.
+"""
 
 import os
 
@@ -39,7 +41,7 @@ NO_OBJ_SCORE = -1024.0
 
 
 class SAM3_octron:
-    """OCTRON wrapper around the ultralytics SAM3Model for interactive video tracking.
+    """OCTRON wrapper around the ultralytics SAM3Model for video tracking.
 
     Provides the same interface as SAM2_octron:
         - init_state(video_data, zarr_store)
@@ -49,9 +51,9 @@ class SAM3_octron:
         - reset_state()
         - remove_object(obj_id, ...)
 
-    Uses the ultralytics SAM3Model.track_step which has the same signature as SAM2's
-    (no image parameter), so the OctoZarr/backbone feature extraction pattern from
-    SAM2_octron carries over directly.
+    Uses the ultralytics SAM3Model.track_step which has the same
+    signature as SAM2's (no image parameter), so the OctoZarr/backbone
+    feature extraction pattern from SAM2_octron carries over directly.
     """
 
     def __init__(
@@ -59,6 +61,7 @@ class SAM3_octron:
         model,
         device,
     ):
+        """Initialize SAM3_octron with an ultralytics SAM3Model."""
         self.model = model
         self.device = device
         # Force the SAM decoder to actually run on mask-only inputs
@@ -127,17 +130,21 @@ class SAM3_octron:
         compute_device = self.device
 
         assert len(video_data.shape) == 4, (
-            f"video data should have shape (num_frames, H, W, 3), got {video_data.shape}"
+            f"video data should have shape (num_frames, H, W, 3), "
+            f"got {video_data.shape}"
         )
         assert video_data.shape[3] == 3, (
-            f"video data should be RGB and have shape (num_frames, H, W, 3), got {video_data.shape}"
+            f"video data should be RGB and have shape (num_frames, H, W, 3), "
+            f"got {video_data.shape}"
         )
 
         inference_state = {}
         self.inference_state = inference_state
 
-        # Zarr store for image data - OctoZarr handles resize + normalization
-        # Override normalization constants for SAM3 (mean/std = 0.5 on [0,1] scale)
+        # Zarr store for image data - OctoZarr handles resize +
+        # normalization
+        # Override normalization constants for SAM3 (mean/std = 0.5 on
+        # [0,1] scale)
         self.images = OctoZarr(zarr_store, video_data)
         self.images.img_mean = torch.tensor(
             SAM3_IMG_MEAN, dtype=torch.float32
@@ -200,11 +207,12 @@ class SAM3_octron:
                 disk(self.disk_size).tolist()
             ).to(compute_device)
 
-    # ── Image feature extraction ──────────────────────────────────────────────
+    # ── Image feature extraction ─────────────────────────────────────────────
 
     @torch.inference_mode()
     def _get_image_feature(self, inference_state, frame_idx, batch_size):
-        """Get backbone features for a frame, using OctoZarr for image loading.
+        """Get backbone features for a frame via OctoZarr image loading.
+
         Caches features in an LRU cache keyed by frame index.
         """
         cached = inference_state["cached_features"]
@@ -308,7 +316,7 @@ class SAM3_octron:
                     while len(cached) > max_cached:
                         cached.popitem(last=False)
 
-    # ── Single frame inference ────────────────────────────────────────────────
+    # ── Single frame inference ───────────────────────────────────────────────
 
     def _run_single_frame_inference(
         self,
@@ -322,8 +330,10 @@ class SAM3_octron:
         run_mem_encoder,
         prev_sam_mask_logits=None,
     ):
-        """Run tracking on a single frame based on current inputs and previous memory.
-        Returns (compact_current_out, pred_masks_gpu) matching SAM2_octron's interface.
+        """Run tracking on a single frame given current inputs and memory.
+
+        Returns (compact_current_out, pred_masks_gpu) matching
+        SAM2_octron's interface.
         """
         # Get backbone features from OctoZarr
         (
@@ -399,7 +409,7 @@ class SAM3_octron:
         }
         return compact_current_out, pred_masks_gpu
 
-    # ── Memory position encoding cache ────────────────────────────────────────
+    # ── Memory position encoding cache ───────────────────────────────────────
 
     def _get_maskmem_pos_enc(self, current_out):
         """Cache maskmem_pos_enc since it's constant across frames."""
@@ -423,7 +433,7 @@ class SAM3_octron:
                 ]
         return out_maskmem_pos_enc
 
-    # ── Object ID mapping ─────────────────────────────────────────────────────
+    # ── Object ID mapping ────────────────────────────────────────────────────
 
     def _obj_id_to_idx(self, obj_id):
         """Map client-side object id to model-side object index."""
@@ -453,20 +463,23 @@ class SAM3_octron:
             return obj_idx
         else:
             logger.warning(
-                f"⚠️ Cannot add a new label (id={obj_id}) after batch prediction has already run."
+                f"⚠️ Cannot add a new label (id={obj_id}) after batch "
+                f"prediction has already run."
             )
             logger.warning(
-                f"You can only annotate existing labels: {self.inference_state['obj_ids']}"
+                f"You can only annotate existing labels: "
+                f"{self.inference_state['obj_ids']}"
             )
             logger.warning(
-                "To add additional labels, reset the predictor first (click 'Reset')."
+                "To add additional labels, reset the predictor first "
+                "(click 'Reset')."
             )
             return None
 
     def _get_obj_num(self):
         return len(self.inference_state["obj_idx_to_id"])
 
-    # ── Output consolidation (from ultralytics SAM2VideoPredictor) ────────────
+    # ── Output consolidation (from ultralytics SAM2VideoPredictor) ───────────
 
     def _consolidate_temp_output_across_obj(
         self,
@@ -529,7 +542,8 @@ class SAM3_octron:
             if obj_mask.shape[-2:] == consolidated_pred_masks.shape[-2:]:
                 consolidated_pred_masks[obj_idx : obj_idx + 1] = obj_mask
             else:
-                # Resize first if temporary object mask has a different resolution
+                # Resize first if temporary object mask has a different
+                # resolution
                 resized_obj_mask = F.interpolate(
                     obj_mask,
                     size=consolidated_pred_masks.shape[-2:],
@@ -578,7 +592,10 @@ class SAM3_octron:
         is_mask_from_pts,
         object_score_logits,
     ):
-        """Run memory encoder on predicted masks to create memory features for a given frame."""
+        """Run memory encoder on predicted masks for a frame.
+
+        Creates memory features from the masks.
+        """
         (_, _, current_vision_feats, _, feat_sizes) = self._get_image_feature(
             self.inference_state, frame_idx=frame_idx, batch_size=batch_size
         )
@@ -610,10 +627,19 @@ class SAM3_octron:
     def _add_output_per_object(
         self, frame_idx, current_out, storage_key, valid_obj_indices=None
     ):
-        """Split multi-object output into per-object slices (sharing tensor memory).
+        """Split multi-object output into per-object slices.
+
+        Shares tensor memory across the slices.
 
         Parameters
         ----------
+        frame_idx : int
+            The frame index the output belongs to.
+        current_out : dict
+            The multi-object output to split.
+        storage_key : str
+            Which storage dict entry to write the slices into (e.g.
+            "cond_frame_outputs" or "non_cond_frame_outputs").
         valid_obj_indices : set[int] or None
             If provided, only store results for these object indices.
             Objects not in this set are skipped to avoid creating ghost
@@ -663,15 +689,15 @@ class SAM3_octron:
             video_res_masks = pred_masks
         return pred_masks, video_res_masks
 
-    # ── Preflight (consolidation before propagation) ──────────────────────────
+    # ── Preflight (consolidation before propagation) ─────────────────────────
 
     @torch.inference_mode()
     def propagate_in_video_preflight(self):
         """Consolidate temporary outputs before tracking propagation.
 
         Follows the same pattern as the original SAM2VideoPredictor:
-        encode memory per-object first (with the correct frame's backbone features),
-        then move outputs into the per-object output dicts.
+        encode memory per-object first (with the correct frame's backbone
+        features), then move outputs into the per-object output dicts.
         """
         self.inference_state["tracking_has_started"] = True
         batch_size = self._get_obj_num()
@@ -754,7 +780,7 @@ class SAM3_octron:
                 frame_idx
             )
 
-    # ── Adding new points and masks ───────────────────────────────────────────
+    # ── Adding new points and masks ──────────────────────────────────────────
 
     @torch.inference_mode()
     def add_new_points_or_box(
@@ -932,7 +958,9 @@ class SAM3_octron:
         Parameters
         ----------
         frame_idx : int
+            The index of the frame to add the mask to.
         obj_id : int
+            The id of the object to add the mask to.
         mask : array-like
             2D mask array.
 
@@ -1075,7 +1103,7 @@ class SAM3_octron:
         )
         return frame_idx, obj_ids, video_res_masks
 
-    # ── Propagation ───────────────────────────────────────────────────────────
+    # ── Propagation ──────────────────────────────────────────────────────────
 
     @torch.inference_mode()
     def propagate_in_video(
@@ -1173,7 +1201,8 @@ class SAM3_octron:
         logger.info(
             f"🚀 SAM3 propagation: {batch_size} objects (per-object), "
             f"preflight {t_preflight_end - t_preflight_start:.2f}s, "
-            f"backbone cache {len(self.inference_state['cached_features'])} frames, "
+            f"backbone cache "
+            f"{len(self.inference_state['cached_features'])} frames, "
             f"memory bank {self._max_memory_frames} frames, "
             f"encode stride {encode_stride}"
         )
@@ -1206,7 +1235,8 @@ class SAM3_octron:
                             self.device, non_blocking=True
                         )
                     else:
-                        # Non-conditioning frame — per-object forward (batch_size=1)
+                        # Non-conditioning frame — per-object forward
+                        # (batch_size=1)
                         storage_key = "non_cond_frame_outputs"
                         current_out, pred_masks = (
                             self._run_single_frame_inference(
@@ -1241,9 +1271,10 @@ class SAM3_octron:
                 total_inference_ms += (t_frame_end - t_frame_start) * 1000
 
                 # Combine per-object masks → (N, 1, H, W)
-                # Conditioning-frame masks can come from consolidated storage at
-                # self._pred_mask_res while live inference may return a different
-                # decoder resolution (e.g. 288x288). Normalize before cat.
+                # Conditioning-frame masks can come from consolidated
+                # storage at self._pred_mask_res while live inference may
+                # return a different decoder resolution (e.g. 288x288).
+                # Normalize before cat.
                 target_hw = self._pred_mask_res
                 for i, m in enumerate(pred_masks_per_obj):
                     if m.shape[-2:] != target_hw:
@@ -1286,11 +1317,11 @@ class SAM3_octron:
         elif self.device.type == "cuda":
             torch.cuda.empty_cache()
 
-    # ── State management ──────────────────────────────────────────────────────
+    # ── State management ─────────────────────────────────────────────────────
 
     @torch.inference_mode()
     def reset_state(self):
-        """Remove all input points or mask in all frames throughout the video."""
+        """Remove all input points or masks across all video frames."""
         self._reset_tracking_results()
         self.inference_state["obj_id_to_idx"].clear()
         self.inference_state["obj_idx_to_id"].clear()
@@ -1338,6 +1369,7 @@ class SAM3_octron:
     @torch.inference_mode()
     def remove_object(self, obj_id, strict=False, need_output=True):
         """Remove an object id from the tracking state.
+
         Returns (obj_ids, updated_frames).
         """
         try:
@@ -1408,7 +1440,9 @@ class SAM3_octron:
             for frame_idx in obj_input_frames_inds:
                 is_cond = any(
                     frame_idx in obj_temp_output_dict["cond_frame_outputs"]
-                    for obj_temp_output_dict in temp_output_dict_per_obj.values()
+                    for obj_temp_output_dict in (
+                        temp_output_dict_per_obj.values()
+                    )
                 )
                 consolidated_out = self._consolidate_temp_output_across_obj(
                     frame_idx,
@@ -1422,7 +1456,7 @@ class SAM3_octron:
 
         return self.inference_state["obj_ids"], updated_frames
 
-    # ── Utilities ─────────────────────────────────────────────────────────────
+    # ── Utilities ────────────────────────────────────────────────────────────
 
     @staticmethod
     def _concat_points(old_point_inputs, new_points, new_labels):
@@ -1443,8 +1477,10 @@ class SAM3_octron:
 
 
 class SAM3_semantic_octron:
-    """Semantic mode: detect all matching objects with text/box prompts on a frame,
-    then track them across frames using the SAM3_octron tracker.
+    """Detect and track objects in semantic mode via text/box prompts.
+
+    Detects all matching objects with text/box prompts on a frame, then
+    tracks them across frames using the SAM3_octron tracker.
 
     Composes:
         - SAM3SemanticModel (detector): finds objects from text/visual prompts
@@ -1456,24 +1492,31 @@ class SAM3_semantic_octron:
         # Detect all "cells" on frame 0 and add them to tracker
         obj_ids, masks = predictor.detect_and_track(frame_idx=0, text="cell")
         # Or detect with a box prompt
-        obj_ids, masks = predictor.detect_and_track(frame_idx=0, bboxes=[[x1,y1,x2,y2]])
+        obj_ids, masks = predictor.detect_and_track(
+            frame_idx=0, bboxes=[[x1, y1, x2, y2]]
+        )
         # Propagate
         for frame_idx, obj_ids, masks in predictor.propagate_in_video():
             ...
         # Manual corrections still work (delegates to tracker)
-        predictor.add_new_points_or_box(frame_idx=5, obj_id=0, points=..., labels=...)
+        predictor.add_new_points_or_box(
+            frame_idx=5, obj_id=0, points=..., labels=...
+        )
     """
 
     def __init__(
         self, detector_model, tracker, device, detector_ckpt_path=None
     ):
-        """Parameters
+        """Initialize the semantic detect-and-track wrapper.
+
+        Parameters
         ----------
         detector_model : SAM3SemanticModel
             The ultralytics SAM3 semantic model for detection.
         tracker : SAM3_octron
             The OCTRON tracker instance.
         device : torch.device
+            The compute device to run the detector on.
         detector_ckpt_path : str, optional
             Path to detector checkpoint for reloading.
 
@@ -1484,21 +1527,24 @@ class SAM3_semantic_octron:
         self.detector_ckpt_path = detector_ckpt_path
         self._next_obj_id = 0
 
-    # ── Delegation properties ─────────────────────────────────────────────────
+    # ── Delegation properties ────────────────────────────────────────────────
 
     @property
     def inference_state(self):
+        """Return the tracker's inference state."""
         return self.tracker.inference_state
 
     @property
     def images(self):
+        """Return the tracker's OctoZarr image store."""
         return self.tracker.images
 
     @property
     def image_size(self):
+        """Return the tracker's model image size."""
         return self.tracker.image_size
 
-    # ── Init / Reset ──────────────────────────────────────────────────────────
+    # ── Init / Reset ─────────────────────────────────────────────────────────
 
     def init_state(self, video_data, zarr_store):
         """Initialize tracking state (delegates to tracker)."""
@@ -1522,7 +1568,7 @@ class SAM3_semantic_octron:
         self.detector = self.detector.to(self.device)
         self.detector.eval()
 
-    # ── Detection ────────────────────────────────────────────────────────────────────
+    # ── Detection ────────────────────────────────────────────────────────────
 
     @torch.inference_mode()
     def detect(
@@ -1684,7 +1730,8 @@ class SAM3_semantic_octron:
         pred_cls = pred_cls[keep]
 
         logger.debug(
-            f"🔍 Kept {pred_masks.shape[0]} detections above threshold {conf_threshold}"
+            f"🔍 Kept {pred_masks.shape[0]} detections above threshold "
+            f"{conf_threshold}"
         )
 
         if pred_masks.shape[0] == 0:
@@ -1704,7 +1751,7 @@ class SAM3_semantic_octron:
 
         return pred_masks, pred_scores, pred_cls
 
-    # ── Detect + Track ────────────────────────────────────────────────────────
+    # ── Detect + Track ───────────────────────────────────────────────────────
 
     @torch.inference_mode()
     def detect_and_track(
@@ -1735,7 +1782,8 @@ class SAM3_semantic_octron:
         obj_ids_added : list[int]
             Object IDs that were added to the tracker.
         video_res_masks : torch.Tensor or None
-            Masks at video resolution for all tracked objects after adding detections.
+            Masks at video resolution for all tracked objects after
+            adding detections.
 
         """
         pred_masks, pred_scores, _ = self.detect(
@@ -1769,7 +1817,7 @@ class SAM3_semantic_octron:
 
         return obj_ids_added, video_res_masks
 
-    # ── Delegated tracker methods ─────────────────────────────────────────────
+    # ── Delegated tracker methods ────────────────────────────────────────────
 
     def propagate_in_video(self, **kwargs):
         """Propagate tracking. Yields (frame_idx, obj_ids, video_res_masks)."""
@@ -1802,6 +1850,7 @@ def run_new_pred(
     **kwargs,
 ):
     """Run a new prediction on the SAM3 model in OCTRON.
+
     Wrapper around SAM3_octron functions for adding new points or masks.
     Returns the mask image that can be re-added to the viewer.
 
@@ -1816,9 +1865,12 @@ def run_new_pred(
     labels : list or int
         Labels for the points (0=negative, 1=positive).
     points : list, optional
+        The points to run the prediction on.
     masks : np.array, optional
+        The masks to run the prediction on.
     box : list, optional
-        Box coordinates: [top_left[1],top_left[0],bottom_right[1],bottom_right[0]]
+        Box coordinates: [top_left[1],top_left[0],bottom_right[1],
+        bottom_right[0]]
     **kwargs : dict
         clear_old_points : bool (default True)
         normalize_coords : bool (default True)
@@ -1863,7 +1915,7 @@ def run_new_pred(
             f"Box input must have 4 numbers [y1,x1,y2,x2], got {len(box)}"
         )
 
-    ########### MASK INPUT ####################################################################
+    ########### MASK INPUT #########################################
     if masks is not None:
         assert len(masks.shape) == 2, (
             f"Input masks must be 2D, got {masks.shape}"
@@ -1880,7 +1932,7 @@ def run_new_pred(
             (video_res_masks[index_obj_id] > 0).cpu().numpy().astype(np.uint8)
         )
 
-    ########### POINT INPUT ###################################################################
+    ########### POINT INPUT ########################################
     if points is not None:
         frame_idx, obj_ids, video_res_masks = predictor.add_new_points_or_box(
             frame_idx=frame_idx,
@@ -1897,7 +1949,7 @@ def run_new_pred(
             (video_res_masks[index_obj_id] > 0).cpu().numpy().astype(np.uint8)
         )
 
-    ########### BOX INPUT #####################################################################
+    ########### BOX INPUT ##########################################
     if box is not None:
         frame_idx, obj_ids, video_res_masks = predictor.add_new_points_or_box(
             frame_idx=frame_idx,
