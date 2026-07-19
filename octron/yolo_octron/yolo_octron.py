@@ -1,6 +1,9 @@
-# Main YOLO Octron class
-# We are using YOLO11 as the base class for YOLO Octron.
-# See also: https://docs.ultralytics.com/models/yolo11
+"""Main YOLO Octron class.
+
+We are using YOLO11 as the base class for YOLO Octron.
+See also: https://docs.ultralytics.com/models/yolo11
+"""
+
 import gc
 import importlib.util
 import json
@@ -75,9 +78,10 @@ MIN_SIZE_RATIO_OBJECT_MAX = (
 class YOLO_octron:
     """YOLO11 segmentation model class for training with OCTRON data.
 
-    This class encapsulates the full pipeline for preparing annotation data from OCTRON,
-    generating training datasets, and training YOLO11 models for segmentation tasks.
-    It also contains visualization methods for (custom / trained) models.
+    This class encapsulates the full pipeline for preparing annotation
+    data from OCTRON, generating training datasets, and training
+    YOLO11 models for segmentation tasks. It also contains
+    visualization methods for (custom / trained) models.
 
     """
 
@@ -115,7 +119,8 @@ class YOLO_octron:
         self.models_dict = {}
         self.enable_watershed = False
         self.prune_empty_labels = True  # Updated by prepare_labels()
-        self.train_mode = None  # Set by handler before directory setup ('segment' or 'detect')
+        # Set by handler before directory setup ('segment' or 'detect')
+        self.train_mode = None
 
         if models_yaml_path is not None:
             self.models_yaml_path = Path(models_yaml_path)
@@ -181,7 +186,8 @@ class YOLO_octron:
             path = Path(path)
         elif not isinstance(path, Path):
             raise TypeError(
-                f"project_path must be a string or Path object, got {type(path)}"
+                "project_path must be a string or Path object, "
+                f"got {type(path)}"
             )
         # Sanity checks
         if not path.exists():
@@ -209,9 +215,9 @@ class YOLO_octron:
         Derived from ``data_path`` when not explicitly set, so callers (CLI,
         GUI, programmatic) do not need to assign it manually after a split:
         as long as ``project_path`` is set it resolves to
-        ``<project>/model/training_data/yolo_config.yaml``. ``write_yolo_config``
-        still assigns it explicitly. Returns ``None`` only when ``data_path``
-        is also unset.
+        ``<project>/model/training_data/yolo_config.yaml``.
+        ``write_yolo_config`` still assigns it explicitly. Returns
+        ``None`` only when ``data_path`` is also unset.
         """
         if self._config_path is not None:
             return self._config_path
@@ -224,12 +230,15 @@ class YOLO_octron:
         self._config_path = Path(value) if value is not None else None
 
     def _setup_training_directories(self, clean_training_dir):
-        """Setup folders for training.
-        This is called from the constructor and when the project path is set.
+        """Set up folders for training.
 
-        When clean_training_dir is True, only the training data directory is removed.
-        The model checkpoint directory ('training/') is only removed when there is a
-        mismatch between the existing train mode and the current train mode.
+        This is called from the constructor and when the project path
+        is set.
+
+        When clean_training_dir is True, only the training data
+        directory is removed. The model checkpoint directory
+        ('training/') is only removed when there is a mismatch
+        between the existing train mode and the current train mode.
 
         Parameters
         ----------
@@ -239,7 +248,8 @@ class YOLO_octron:
         """
         if self._project_path is None:
             raise ValueError(
-                "Project path must be set before setting up training directories"
+                "Project path must be set before setting up "
+                "training directories"
             )
 
         # Setup folders for training
@@ -256,7 +266,8 @@ class YOLO_octron:
         except FileExistsError:
             if clean_training_dir:
                 # Check for train mode mismatch before cleaning
-                # Only remove the model checkpoint directory if the mode has changed
+                # Only remove the model checkpoint directory if the
+                # mode has changed
                 if self.train_mode is not None:
                     existing_config_path = self.data_path / "yolo_config.yaml"
                     if existing_config_path.exists():
@@ -270,26 +281,32 @@ class YOLO_octron:
                             if model_subdir.exists():
                                 shutil.rmtree(model_subdir)
                                 logger.warning(
-                                    f"Train mode mismatch ({existing_mode} → {self.train_mode}): "
-                                    f"removed model checkpoint directory '{model_subdir.as_posix()}'"
+                                    f"Train mode mismatch "
+                                    f"({existing_mode} → {self.train_mode}): "
+                                    f"removed model checkpoint directory "
+                                    f"'{model_subdir.as_posix()}'"
                                 )
-                # Only remove training data, preserving model checkpoints
+                # Only remove training data, preserving model
+                # checkpoints
                 if self.data_path.exists():
                     shutil.rmtree(self.data_path)
                     logger.info(
-                        f'Cleaned training data directory "{self.data_path.as_posix()}"'
+                        "Cleaned training data directory "
+                        f'"{self.data_path.as_posix()}"'
                     )
 
-    ##### TRAINING DATA PREPARATION ###########################################################################
+    ##### TRAINING DATA PREPARATION ###################################
     def prepare_labels(
         self,
         prune_empty_labels=True,
         min_num_frames=5,
         verbose=False,
     ):
-        """Using collect_labels(), this function finds all object organizer
-        .json files from OCTRON and parses them to extract labels.
-        Check collect_labels() function for input arguments.
+        """Find and parse all object organizer .json files from OCTRON.
+
+        Uses collect_labels() to find all object organizer .json files
+        from OCTRON and parse them to extract labels. Check
+        collect_labels() function for input arguments.
         """
         self.prune_empty_labels = prune_empty_labels
         self.label_dict = collect_labels(
@@ -301,48 +318,61 @@ class YOLO_octron:
         logger.debug(f"Found {len(self.label_dict)} organizer files")
 
     def prepare_polygons(self):
-        """Calculate polygons for each mask in each frame and label in the label_dict.
-        Optional watershedding is performed on the masks,
-        and the polygons are extracted from the resulting labels.
-        Whether watershedding is performed is determined by the
+        """Calculate polygons for each mask in each label of label_dict.
+
+        Optional watershedding is performed on the masks, and the
+        polygons are extracted from the resulting labels. Whether
+        watershedding is performed is determined by the
         enable_watershed attribute in this class.
 
-        I am doing some kind of "optimal" watershedding here,
-        by determining the median object diameter from a random subset of masks.
-        This is then used to determine the min peak distance for the watershedding.
+        I am doing some kind of "optimal" watershedding here, by
+        determining the median object diameter from a random subset
+        of masks. This is then used to determine the min peak
+        distance for the watershedding.
 
         Parameters
         ----------
         label_dict : dict : output from collect_labels()
             Dictionary containing project subfolders,
-            and their corresponding labels, annotated frames, masks and video data.
+            and their corresponding labels, annotated frames, masks
+            and video data.
             keys: project_subfolder
             values: dict
                 keys: label_id, video
                 values: dict, video
                     dict:
                         keys: label, frames, masks, color
-                        values: label (str), # Name of the label corresponding to current ID
-                                frames (np.array), # Annotated frame indices for the label
-                                masks (list of zarr arrays), # Mask zarr arrays
-                                color (list) # Color of the label (RGBA, [0,1])
+                        values: label (str), # Name of the label
+                                corresponding to current ID
+                                frames (np.array), # Annotated frame
+                                indices for the label
+                                masks (list of zarr arrays), # Mask
+                                zarr arrays
+                                color (list) # Color of the label
+                                (RGBA, [0,1])
                     video: FastVideoReader object
 
         Creates
         -------
         label_dict : dict : Dictionary containing project subfolders,
-                            and their corresponding labels, annotated frames, masks, polygons and video data.
+                            and their corresponding labels, annotated
+                            frames, masks, polygons and video data.
             keys: project_subfolder
             values: dict
                 keys: label_id, video
                 values: dict, video
                     dict:
                         keys: label, frames, masks, polygons, color
-                        values: label (str), # Name of the label corresponding to current ID
-                                frames (np.array), # Annotated frame indices for the label
-                                masks (list of zarr arrays), # Mask zarr arrays
-                                polygons (dict) # Polygons for each frame index
-                                color (list) # Color of the label (RGBA, [0,1])
+                        values: label (str), # Name of the label
+                                corresponding to current ID
+                                frames (np.array), # Annotated frame
+                                indices for the label
+                                masks (list of zarr arrays), # Mask
+                                zarr arrays
+                                polygons (dict) # Polygons for each
+                                frame index
+                                color (list) # Color of the label
+                                (RGBA, [0,1])
                     video: FastVideoReader object
 
         Yields
@@ -402,19 +432,24 @@ class YOLO_octron:
                                 for r_ in regions:
                                     if r_.area < min_area:
                                         continue
-                                    # Choosing feret diameter as a measure of object size
-                                    # See https://en.wikipedia.org/wiki/Feret_diameter
-                                    # and https://scikit-image.org/docs/stable/api/skimage.measure.html
-                                    # "Maximum Feret's diameter computed as the longest distance between
-                                    # points around a region's convex hull contour
+                                    # Choosing feret diameter as a
+                                    # measure of object size
+                                    # See https://en.wikipedia.org/wiki/Feret_diameter  # noqa: E501
+                                    # and https://scikit-image.org/docs/stable/api/skimage.measure.html  # noqa: E501
+                                    # "Maximum Feret's diameter
+                                    # computed as the longest distance
+                                    # between points around a region's
+                                    # convex hull contour
                                     # as determined by find_contours."
                                     obj_diameters.append(r_.feret_diameter_max)
 
-                    # Now we can make assumptions about the median diameter of the objects
+                    # Now we can make assumptions about the median
+                    # diameter of the objects
                     # I use this for "optimal" watershed parameters
                     median_obj_diameter = np.nanmedian(obj_diameters)
                     if np.isnan(median_obj_diameter):
-                        median_obj_diameter = 5  # Pretty arbitrary, but should work for most cases
+                        # Pretty arbitrary, but should work for most cases
+                        median_obj_diameter = 5
                     if median_obj_diameter < 1:
                         median_obj_diameter = 5
 
@@ -436,8 +471,10 @@ class YOLO_octron:
                             * mask_raw.shape[0]
                             * mask_raw.shape[1]
                         )
-                        # Split ID-encoded multi-object masks into per-ID binary sub-masks.
-                        # ID-encoded masks have values > 1 (each unique positive int = one object).
+                        # Split ID-encoded multi-object masks into
+                        # per-ID binary sub-masks.
+                        # ID-encoded masks have values > 1 (each
+                        # unique positive int = one object).
                         # Legacy binary masks (0/1) pass through unchanged.
                         positive_ids = np.unique(mask_raw)
                         positive_ids = positive_ids[positive_ids > 0]
@@ -461,7 +498,9 @@ class YOLO_octron:
                                         plot=False,
                                     )
                                 except AssertionError:
-                                    # The mask is empty at this frame or the object spans the whole frame
+                                    # The mask is empty at this frame
+                                    # or the object spans the whole
+                                    # frame
                                     continue
                                 # Loop over watershedded masks
                                 for mask in water_masks:
@@ -480,17 +519,20 @@ class YOLO_octron:
                                 )
                                 unique_labels = np.unique(mask_labeled)
                                 assert len(unique_labels) >= 1, (
-                                    f"Labeling failed for {label} in frame {f_no}"
+                                    f"Labeling failed for {label} "
+                                    f"in frame {f_no}"
                                 )
-                                # Get new region props to filter out small-ish regions
+                                # Get new region props to filter out
+                                # small-ish regions
                                 props = measure.regionprops_table(
                                     mask_labeled, properties=("area", "label")
                                 )
                                 if not len(props["area"]):
                                     continue
-                                # Filter out small objects by setting them to 0
-                                # and those that are smaller than a certain size ratio
-                                # smaller than the max object size
+                                # Filter out small objects by setting
+                                # them to 0 and those that are smaller
+                                # than a certain size ratio smaller
+                                # than the max object size
                                 max_area = np.percentile(props["area"], 99.0)
                                 for i, area in enumerate(props["area"]):
                                     if area < min_area:
@@ -540,7 +582,8 @@ class YOLO_octron:
 
             # Prune frames that produced no valid polygons.
             # When prune_empty_labels is True, use cross-label intersection
-            # to keep frame sets synchronized (prevents train/val/test data leakage).
+            # to keep frame sets synchronized (prevents train/val/test
+            # data leakage).
             # Otherwise, prune each label independently.
             label_entries = [
                 e for e in labels if e not in ("video", "video_file_path")
@@ -565,8 +608,10 @@ class YOLO_octron:
                             n_dropped = old_count - len(common_valid)
                             label_name = labels[entry]["label"]
                             print(
-                                f"Warning: {n_dropped} frame(s) dropped for label "
-                                f"'{label_name}' (empty polygons in at least one label)"
+                                f"Warning: {n_dropped} frame(s) "
+                                f"dropped for label '{label_name}' "
+                                f"(empty polygons in at least "
+                                f"one label)"
                             )
                         labels[entry]["frames"] = common_valid
             else:
@@ -580,22 +625,26 @@ class YOLO_octron:
                         n_dropped = len(frames) - len(valid_frames)
                         label_name = labels[entry]["label"]
                         print(
-                            f"Warning: {n_dropped} frame(s) for label '{label_name}' "
-                            f"had no valid polygons and were excluded"
+                            f"Warning: {n_dropped} frame(s) for label "
+                            f"'{label_name}' had no valid polygons "
+                            f"and were excluded"
                         )
                         labels[entry]["frames"] = valid_frames
 
     def prepare_bboxes(self):
-        """Calculate bounding boxes for each mask in each frame and label in the label_dict.
-        Optional watershedding is performed on the masks to separate touching instances
-        (same logic as prepare_polygons). The bounding box for each object is extracted
-        as normalized (x_center, y_center, width, height).
+        """Calculate bounding boxes for each mask in each label of label_dict.
+
+        Optional watershedding is performed on the masks to separate
+        touching instances (same logic as prepare_polygons). The
+        bounding box for each object is extracted as normalized
+        (x_center, y_center, width, height).
 
         Creates
         -------
         labels[entry]['bboxes'] : dict
-            Dictionary mapping frame_id -> list of (x_center, y_center, width, height) tuples,
-            all normalized to [0, 1] relative to mask dimensions.
+            Dictionary mapping frame_id -> list of (x_center,
+            y_center, width, height) tuples, all normalized to [0, 1]
+            relative to mask dimensions.
 
         Yields
         ------
@@ -674,7 +723,8 @@ class YOLO_octron:
                         mask_raw = mask_array[f]
                         h, w = mask_raw.shape
                         min_area = MIN_SIZE_RATIO_OBJECT_FRAME * h * w
-                        # Split ID-encoded multi-object masks into per-ID binary sub-masks.
+                        # Split ID-encoded multi-object masks into
+                        # per-ID binary sub-masks.
                         positive_ids = np.unique(mask_raw)
                         positive_ids = positive_ids[positive_ids > 0]
                         if len(positive_ids) > 1 or np.any(positive_ids > 1):
@@ -790,8 +840,10 @@ class YOLO_octron:
                             n_dropped = old_count - len(common_valid)
                             label_name = labels[entry]["label"]
                             print(
-                                f"Warning: {n_dropped} frame(s) dropped for label "
-                                f"'{label_name}' (empty bboxes in at least one label)"
+                                f"Warning: {n_dropped} frame(s) "
+                                f"dropped for label '{label_name}' "
+                                f"(empty bboxes in at least "
+                                f"one label)"
                             )
                         labels[entry]["frames"] = common_valid
             else:
@@ -805,19 +857,21 @@ class YOLO_octron:
                         n_dropped = len(frames) - len(valid_frames)
                         label_name = labels[entry]["label"]
                         print(
-                            f"Warning: {n_dropped} frame(s) for label '{label_name}' "
-                            f"had no valid bounding boxes and were excluded"
+                            f"Warning: {n_dropped} frame(s) for label "
+                            f"'{label_name}' had no valid bounding "
+                            f"boxes and were excluded"
                         )
                         labels[entry]["frames"] = valid_frames
 
     def prepare_geometry(self):
         """Generate training geometry, dispatching on ``self.train_mode``.
 
-        Runs :meth:`prepare_bboxes` for ``'detect'`` and :meth:`prepare_polygons`
-        otherwise (``'segment'``), so CLI and GUI select geometry once, here,
-        instead of duplicating the mode branch.  Yields the same progress tuples
-        ``(no_entry, total, label, frame_no, total_frames)`` as the underlying
-        method.
+        Runs :meth:`prepare_bboxes` for ``'detect'`` and
+        :meth:`prepare_polygons` otherwise (``'segment'``), so CLI and
+        GUI select geometry once, here, instead of duplicating the
+        mode branch. Yields the same progress tuples
+        ``(no_entry, total, label, frame_no, total_frames)`` as the
+        underlying method.
         """
         if self.train_mode == "detect":
             yield from self.prepare_bboxes()
@@ -826,24 +880,27 @@ class YOLO_octron:
 
     @staticmethod
     def _validate_split_fractions(training_fraction, validation_fraction):
-        """Validate train/val split fractions (shared guard for core and callers).
+        """Validate train/val split fractions (shared guard for callers).
 
-        The test split is the remainder, so the two fractions must leave room
-        for it.  Raises ``ValueError`` on invalid input.
+        The test split is the remainder, so the two fractions must
+        leave room for it. Raises ``ValueError`` on invalid input.
         """
         if not 0.0 < training_fraction < 1.0:
             raise ValueError(
-                f"training_fraction must be in (0, 1); got {training_fraction!r}"
+                f"training_fraction must be in (0, 1); "
+                f"got {training_fraction!r}"
             )
         if not 0.0 <= validation_fraction < 1.0:
             raise ValueError(
-                f"validation_fraction must be in [0, 1); got {validation_fraction!r}"
+                f"validation_fraction must be in [0, 1); "
+                f"got {validation_fraction!r}"
             )
         if training_fraction + validation_fraction >= 1.0:
             raise ValueError(
                 f"training_fraction + validation_fraction must be < 1 "
                 f"(test split = remainder); got {training_fraction} + "
-                f"{validation_fraction} = {training_fraction + validation_fraction}"
+                f"{validation_fraction} = "
+                f"{training_fraction + validation_fraction}"
             )
 
     def prepare_split(
@@ -853,9 +910,11 @@ class YOLO_octron:
         random_seed=88,
         verbose=False,
     ):
-        """Using train_test_val(), this function splits the frame indices
-        into training, testing, and validation sets, based on the fractions provided.
-        ``random_seed`` controls the shuffling so splits are reproducible.
+        """Split frame indices into training, testing, and validation sets.
+
+        Uses train_test_val() to split the frame indices based on the
+        fractions provided. ``random_seed`` controls the shuffling so
+        splits are reproducible.
         """
         self._validate_split_fractions(training_fraction, validation_fraction)
         if self.label_dict is None:
@@ -884,9 +943,11 @@ class YOLO_octron:
         verbose=False,
     ):
         """Create training data for YOLO segmentation.
-        This function exports the training data to the data_path folder.
-        The training data consists of images and corresponding label text files.
-        The label text files contain the label ID and normalized polygon coordinates.
+
+        Exports the training data to the data_path folder. The
+        training data consists of images and corresponding label text
+        files. The label text files contain the label ID and
+        normalized polygon coordinates.
 
         Parameters
         ----------
@@ -945,27 +1006,32 @@ class YOLO_octron:
                 )
 
         # Create the training root directory
-        # If it already exists and overwrite is enabled, delete it and create a new one
+        # If it already exists and overwrite is enabled, delete it
+        # and create a new one
         if self.data_path.exists() and self.clean_training_dir:
             shutil.rmtree(self.data_path)
             logger.info(
-                f"Removed existing training data directory '{self.data_path.as_posix()}'"
+                f"Removed existing training data directory "
+                f"'{self.data_path.as_posix()}'"
             )
         if self.data_path.exists() and not self.clean_training_dir:
             logger.info(
-                f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory."
+                f"Training data path '{self.data_path.as_posix()}' "
+                f"already exists. Using existing directory."
             )
             # Remove any model subdirectories
             if self.training_path / "training" in self.training_path.glob("*"):
                 shutil.rmtree(self.training_path / "training")
                 logger.info(
-                    f"Removed existing model subdirectory '{self.training_path / 'training'}'"
+                    f"Removed existing model subdirectory "
+                    f"'{self.training_path / 'training'}'"
                 )
             return
         if not self.data_path.exists():
             self.data_path.mkdir(parents=True, exist_ok=False)
             logger.info(
-                f"Created training data directory '{self.data_path.as_posix()}'"
+                f"Created training data directory "
+                f"'{self.data_path.as_posix()}'"
             )
 
         # Create subdirectories for train, val, and test
@@ -1037,7 +1103,7 @@ class YOLO_octron:
                             img.save(
                                 image_output_path,
                                 format="PNG",
-                                compress_level=0,  # 0-9, lower means higher quality
+                                compress_level=0,  # 0-9, lower=higher quality
                                 optimize=True,
                             )
 
@@ -1050,10 +1116,12 @@ class YOLO_octron:
                         ) as f:
                             for polygon in labels[entry]["polygons"][frame_id]:
                                 f.write(f"{current_label_id}")
-                                # Write each coordinate pair as normalized coordinate to txt
+                                # Write each coordinate pair as
+                                # normalized coordinate to txt
                                 for point in polygon:
                                     f.write(
-                                        f" {point[0] / mask_width} {point[1] / mask_height}"
+                                        f" {point[0] / mask_width} "
+                                        f"{point[1] / mask_height}"
                                     )
                                 f.write("\n")
 
@@ -1070,7 +1138,8 @@ class YOLO_octron:
                         )
 
         logger.info(
-            f"Segmentation training data exported to {self.data_path.as_posix()}"
+            f"Segmentation training data exported to "
+            f"{self.data_path.as_posix()}"
         )
         return
 
@@ -1079,8 +1148,10 @@ class YOLO_octron:
         verbose=False,
     ):
         """Create training data for YOLO detection (bbox-only).
-        Same image export as create_training_data_segment(), but writes label files
-        in the YOLO detection format: `class x_center y_center width height`
+
+        Same image export as create_training_data_segment(), but
+        writes label files in the YOLO detection format:
+        `class x_center y_center width height`
         (all values normalized to [0, 1]).
 
         Parameters
@@ -1142,22 +1213,26 @@ class YOLO_octron:
         if self.data_path.exists() and self.clean_training_dir:
             shutil.rmtree(self.data_path)
             logger.info(
-                f"Removed existing training data directory '{self.data_path.as_posix()}'"
+                f"Removed existing training data directory "
+                f"'{self.data_path.as_posix()}'"
             )
         if self.data_path.exists() and not self.clean_training_dir:
             logger.info(
-                f"Training data path '{self.data_path.as_posix()}' already exists. Using existing directory."
+                f"Training data path '{self.data_path.as_posix()}' "
+                f"already exists. Using existing directory."
             )
             if self.training_path / "training" in self.training_path.glob("*"):
                 shutil.rmtree(self.training_path / "training")
                 logger.info(
-                    f"Removed existing model subdirectory '{self.training_path / 'training'}'"
+                    f"Removed existing model subdirectory "
+                    f"'{self.training_path / 'training'}'"
                 )
             return
         if not self.data_path.exists():
             self.data_path.mkdir(parents=True, exist_ok=False)
             logger.info(
-                f"Created training data directory '{self.data_path.as_posix()}'"
+                f"Created training data directory "
+                f"'{self.data_path.as_posix()}'"
             )
 
         # Create subdirectories for train, val, and test
@@ -1234,7 +1309,8 @@ class YOLO_octron:
                             for bbox in labels[entry]["bboxes"][frame_id]:
                                 x_center, y_center, bbox_w, bbox_h = bbox
                                 f.write(
-                                    f"{current_label_id} {x_center} {y_center} {bbox_w} {bbox_h}\n"
+                                    f"{current_label_id} {x_center} "
+                                    f"{y_center} {bbox_w} {bbox_h}\n"
                                 )
 
                         yield (
@@ -1255,9 +1331,9 @@ class YOLO_octron:
         """Export training data, dispatching on ``self.train_mode``.
 
         Runs :meth:`create_training_data_detect` for ``'detect'`` and
-        :meth:`create_training_data_segment` otherwise (``'segment'``), so CLI and
-        GUI select the export once, here, instead of duplicating the mode branch.
-        Yields the same progress tuples
+        :meth:`create_training_data_segment` otherwise (``'segment'``),
+        so CLI and GUI select the export once, here, instead of
+        duplicating the mode branch. Yields the same progress tuples
         ``(no_entry, total, label, split, frame_no, total_frames)`` as the
         underlying method.
         """
@@ -1298,12 +1374,14 @@ class YOLO_octron:
             f"Dataset path not found at {dataset_path}"
         )
         assert dataset_path.is_dir(), (
-            f"Dataset path should be a directory, but found a file at {dataset_path}"
+            f"Dataset path should be a directory, but found a file "
+            f"at {dataset_path}"
         )
 
         if len(list(dataset_path.glob("*"))) <= 1:
             raise FileNotFoundError(
-                f"No training data found in {dataset_path.as_posix()}. Please generate training data first."
+                f"No training data found in {dataset_path.as_posix()}. "
+                f"Please generate training data first."
             )
         if (
             not (dataset_path / "train").exists()
@@ -1311,7 +1389,8 @@ class YOLO_octron:
             or not (dataset_path / "test").exists()
         ):
             raise FileNotFoundError(
-                "Training data not found (train/val/test). Please generate training data first."
+                "Training data not found (train/val/test). "
+                "Please generate training data first."
             )
 
         # Get label names from the object organizer
@@ -1324,7 +1403,9 @@ class YOLO_octron:
                     assert (
                         label_id_label_dict[entry] == labels[entry]["label"]
                     ), (
-                        f"Label mismatch for {entry}: {label_id_label_dict[entry]} vs {labels[entry]['label']}"
+                        f"Label mismatch for {entry}: "
+                        f"{label_id_label_dict[entry]} vs "
+                        f"{labels[entry]['label']}"
                     )
                 else:
                     label_id_label_dict[entry] = labels[entry]["label"]
@@ -1352,7 +1433,7 @@ class YOLO_octron:
 
         logger.info(f"YOLO config saved to '{self.config_path.as_posix()}'")
 
-    ##### TRAINING AND INFERENCE ############################################################################
+    ##### TRAINING AND INFERENCE #######################################
     def resolve_model_name(self, model_name):
         """Resolve a model name to its canonical key in ``self.models_dict``.
 
@@ -1417,12 +1498,14 @@ class YOLO_octron:
             # assume that this models is part of the models_dict
         except AssertionError as e:
             # Not a file on disk — resolve the catalog name case-insensitively
-            # (e.g. 'yolo11m' -> 'YOLO11m') so callers need not match YAML casing.
+            # (e.g. 'yolo11m' -> 'YOLO11m') so callers need not match
+            # YAML casing.
             resolved = self.resolve_model_name(model_name_path)
             if resolved is None:
                 raise ValueError(
-                    f"Unknown model '{model_name_path}': not an existing file and "
-                    f"not in the model catalog. Available: {sorted(self.models_dict)}"
+                    f"Unknown model '{model_name_path}': not an "
+                    f"existing file and not in the model catalog. "
+                    f"Available: {sorted(self.models_dict)}"
                 ) from e
             model_key = (
                 "model_path_detect"
@@ -1430,8 +1513,9 @@ class YOLO_octron:
                 else "model_path_seg"
             )
             model_filename = self.models_dict[resolved][model_key]
-            # Weights are loaded from the per-user cache (see config.get_yolo_models_dir),
-            # where check_yolo_models downloads them.
+            # Weights are loaded from the per-user cache (see
+            # config.get_yolo_models_dir), where check_yolo_models
+            # downloads them.
             from octron import config as _octron_config
 
             model_name_path = (
@@ -1440,7 +1524,8 @@ class YOLO_octron:
 
         model = YOLO(model_name_path)
         logger.info(
-            f"Model loaded from '{model_name_path.as_posix()}' (mode: {train_mode})"
+            f"Model loaded from '{model_name_path.as_posix()}' "
+            f"(mode: {train_mode})"
         )
         self.model = model
         return model
@@ -1485,7 +1570,8 @@ class YOLO_octron:
                 epoch,
                 None,
                 (
-                    "Checkpoint does not contain image size info. Cannot continue from checkpoint."
+                    "Checkpoint does not contain image size info. "
+                    "Cannot continue from checkpoint."
                 ),
             )
         # ultralytics stores imgsz as an int or occasionally as a list
@@ -1511,7 +1597,7 @@ class YOLO_octron:
         return epoch, imgsz, None
 
     def resolve_resume_state(self, resume=False, overwrite=False):
-        """Decide how to (re)start training: fresh, resume, or init-from-checkpoint.
+        """Decide how to (re)start training: fresh, resume, or init.
 
         Centralises the resume/overwrite decision so the CLI and GUI behave
         identically. ``overwrite`` always wins (train from scratch). A strict
@@ -1532,8 +1618,10 @@ class YOLO_octron:
         dict
             ``action`` : one of ``'fresh'``, ``'resume'``,
             ``'init_from_checkpoint'``, ``'completed'``, ``'error'``.
-            ``checkpoint`` : Path to ``last.pt`` for resume/init, else None.
-            ``imgsz`` : int recovered from the checkpoint for resume/init, else None.
+            ``checkpoint`` : Path to ``last.pt`` for resume/init, else
+            None.
+            ``imgsz`` : int recovered from the checkpoint for
+            resume/init, else None.
             ``message`` : human-readable explanation for logs/UI.
 
         """
@@ -1541,13 +1629,16 @@ class YOLO_octron:
         best_pt = training_dir / "weights" / "best.pt"
         last_pt = training_dir / "weights" / "last.pt"
 
-        # Overwrite always wins over resume/existing state: train from scratch.
+        # Overwrite always wins over resume/existing state: train
+        # from scratch.
         if overwrite:
             return {
                 "action": "fresh",
                 "checkpoint": None,
                 "imgsz": None,
-                "message": "Overwrite requested: training a new model from scratch.",
+                "message": (
+                    "Overwrite requested: training a new model from scratch."
+                ),
             }
 
         if resume:
@@ -1557,8 +1648,8 @@ class YOLO_octron:
                     "checkpoint": None,
                     "imgsz": None,
                     "message": (
-                        "Resume requested but no interrupted run (last.pt) found; "
-                        "starting fresh."
+                        "Resume requested but no interrupted run "
+                        "(last.pt) found; starting fresh."
                     ),
                 }
             epoch, imgsz, error = self._read_checkpoint_state(last_pt)
@@ -1570,15 +1661,18 @@ class YOLO_octron:
                     "message": error,
                 }
             if epoch == -1:
-                # Completed run: strict resume is not possible, but we can continue
-                # training by initialising a new run from last.pt.
+                # Completed run: strict resume is not possible, but
+                # we can continue training by initialising a new run
+                # from last.pt.
                 return {
                     "action": "init_from_checkpoint",
                     "checkpoint": last_pt,
                     "imgsz": imgsz,
                     "message": (
-                        f"Checkpoint '{last_pt.name}' is from a completed run; initialising a "
-                        f"new run from it (imgsz={imgsz}) rather than a strict resume."
+                        f"Checkpoint '{last_pt.name}' is from a "
+                        f"completed run; initialising a new run "
+                        f"from it (imgsz={imgsz}) rather than a "
+                        f"strict resume."
                     ),
                 }
             return {
@@ -1591,31 +1685,37 @@ class YOLO_octron:
                 ),
             }
 
-        # Neither resume nor overwrite: refuse if a finished model already exists.
+        # Neither resume nor overwrite: refuse if a finished model
+        # already exists.
         if best_pt.exists():
             return {
                 "action": "completed",
                 "checkpoint": best_pt,
                 "imgsz": None,
                 "message": (
-                    f"A trained model already exists at '{best_pt}'. Use overwrite to "
-                    f"retrain from scratch, or resume to continue training."
+                    f"A trained model already exists at '{best_pt}'. "
+                    f"Use overwrite to retrain from scratch, or "
+                    f"resume to continue training."
                 ),
             }
         return {
             "action": "fresh",
             "checkpoint": None,
             "imgsz": None,
-            "message": "No existing model found; training a new model from scratch.",
+            "message": (
+                "No existing model found; training a new model from scratch."
+            ),
         }
 
     def _resolve_batch_size(self, imgsz, device):
         """Return a training batch size, caching AutoBatch results for CUDA.
 
         AutoBatch (CUDA memory profiling) runs only for device='cuda';
-        CUDA results are cached at <project>/model/autobatch_cache.json keyed by model
-        architecture, image size, and GPU name, so repeated runs on the same
-        hardware skip the search. Both the CLI and GUI go through here.
+        CUDA results are cached at
+        <project>/model/autobatch_cache.json keyed by model
+        architecture, image size, and GPU name, so repeated runs on
+        the same hardware skip the search. Both the CLI and GUI go
+        through here.
 
         If the CUDA search fails (e.g. profiling a large "imgsz" on a small
         GPU runs out of memory), ultralytics returns its own default (16) -
@@ -1645,8 +1745,9 @@ class YOLO_octron:
             total_gb = None
         if total_gb is not None and imgsz >= 1024 and total_gb < 12:
             logger.warning(
-                f"imgsz={imgsz} is large for a {total_gb:.0f} GB GPU ({gpu_name}); "
-                f"training may run out of memory - consider a smaller image size (e.g. 640)."
+                f"imgsz={imgsz} is large for a {total_gb:.0f} GB GPU "
+                f"({gpu_name}); training may run out of memory - "
+                f"consider a smaller image size (e.g. 640)."
             )
         arch = self.model.model.__class__.__name__
         cache_key = f"{arch}_{imgsz}_cuda_{gpu_name}"
@@ -1661,7 +1762,8 @@ class YOLO_octron:
         if cache_key in cache:
             batch = cache[cache_key]
             logger.info(
-                f"AutoBatch: using cached batch size {batch} for {gpu_name} (imgsz={imgsz})"
+                f"AutoBatch: using cached batch size {batch} for "
+                f"{gpu_name} (imgsz={imgsz})"
             )
             return batch
         logger.info(
@@ -1677,7 +1779,8 @@ class YOLO_octron:
             )
         except Exception as e:
             logger.warning(
-                f"AutoBatch search failed ({e}); using a safe batch size of {_SAFE_BATCH}."
+                f"AutoBatch search failed ({e}); using a safe batch "
+                f"size of {_SAFE_BATCH}."
             )
             return _SAFE_BATCH
         # ultralytics swallows a profiling OOM and returns its default batch
@@ -1688,9 +1791,11 @@ class YOLO_octron:
             and (total_gb is None or total_gb < 12)
         ):
             logger.warning(
-                f"AutoBatch could not find a fitting batch size for imgsz={imgsz} on {gpu_name} "
-                f"(profiling likely ran out of memory); using a safe batch size of {_SAFE_BATCH}. "
-                f"Consider a smaller image size (e.g. 640)."
+                f"AutoBatch could not find a fitting batch size for "
+                f"imgsz={imgsz} on {gpu_name} (profiling likely ran "
+                f"out of memory); using a safe batch size of "
+                f"{_SAFE_BATCH}. Consider a smaller image size "
+                f"(e.g. 640)."
             )
             return _SAFE_BATCH
         cache[cache_key] = batch
@@ -1699,7 +1804,8 @@ class YOLO_octron:
             with open(cache_path, "w") as f:
                 json.dump(cache, f)
             logger.info(
-                f"AutoBatch: batch size {batch} cached to {cache_path.as_posix()}"
+                f"AutoBatch: batch size {batch} cached to "
+                f"{cache_path.as_posix()}"
             )
         except Exception as e:
             logger.warning(f"Could not write AutoBatch cache: {e}")
@@ -1707,8 +1813,9 @@ class YOLO_octron:
 
     def load_model_args(self, model_name_path):
         """Load the YOLO model args.yaml (model training settings).
-        This file is supposed to be one level up of the "weights" folder for
-        custom trained models.
+
+        This file is supposed to be one level up of the "weights"
+        folder for custom trained models.
 
         Parameters
         ----------
@@ -1742,7 +1849,9 @@ class YOLO_octron:
     @staticmethod
     def _find_train_image_size(data_path, max_samples=500):
         """Find whether rectangular or square training images are used.
-        This determines the rect parameter and the correct imgsz for YOLO training.
+
+        This determines the rect parameter and the correct imgsz for
+        YOLO training.
 
         Samples up to *max_samples* images across all subdirectories so that
         the decision is robust even when multiple datasets contribute images
@@ -1759,8 +1868,10 @@ class YOLO_octron:
             False otherwise — including mixed or portrait datasets — because
             of an ultralytics dataloader bug that does not permit rectangular
             (non-square) batches when height > width.
-            TODO: Re-evaluate this with updates of ultralytics. Current version: 8.4.48
-            (As of 8.4.48, the rect=portrait/square crash bug is still present.)
+            TODO: Re-evaluate this with updates of ultralytics.
+            Current version: 8.4.48
+            (As of 8.4.48, the rect=portrait/square crash bug is
+            still present.)
 
         """
         data_path = Path(data_path)
@@ -1831,6 +1942,10 @@ class YOLO_octron:
         resume : bool
             If True, resume training from the loaded checkpoint (last.pt).
             Most training parameters are restored from the checkpoint.
+        batch : int
+            Training batch size. -1 resolves a cached AutoBatch size
+            for CUDA, or lets ultralytics pick a safe default for
+            CPU/MPS.
 
         Yields
         ------
@@ -1902,7 +2017,8 @@ class YOLO_octron:
                 }
             )
 
-        # Callback to capture final epoch count on training end (handles early stopping)
+        # Callback to capture final epoch count on training end
+        # (handles early stopping)
         def _on_train_end(trainer):
             nonlocal final_total_epochs
             final_total_epochs = trainer.epoch + 1
@@ -1923,15 +2039,17 @@ class YOLO_octron:
         # Remove any stale ultralytics disk-cache .npy files
         # data directory before starting.  ultralytics cache='disk' writes
         # <stem>.npy files alongside source images, and BaseDataset.load_image
-        # will silently load any matching .npy it finds — even when cache='disk'
-        # is not set — instead of reading the actual image file.  Purging them
-        # here ensures a clean cache rebuild each training run.
+        # will silently load any matching .npy it finds — even when
+        # cache='disk' is not set — instead of reading the actual
+        # image file.  Purging them here ensures a clean cache
+        # rebuild each training run.
         if self.data_path and self.data_path.exists():
             stale_npy = list(self.data_path.glob("**/*.npy"))
             if stale_npy:
                 logger.warning(
-                    f"Found {len(stale_npy)} stale .npy cache file(s) in training data "
-                    "directory — removing before training starts."
+                    f"Found {len(stale_npy)} stale .npy cache "
+                    "file(s) in training data directory — removing "
+                    "before training starts."
                 )
                 for f in stale_npy:
                     f.unlink()
@@ -1945,16 +2063,18 @@ class YOLO_octron:
             raise ValueError(f"Invalid device: {device}")
         if device == "mps":
             logger.warning(
-                "MPS is not yet fully supported in PyTorch. Use at your own risk."
+                "MPS is not yet fully supported in PyTorch. "
+                "Use at your own risk."
             )
 
         assert imagesz > 0 and imagesz % 32 == 0, (
             "YOLO image size must be a positive multiple of 32"
         )
 
-        # Resolve a cached AutoBatch size for CUDA when the caller left batch at
-        # the -1 sentinel. CPU/MPS keep -1 so ultralytics applies its own safe
-        # default without attempting CUDA-only profiling.
+        # Resolve a cached AutoBatch size for CUDA when the caller
+        # left batch at the -1 sentinel. CPU/MPS keep -1 so
+        # ultralytics applies its own safe default without
+        # attempting CUDA-only profiling.
         if batch == -1:
             batch = self._resolve_batch_size(imagesz, device)
 
@@ -1973,25 +2093,32 @@ class YOLO_octron:
                 # Start training
                 logger.info(f"Starting training for {epochs} epochs...")
                 logger.info(
-                    f"Setting rect={rect} based on training image size of {img_width}x{img_height} (wxh)"
+                    f"Setting rect={rect} based on training image "
+                    f"size of {img_width}x{img_height} (wxh)"
                 )
                 logger.info(f"Using device: {device}")
                 logger.info(
                     "################################################################"
                 )
-                # copy_paste and mixup crash when rect=True AND the dataset contains
-                # landscape images with different aspect ratios: ultralytics creates one
-                # batch shape group per distinct ratio, and mixing images across groups
-                # with different padded heights causes an IndexError.
-                # When all images share a single aspect ratio (uniform_aspect_ratio=True)
-                # there is only one batch shape group, so mixing is safe.
-                # TODO: Re-evaluate this with updates of ultralytics. Current version: 8.4.48
-                # (As of 8.4.48, this crash is still present — no upstream fix found.)
+                # copy_paste and mixup crash when rect=True AND the
+                # dataset contains landscape images with different
+                # aspect ratios: ultralytics creates one batch shape
+                # group per distinct ratio, and mixing images across
+                # groups with different padded heights causes an
+                # IndexError.
+                # When all images share a single aspect ratio
+                # (uniform_aspect_ratio=True) there is only one batch
+                # shape group, so mixing is safe.
+                # TODO: Re-evaluate this with updates of ultralytics.
+                # Current version: 8.4.48
+                # (As of 8.4.48, this crash is still present — no
+                # upstream fix found.)
                 mixed_rect = rect and not uniform_aspect_ratio
                 if mixed_rect:
                     logger.warning(
-                        "Mixed landscape aspect ratios detected — disabling copy_paste and "
-                        "mixup to prevent batch shape mismatches (rect=True)."
+                        "Mixed landscape aspect ratios detected — "
+                        "disabling copy_paste and mixup to prevent "
+                        "batch shape mismatches (rect=True)."
                     )
                 mixup_prob = 0.0 if mixed_rect else 0.25
                 copy_paste_prob = 0.0 if mixed_rect else 0.25
@@ -2022,7 +2149,9 @@ class YOLO_octron:
                     save_period=save_period,
                     exist_ok=True,
                     nms=False,
-                    max_det=2000,  # Increasing this for dense scenes - I think it might affect val too
+                    # Increasing this for dense scenes - I think it
+                    # might affect val too
+                    max_det=2000,
                     # Augmentation
                     hsv_v=0.25,
                     hsv_s=0.25,
@@ -2080,14 +2209,13 @@ class YOLO_octron:
             logger.info("Training interrupted by user")
 
     def launch_tensorboard(self):
-        """Check if TensorBoard is installed, launch it with the training directory,
-        and open a web browser to view the TensorBoard interface.
-        Chooses a random port every time to avoid port collisions.
-        If TensorBoard is not installed, it will attempt to install it using pip.
+        """Launch TensorBoard with the training directory in a web browser.
 
-
-        Parameters
-        ----------
+        Checks if TensorBoard is installed, launches it with the
+        training directory, and opens a web browser to view the
+        TensorBoard interface. Chooses a random port every time to
+        avoid port collisions. If TensorBoard is not installed, it
+        will attempt to install it using pip.
 
         Returns
         -------
@@ -2107,7 +2235,8 @@ class YOLO_octron:
                 logger.info("TensorBoard installed successfully!")
             except subprocess.CalledProcessError:
                 logger.error(
-                    "Failed to install TensorBoard. Please install it manually with: pip install tensorboard"
+                    "Failed to install TensorBoard. Please install "
+                    "it manually with: pip install tensorboard"
                 )
                 return False
 
@@ -2166,7 +2295,7 @@ class YOLO_octron:
             return False
 
     def _quit_tensorboard_posix(self):
-        """Helper method to terminate TensorBoard on Unix-like systems."""
+        """Terminate TensorBoard on Unix-like systems."""
         # Find processes with tensorboard in the command
         result = subprocess.run(
             ["ps", "-ef"], capture_output=True, text=True, check=True
@@ -2195,7 +2324,7 @@ class YOLO_octron:
             logger.info("No TensorBoard processes found")
 
     def _quit_tensorboard_windows(self):
-        """Helper method to terminate TensorBoard on Windows."""
+        """Terminate TensorBoard on Windows."""
         # Use tasklist and taskkill on Windows
         result = subprocess.run(
             [
@@ -2230,8 +2359,9 @@ class YOLO_octron:
             logger.info("No TensorBoard processes found")
 
     def quit_tensorboard(self):
-        """Find and quit all TensorBoard processes on both Unix-like systems
-        and Windows platforms.
+        """Find and quit all TensorBoard processes.
+
+        Covers both Unix-like systems and Windows platforms.
         """
         logger.info("Stopping any running TensorBoard processes...")
 
@@ -2252,7 +2382,8 @@ class YOLO_octron:
         Parameters
         ----------
         data : str or Path, optional
-            Path to validation data, defaults to the validation set in the config
+            Path to validation data, defaults to the validation set
+            in the config
         device : str
             Device to use for inference
         plots : bool
@@ -2284,8 +2415,9 @@ class YOLO_octron:
 
     @staticmethod
     def get_model_info(model_path):
-        """Extract metadata from a trained YOLO model checkpoint for display
-        in a tooltip.
+        """Extract metadata from a trained YOLO model checkpoint.
+
+        Used to build the contents of a display tooltip.
 
         Parameters
         ----------
@@ -2338,10 +2470,12 @@ class YOLO_octron:
             elif "Detect" in cls_name:
                 info["task"] = "detect"
 
-        # Architecture / base model (store just the filename, not the full path)
+        # Architecture / base model (store just the filename, not
+        # the full path)
         arch = train_args.get("model")
         if arch:
-            # Use PurePosixPath split + backslash split to handle both Unix and Windows paths
+            # Use PurePosixPath split + backslash split to handle
+            # both Unix and Windows paths
             info["architecture"] = (
                 str(arch).replace("\\", "/").rsplit("/", 1)[-1]
             )
@@ -2386,10 +2520,12 @@ class YOLO_octron:
         weights_folder="weights",
         model_suffix=".pt",
     ):
-        """Find all trained models inside 'weights' directories under the
-        project's 'model' subfolder.  This picks up .pt files from any
-        training run layout, e.g. model/training/weights/,
-        model/training_segmentation/weights/, etc.
+        """Find all trained models inside 'weights' directories.
+
+        Looks under the project's 'model' subfolder. This picks up
+        .pt files from any training run layout, e.g.
+        model/training/weights/, model/training_segmentation/weights/,
+        etc.
 
         Parameters
         ----------
@@ -2419,7 +2555,8 @@ class YOLO_octron:
             search_path.as_posix(), topdown=True
         ):
             # Prune directories that cannot contain model weights.
-            # This modification happens in-place and affects os.walk's traversal.
+            # This modification happens in-place and affects
+            # os.walk's traversal.
             dirnames[:] = [
                 d
                 for d in dirnames
@@ -2447,20 +2584,25 @@ class YOLO_octron:
         per_class=True,
         verbose=False,
     ):
-        """This stupidly convoluted function maps detection indices from tracker results
-        back to their original input indices. This has bitten me too many times, so I wrote it out.
-        This is particularly important for when per_class tracking is activated in BoxMOT.
+        """Map detection indices from tracker results to input indices.
+
+        This is a stupidly convoluted mapping, from tracker results
+        back to their original input indices. This has bitten me too
+        many times, so I wrote it out. This is particularly important
+        for when per_class tracking is activated in BoxMOT.
 
         Parameters
         ----------
         tracker_input : numpy.ndarray
-            Original detection inputs passed to the tracker, shape (N, 6+) where each row is
+            Original detection inputs passed to the tracker, shape
+            (N, 6+) where each row is
             [x1, y1, x2, y2, confidence, class_id, ...]
         tracking_result : numpy.ndarray
             Results from tracker.update(), shape (M, 8+) where each row is
             [x1, y1, x2, y2, track_id, confidence, class_id, detection_index]
         per_class : bool, default=True
-            Whether the tracker was configured to process each class independently.
+            Whether the tracker was configured to process each class
+            independently.
         verbose : bool, default=False
             Print debugging info?
 
@@ -2469,7 +2611,8 @@ class YOLO_octron:
         tuple
             (tracked_ids, tracked_idxs) where:
             - tracked_ids is a list of track IDs from the tracker
-            - tracked_idxs is a list of corresponding indices in the original tracker_input
+            - tracked_idxs is a list of corresponding indices in the
+              original tracker_input
 
         """
         # Sanity checks
@@ -2483,7 +2626,8 @@ class YOLO_octron:
             "tracker_input must have at least 6 columns [x1,y1,x2,y2,conf,cls]"
         )
         assert tracking_result.shape[1] >= 8, (
-            "tracking_result must have at least 8 columns [x1,y1,x2,y2,id,conf,cls,idx]"
+            "tracking_result must have at least 8 columns "
+            "[x1,y1,x2,y2,id,conf,cls,idx]"
         )
 
         tracked_ids = []
@@ -2497,7 +2641,8 @@ class YOLO_octron:
                 0 <= idx < tracker_input.shape[0] for idx in tracked_idxs
             ), "Detection index out of bounds in non-per-class mode"
         else:
-            # Complex case: per-class tracking requires mapping class-specific indices back to global indices
+            # Complex case: per-class tracking requires mapping
+            # class-specific indices back to global indices
             res_classes = tracking_result[:, 6]
             # Loop over extracted classes
             for res_class in np.unique(res_classes).astype(int):
@@ -2512,19 +2657,22 @@ class YOLO_octron:
                     track_id = int(res_line[4])
                     tracked_ids.append(track_id)
 
-                    idx_res = int(
-                        res_line[7]
-                    )  # This is the index of the result in the class filtered tracker input
+                    # This is the index of the result in the class
+                    # filtered tracker input
+                    idx_res = int(res_line[7])
                     if idx_res < 0 or idx_res >= len(input_filtered):
                         raise IndexError(
-                            f"Detection index {idx_res} out of bounds for class {res_class} "
+                            f"Detection index {idx_res} out of bounds "
+                            f"for class {res_class} "
                             f"(max: {len(input_filtered) - 1})"
                         )
                     input_line = input_filtered[idx_res]
 
                     try:
-                        # Find the index of this line in the original input array
-                        # This should not be necessary, but I want to make sure I get the right line ...
+                        # Find the index of this line in the original
+                        # input array
+                        # This should not be necessary, but I want to
+                        # make sure I get the right line ...
                         matches = np.all(
                             np.isclose(
                                 tracker_input, input_line, rtol=1e-5, atol=1e-8
@@ -2533,25 +2681,29 @@ class YOLO_octron:
                         )
                         if not np.any(matches):
                             raise ValueError(
-                                f"Could not find matching detection for track {track_id}"
+                                f"Could not find matching detection "
+                                f"for track {track_id}"
                             )
 
                         tracked_idx = int(np.where(matches)[0][0])
                         tracked_idxs.append(tracked_idx)
                     except Exception as e:
                         raise ValueError(
-                            f"Failed to find original index for track {track_id}, class {res_class}: {e}"
+                            f"Failed to find original index for "
+                            f"track {track_id}, class {res_class}: {e}"
                         ) from e
 
                     logger.debug(
-                        f"Matched\n{res_line} with\n{tracker_input[tracked_idx]}"
+                        f"Matched\n{res_line} with\n"
+                        f"{tracker_input[tracked_idx]}"
                     )
 
         assert len(set(tracked_ids)) == len(tracked_ids), (
             f"Duplicate track IDs found: {tracked_ids}"
         )
         assert len(tracked_ids) == len(tracked_idxs), (
-            f"Mismatch between tracked_ids ({len(tracked_ids)}) and tracked_idxs ({len(tracked_idxs)})"
+            f"Mismatch between tracked_ids ({len(tracked_ids)}) and "
+            f"tracked_idxs ({len(tracked_idxs)})"
         )
 
         return tracked_ids, tracked_idxs
@@ -2582,7 +2734,8 @@ class YOLO_octron:
         ----------
         videos : dict, str, Path, or list
             Can be one of:
-            - dict: Dictionary of video names to video dictionaries with metadata (GUI format)
+            - dict: Dictionary of video names to video dictionaries
+              with metadata (GUI format)
             - str or Path: Single video file path
             - list: List of video file paths (str or Path)
             When passing paths, video metadata will be automatically probed.
@@ -2591,38 +2744,46 @@ class YOLO_octron:
         device : str
             Device to run prediction on ('cpu', 'cuda', etc.)
         tracker_name : str, optional
-            Name of the tracker to use (e.g. 'ByteTrack', 'bytetrack', 'BotSort').
-            The name is resolved flexibly: exact key match, case-insensitive key match,
-            or match on the display name field. If the name cannot be resolved, a
+            Name of the tracker to use (e.g. 'ByteTrack', 'bytetrack',
+            'BotSort'). The name is resolved flexibly: exact key
+            match, case-insensitive key match, or match on the
+            display name field. If the name cannot be resolved, a
             ValueError is raised listing all available trackers.
             Either tracker_name or tracker_cfg_path must be provided.
         tracker_cfg_path : str or Path, optional
-            Path to a boxmot tracker config YAML file. Use this to supply a custom
-            or manually edited tracker configuration. When provided, this takes
-            priority over tracker_name.
+            Path to a boxmot tracker config YAML file. Use this to
+            supply a custom or manually edited tracker configuration.
+            When provided, this takes priority over tracker_name.
         tracker_params : dict, optional
-            Dictionary of tracker parameter overrides. These are applied on top of the
-            resolved tracker configuration, updating only the 'current_value' of matching
-            parameters. For example: {'det_thresh': 0.5, 'max_age': 100}.
+            Dictionary of tracker parameter overrides. These are
+            applied on top of the resolved tracker configuration,
+            updating only the 'current_value' of matching parameters.
+            For example: {'det_thresh': 0.5, 'max_age': 100}.
             Unknown parameter names are ignored with a warning.
         skip_frames : int
             Number of frames to skip between predictions.
         one_object_per_label : bool
             Whether to track only one object per label. ("1 subject" in GUI)
-            If True, only the first detected object of each label will be tracked
-            and if more than one object is detected, only the first one with the highest confidence
-            will be kept. Defaults to False.
+            If True, only the first detected object of each label
+            will be tracked and if more than one object is detected,
+            only the first one with the highest confidence will be
+            kept. Defaults to False.
         region_properties : list or tuple, optional
-            List of region properties to extract from segmentation masks via
-            skimage.measure.regionprops_table (e.g. ['area', 'eccentricity', 'solidity']).
+            List of region properties to extract from segmentation
+            masks via skimage.measure.regionprops_table (e.g.
+            ['area', 'eccentricity', 'solidity']).
             'centroid' and 'label' are always included internally.
-            If None (default), no regionprops extraction is performed (bbox-only mode).
+            If None (default), no regionprops extraction is performed
+            (bbox-only mode).
             See DEFAULT_REGION_PROPERTIES in constants.py for the standard set.
-            See https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops_table
+            See https://scikit-image.org/docs/stable/api/skimage.measure.html
+            (regionprops_table section).
         extra_properties : tuple of callables, optional
-            Custom measurement functions passed to skimage.measure.regionprops_table.
-            Each function must accept a region mask as first argument. If the function
-            requires pixel intensities, it must accept intensity_image as second argument.
+            Custom measurement functions passed to
+            skimage.measure.regionprops_table. Each function must
+            accept a region mask as first argument. If the function
+            requires pixel intensities, it must accept
+            intensity_image as second argument.
             The function's __name__ becomes the column name in the output CSV.
             Example::
 
@@ -2635,7 +2796,8 @@ class YOLO_octron:
         conf_thresh : float
             Confidence threshold for detection
         opening_radius : int
-            Radius for morphological opening operation on masks to remove noise.
+            Radius for morphological opening operation on masks to
+            remove noise.
         overwrite : bool
             Whether to overwrite existing prediction results
         buffer_size : int, default=500
@@ -2643,6 +2805,11 @@ class YOLO_octron:
         output_dir : str or Path, optional
             Root directory under which octron_predictions/ folders are written.
             Defaults to alongside each video file when None.
+        local_cache_dir : str or Path, optional
+            Local directory to stage prediction output before moving it to
+            its final destination. Takes precedence over the
+            ``prediction_cache_dir`` setting in config.yaml. Off when both
+            are None.
 
         Yields
         ------
@@ -2686,7 +2853,8 @@ class YOLO_octron:
             videos_dict = videos
 
         # Resolve Boxmot tracker configuration
-        # Priority: tracker_cfg_path (custom YAML) > tracker_name (name-based lookup)
+        # Priority: tracker_cfg_path (custom YAML) > tracker_name
+        # (name-based lookup)
         if tracker_cfg_path is not None:
             # User supplied a custom tracker config YAML directly
             tracker_cfg_path = Path(tracker_cfg_path)
@@ -2698,7 +2866,8 @@ class YOLO_octron:
             # Extract tracker_id from the top-level key of the config YAML
             tracker_id = next(iter(tracker_config))
             logger.info(
-                f"Using custom tracker config: {tracker_cfg_path} (tracker: {tracker_id})"
+                f"Using custom tracker config: {tracker_cfg_path} "
+                f"(tracker: {tracker_id})"
             )
         elif tracker_name is not None:
             # Resolve tracker name via flexible lookup in boxmot_trackers.yaml
@@ -2714,9 +2883,10 @@ class YOLO_octron:
             logger.info(f"Resolved tracker '{tracker_name}' -> {tracker_id}")
         else:
             raise ValueError(
-                "Either 'tracker_name' or 'tracker_cfg_path' must be provided. "
-                "Use tracker_name for name-based lookup (e.g. 'ByteTrack') or "
-                "tracker_cfg_path for a custom tracker config YAML."
+                "Either 'tracker_name' or 'tracker_cfg_path' must be "
+                "provided. Use tracker_name for name-based lookup "
+                "(e.g. 'ByteTrack') or tracker_cfg_path for a custom "
+                "tracker config YAML."
             )
 
         if not tracker_config:
@@ -2751,10 +2921,12 @@ class YOLO_octron:
         model_task = self.get_model_info(model_path).get("task") or "segment"
         is_segment = model_task == "segment"
         logger.info(
-            f"Model task: {model_task} ({'segmentation' if is_segment else 'detection'})"
+            f"Model task: {model_task} "
+            f"({'segmentation' if is_segment else 'detection'})"
         )
 
-        # Detection models do not produce masks — disable mask-dependent options
+        # Detection models do not produce masks — disable
+        # mask-dependent options
         region_details = bool(region_properties) or bool(extra_properties)
         if not is_segment:
             region_properties = None
@@ -2773,7 +2945,8 @@ class YOLO_octron:
             logger.info(f"Image size: {imgsz}, rect={rect}")
         else:
             logger.info(
-                "No model args found, using default image size of 640 and rect=True"
+                "No model args found, using default image size of "
+                "640 and rect=True"
             )
             imgsz = 640
             rect = True
@@ -2799,7 +2972,8 @@ class YOLO_octron:
         )
 
         # Resolve the optional local prediction cache (explicit opt-in only).
-        # Precedence: local_cache_dir argument > config.yaml prediction_cache_dir > off.
+        # Precedence: local_cache_dir argument > config.yaml
+        # prediction_cache_dir > off.
         # When enabled, each video's output is written under
         # <cache>/octron_cache_<pid> and moved to its final destination on
         # completion (avoids zarr atomic-write failures on SMB/network shares).
@@ -2838,11 +3012,13 @@ class YOLO_octron:
             num_frames = video_dict["num_frames_analyzed"]
 
             logger.info(
-                f"Processing video {video_index + 1}/{total_videos}: {video_name}"
+                f"Processing video {video_index + 1}/{total_videos}: "
+                f"{video_name}"
             )
             video_path = Path(video_dict["video_file_path"])
 
-            # Check overwrite BEFORE loading the model to avoid unnecessary work.
+            # Check overwrite BEFORE loading the model to avoid
+            # unnecessary work.
             # The overwrite/skip check is always on the FINAL destination.
             _pred_root = Path(output_dir) if output_dir else video_path.parent
             final_save_dir = (
@@ -2854,7 +3030,9 @@ class YOLO_octron:
                 shutil.rmtree(final_save_dir)
             elif final_save_dir.exists() and not overwrite:
                 logger.info(
-                    f"Skipping {video_name}: predictions already exist at {final_save_dir}. Pass --overwrite to replace."
+                    f"Skipping {video_name}: predictions already "
+                    f"exist at {final_save_dir}. Pass --overwrite "
+                    f"to replace."
                 )
                 yield {
                     "stage": "skipped_video",
@@ -2892,7 +3070,8 @@ class YOLO_octron:
 
             # DEPRECATED
             # if max(video_dict['height'], video_dict['width']) < imgsz:
-            #     print(f"⚠ Video resolution is smaller than the model image size ({imgsz}). Setting retina_masks to False.")
+            #     print(f"⚠ Video resolution is smaller than the model
+            #     image size ({imgsz}). Setting retina_masks to False.")
             #     retina_masks = False
             # else:
             #     retina_masks = True
@@ -2901,10 +3080,12 @@ class YOLO_octron:
             save_dir.mkdir(parents=True, exist_ok=True)
 
             # Set up boxmot tracker
-            gc.collect()  # Encourage garbage collection of any old tracker objects
+            # Encourage garbage collection of any old tracker objects
+            gc.collect()
             is_reid = tracker_config[tracker_id]["is_reid"]
             tracker_parameters = tracker_config[tracker_id]["parameters"]
-            custom_tracker_params = {}  # Transcribe tracker_parameters - only take "current_value"
+            # Transcribe tracker_parameters - only take "current_value"
+            custom_tracker_params = {}
             for param_name, param_config in tracker_parameters.items():
                 assert "current_value" in param_config
                 custom_tracker_params[param_name] = param_config[
@@ -2913,9 +3094,10 @@ class YOLO_octron:
             custom_tracker_params["nr_classes"] = len(model.names)
             per_class = custom_tracker_params.get("per_class", False)
             # Initialize tracker with the custom parameters.
-            # Resolve ReID weights into the OCTRON model cache (config.py) so a
-            # bare filename like 'osnet_x1_0_market1501.pt' is downloaded next to
-            # the YOLO/SAM models.
+            # Resolve ReID weights into the OCTRON model cache
+            # (config.py) so a bare filename like
+            # 'osnet_x1_0_market1501.pt' is downloaded next to the
+            # YOLO/SAM models.
             reid_weights = None
             if is_reid:
                 reid_model = Path(tracker_config[tracker_id]["reid_model"])
@@ -2933,7 +3115,8 @@ class YOLO_octron:
                 evolve_param_dict=custom_tracker_params,
             )
             # Reset any internal state the tracker might have
-            # September 2025: This is currently not handled consistently across BoxMot trackers
+            # September 2025: This is currently not handled
+            # consistently across BoxMot trackers
             # TODO: Follow up on this
             if hasattr(tracker, "reset"):
                 tracker.reset()  # Call reset if available
@@ -2944,7 +3127,8 @@ class YOLO_octron:
             if hasattr(tracker, "tracks"):
                 tracker.tracks = []
 
-            # Prepare prediction stores (segmentation only — detection has no masks)
+            # Prepare prediction stores (segmentation only —
+            # detection has no masks)
             prediction_store = None
             if is_segment:
                 prediction_store_dir = save_dir / "predictions.zarr"
@@ -2966,7 +3150,7 @@ class YOLO_octron:
             mask_stores = {}  # track_id -> zarr array
 
             def _flush_mask_buffer(track_id):
-                """Helper to flush a track's mask buffer to disk."""
+                """Flush a track's mask buffer to disk."""
                 if (
                     track_id not in buffer_counts
                     or buffer_counts[track_id] == 0
@@ -2987,7 +3171,8 @@ class YOLO_octron:
                 mask_buffers[track_id].clear()
                 buffer_counts[track_id] = 0
                 logger.debug(
-                    f"Saved mask buffer for track {track_id} to zarr ({len(frame_indices)} frames)"
+                    f"Saved mask buffer for track {track_id} to zarr "
+                    f"({len(frame_indices)} frames)"
                 )
 
             for frame_no, frame_idx in enumerate(
@@ -2998,13 +3183,15 @@ class YOLO_octron:
 
                 except StopIteration:
                     logger.warning(
-                        f"Could not read frame {frame_idx} from video {video_name}"
+                        f"Could not read frame {frame_idx} from "
+                        f"video {video_name}"
                     )
                     continue
 
-                # Before processing the results, yield progress information
-                # This is because we want this information regardless of whether there
-                # were any detections in the frame
+                # Before processing the results, yield progress
+                # information. This is because we want this
+                # information regardless of whether there were any
+                # detections in the frame
                 # Update timing information
                 frame_time = time.time() - frame_start if frame_no > 0 else 0
                 yield {
@@ -3032,7 +3219,8 @@ class YOLO_octron:
                     conf=conf_thresh,
                     iou=iou_thresh,
                     device=device,
-                    retina_masks=retina_masks,  # original image resolution, not inference resolution
+                    # original image resolution, not inference resolution
+                    retina_masks=retina_masks,
                     save_txt=False,
                     save_conf=False,
                 )
@@ -3108,15 +3296,17 @@ class YOLO_octron:
                     tracked_masks,
                     strict=False,
                 ):
-                    # Figure out if you can use the track_id or whether it needs
-                    # to be replaced - this is a special case for when "1 subject" (one_object_per_label)
-                    # is active
+                    # Figure out if you can use the track_id or
+                    # whether it needs to be replaced - this is a
+                    # special case for when "1 subject"
+                    # (one_object_per_label) is active
 
                     if one_object_per_label or iou_thresh < 0.01:
                         # ! Use 'label' as keys in track_id_label_dict
                         # There is only one object/track ID per label
                         if label in track_id_label_dict:
-                            # Overwrite whatever current track ID is assigned to this label
+                            # Overwrite whatever current track ID is
+                            # assigned to this label
                             track_id = track_id_label_dict[label]
                         else:
                             # Assign a new, custom track ID
@@ -3132,14 +3322,23 @@ class YOLO_octron:
                             label_ = track_id_label_dict[track_id]
                             if label_ != label:
                                 raise IndexError(
-                                    f"Track ID {track_id} - labels do not match: LABEL {label_} =! {label}"
+                                    f"Track ID {track_id} - labels do "
+                                    f"not match: LABEL {label_} =! "
+                                    f"{label}"
                                 )
                                 # This happens in cases
-                                # where the same track ID is assigned to different labels over time
+                                # where the same track ID is assigned
+                                # to different labels over time
                                 # Assign a new track ID
-                                # Get the largest key + 1, or start at 1 if dict is empty
-                                # current_ids = list(track_id_label_dict.keys())
-                                # track_id = (max(current_ids) + 1) if current_ids else 1
+                                # Get the largest key + 1, or start
+                                # at 1 if dict is empty
+                                # current_ids = list(
+                                #     track_id_label_dict.keys()
+                                # )
+                                # track_id = (
+                                #     (max(current_ids) + 1)
+                                #     if current_ids else 1
+                                # )
                                 # track_id_label_dict[track_id] = label
                         else:
                             track_id_label_dict[track_id] = label
@@ -3157,7 +3356,9 @@ class YOLO_octron:
                                 prediction_store,
                                 f"{track_id}_masks",
                                 shape=video_shape,
-                                chunk_size=1,  # 1 frame/chunk: napari reads one frame per seek.
+                                # 1 frame/chunk: napari reads one
+                                # frame per seek.
+                                chunk_size=1,
                                 fill_value=-1,
                                 dtype="int8",
                                 video_hash="",
@@ -3191,16 +3392,19 @@ class YOLO_octron:
                         if is_segment:
                             mask_store = mask_stores[track_id]
 
-                    # Check if a row already exists and compare current confidence with existing one
-                    # This happens if one_object_per_label is True or iou_thresh < 0.01
-                    # and there are multiple detections
+                    # Check if a row already exists and compare
+                    # current confidence with existing one
+                    # This happens if one_object_per_label is True or
+                    # iou_thresh < 0.01 and there are multiple
+                    # detections
                     if (frame_no, frame_idx, track_id) in tracking_df.index:
                         existing_conf = tracking_df.loc[
                             (frame_no, frame_idx, track_id), "confidence"
                         ]
                         if conf <= existing_conf and iou_thresh >= 0.01:
-                            # Skip this detection if a better one already exists
-                            # and we are not fusing masks (iou_thresh > 0)
+                            # Skip this detection if a better one
+                            # already exists and we are not fusing
+                            # masks (iou_thresh > 0)
                             continue
                         else:
                             # Average the confidence values
@@ -3212,7 +3416,8 @@ class YOLO_octron:
                             mask, opening_radius=opening_radius
                         )
                         if iou_thresh < 0.01:
-                            # Fuse this mask with prior mask (if any) from buffer or zarr
+                            # Fuse this mask with prior mask (if any)
+                            # from buffer or zarr
                             if frame_idx in mask_buffers[track_id]:
                                 previous_mask = mask_buffers[track_id][
                                     frame_idx
@@ -3232,7 +3437,8 @@ class YOLO_octron:
                         if buffer_counts[track_id] >= buffer_size:
                             _flush_mask_buffer(track_id)
 
-                    # Store tracking data directly (no buffering for tracking dataframes)
+                    # Store tracking data directly (no buffering for
+                    # tracking dataframes)
                     tracking_df.loc[
                         (frame_no, frame_idx, track_id), "pos_x"
                     ] = (bbox[0] + bbox[2]) / 2
@@ -3263,8 +3469,10 @@ class YOLO_octron:
                         (frame_no, frame_idx, track_id), "confidence"
                     ] = conf
 
-                    # If region_properties or extra_properties are specified, supplement info from regionprops extraction
-                    # (only available for segmentation models with masks)
+                    # If region_properties or extra_properties are
+                    # specified, supplement info from regionprops
+                    # extraction (only available for segmentation
+                    # models with masks)
                     regions_props = None
                     if region_details and is_segment:
                         _, regions_props = find_objects_in_mask(
@@ -3278,7 +3486,8 @@ class YOLO_octron:
                             # Skip if no regions were found
                             continue
 
-                        # Collect property keys (expanded names from regionprops_table)
+                        # Collect property keys (expanded names from
+                        # regionprops_table)
                         _skip = {"label", "centroid"}
                         all_prop_keys = [
                             k for k in regions_props[0] if k not in _skip
@@ -3299,11 +3508,14 @@ class YOLO_octron:
                                     (frame_no, frame_idx, track_id), k
                                 ] = region[k]
                         else:
-                            # Multiple disconnected regions in one detection mask.
-                            # Store a tuple of per-region values as a string so no
-                            # information is lost.  Stored as e.g. "(120.5, 85.3)".
-                            # This avoids pandas dtype conflicts (float columns
-                            # cannot hold tuple objects) and is parsed back by
+                            # Multiple disconnected regions in one
+                            # detection mask.
+                            # Store a tuple of per-region values as a
+                            # string so no information is lost.
+                            # Stored as e.g. "(120.5, 85.3)".
+                            # This avoids pandas dtype conflicts
+                            # (float columns cannot hold tuple
+                            # objects) and is parsed back by
                             # _resolve_tuples() during results loading.
                             idx = (frame_no, frame_idx, track_id)
                             centroids = [r["centroid"] for r in regions_props]
@@ -3329,7 +3541,8 @@ class YOLO_octron:
             for track_id, tr_df in tracking_df_dict.items():
                 label = tr_df.attrs["label"]
                 df_to_save = tr_df.copy()
-                # Add the label column (will be filled with the same value for all rows)
+                # Add the label column (will be filled with the same
+                # value for all rows)
                 df_to_save.insert(0, "label", label)
 
                 # Save to CSV with metadata header
@@ -3340,10 +3553,12 @@ class YOLO_octron:
                 header = [
                     f"video_name: {tr_df.attrs.get('video_name', 'unknown')}",
                     f"frame_count: {tr_df.attrs.get('frame_count', '')}",
-                    f"frame_count_analyzed: {tr_df.attrs.get('frame_count_analyzed', '')}",
+                    f"frame_count_analyzed: "
+                    f"{tr_df.attrs.get('frame_count_analyzed', '')}",
                     f"video_height: {tr_df.attrs.get('video_height', '')}",
                     f"video_width: {tr_df.attrs.get('video_width', '')}",
-                    f"created_at: {tr_df.attrs.get('created_at', str(datetime.now()))}",
+                    f"created_at: "
+                    f"{tr_df.attrs.get('created_at', str(datetime.now()))}",
                     "",  # Empty line for separation
                 ]
 
@@ -3352,13 +3567,16 @@ class YOLO_octron:
                     f.write("\n".join(header) + "\n")
                     df_to_save.to_csv(f, na_rep="NaN", lineterminator="\n")
                 logger.debug(
-                    f"Saved tracking data for '{label}' (track ID: {track_id}) to {filename}"
+                    f"Saved tracking data for '{label}' "
+                    f"(track ID: {track_id}) to {filename}"
                 )
 
-            # Save a json file with all metadata / parameters used for prediction
+            # Save a json file with all metadata / parameters used
+            # for prediction
             json_meta_path = save_dir / "prediction_metadata.json"
 
-            # Prepare model_path for metadata: try to make it relative if project_path is set
+            # Prepare model_path for metadata: try to make it
+            # relative if project_path is set
             meta_model_path_str = model_path.as_posix()
             if self.project_path:
                 # ValueError happens if model_path is not under project_path
@@ -3412,7 +3630,9 @@ class YOLO_octron:
                     "height": video_dict["height"],
                     "width": video_dict["width"],
                     "fps_original": video_dict.get("fps", "unknown"),
-                    "channel_order": "rgb",  # FastVideoReader uses read_format='rgb24'; intensity columns -0, -1, -2 map to R, G, B
+                    # FastVideoReader uses read_format='rgb24';
+                    # intensity columns -0, -1, -2 map to R, G, B
+                    "channel_order": "rgb",
                 },
                 "prediction_parameters": {
                     "model_path": meta_model_path_str,
@@ -3442,7 +3662,8 @@ class YOLO_octron:
                     "reid_model": tracker_config[tracker_id]["reid_model"]
                     if is_reid
                     else None,
-                    "parameters": custom_tracker_params,  # All parameters from evolve_param_dict
+                    # All parameters from evolve_param_dict
+                    "parameters": custom_tracker_params,
                 },
                 "original_model_training_args": model_args
                 if model_args is not None
@@ -3493,18 +3714,22 @@ class YOLO_octron:
         region_properties=None,
         extra_properties=None,
     ):
-        """Create an empty DataFrame for storing tracking data and associated metadata
-        I am using the video_dict to get number of frames that are expected for the
-        tracking dataframe and to store the video metadata in the DataFrame attributes.
+        """Create an empty DataFrame for tracking data and metadata.
+
+        Uses the video_dict to get number of frames that are expected
+        for the tracking dataframe and to store the video metadata in
+        the DataFrame attributes.
 
         Parameters
         ----------
         video_dict : dict
             Dictionary with video metadata including num_frames
         region_properties : list or tuple, optional
-            Region-property columns are added dynamically during prediction (not pre-created),
-            because regionprops_table may expand one property into several columns:
-            Ontensity-based functions expand to one column per image channel (e.g. <name>-0/-1/-2 for RGB).
+            Region-property columns are added dynamically during
+            prediction (not pre-created), because regionprops_table
+            may expand one property into several columns:
+            Ontensity-based functions expand to one column per image
+            channel (e.g. <name>-0/-1/-2 for RGB).
         extra_properties : tuple of callables, optional
             Custom-function columns. Intensity-based functions expand to
             one column per image channel (e.g. <name>-0/-1/-2 for RGB).
@@ -3536,21 +3761,27 @@ class YOLO_octron:
         # regionprops_table may expand a single property into multiple columns
         # (e.g. intensity_mean -> intensity_mean-0, -1, -2 for RGB;
         #        moments_hu    -> moments_hu-0 .. moments_hu-6).
-        # The same applies to intensity-based extra_properties (custom functions):
-        # with a multichannel (RGB) intensity image skimage calls them once per
-        # channel and writes <name>-0/-1/-2, so pre-creating a bare <name> column
-        # would leave it permanently NaN. All region/extra-property columns are
-        # therefore discovered at runtime from the regionprops output and added
-        # to the DataFrame dynamically via .loc (see predict_batch). The
-        # region_properties / extra_properties args are accepted only for API symmetry.
+        # The same applies to intensity-based extra_properties (custom
+        # functions): with a multichannel (RGB) intensity image
+        # skimage calls them once per channel and writes
+        # <name>-0/-1/-2, so pre-creating a bare <name> column would
+        # leave it permanently NaN. All region/extra-property columns
+        # are therefore discovered at runtime from the regionprops
+        # output and added to the DataFrame dynamically via .loc (see
+        # predict_batch). The region_properties / extra_properties
+        # args are accepted only for API symmetry.
 
         # Initialize the DataFrame with NaN values
         df = pd.DataFrame(
             index=pd.MultiIndex.from_product(
                 [
                     list(range(video_dict["num_frames_analyzed"])),
-                    [],  # Empty frame_idx list - will be populated during tracking
-                    [],  # Empty track_id list - will be populated during tracking
+                    # Empty frame_idx list - will be populated
+                    # during tracking
+                    [],
+                    # Empty track_id list - will be populated
+                    # during tracking
+                    [],
                 ],
                 names=["frame_counter", "frame_idx", "track_id"],
             ),
@@ -3575,8 +3806,9 @@ class YOLO_octron:
         sigma_tracking_pos=2,
         open_viewer=True,
     ):
-        """Load the predictions in a OCTRON (YOLO) output directory
-        and optionally display them in a new napari viewer.
+        """Load the predictions in a OCTRON (YOLO) output directory.
+
+        Optionally displays them in a new napari viewer.
 
         Parameters
         ----------
@@ -3646,7 +3878,8 @@ class YOLO_octron:
             else:
                 if not has_masks:
                     logger.warning(
-                        "Detection results — no video or mask dimensions available for viewer background."
+                        "Detection results — no video or mask "
+                        "dimensions available for viewer background."
                     )
                 else:
                     raise ValueError(
@@ -3658,7 +3891,8 @@ class YOLO_octron:
         for track_id, label in track_id_label.items():
             if track_id not in tracking_data:
                 logger.warning(
-                    f"No tracking data for track_id {track_id} (label '{label}'), skipping."
+                    f"No tracking data for track_id {track_id} "
+                    f"(label '{label}'), skipping."
                 )
                 continue
             color, napari_colormap = yolo_results.get_color_for_track_id(

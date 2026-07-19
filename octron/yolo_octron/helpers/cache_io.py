@@ -1,11 +1,11 @@
-"""Helpers for staging prediction output in a local cache directory and moving
-completed results to their final destination.
+"""Stage prediction output in a local cache dir and move it to its destination.
 
 Used by YOLO_octron.predict_batch when a prediction cache directory is
 configured (config.yaml prediction_cache_dir or an explicit override).
-Writing zarr to a local SSD/NVMe cache and moving completed video folders to the
-final destination avoids zarr atomic-write failures on SMB/network shares and
-keeps remote I/O to a single sequential move per video.
+Writing zarr to a local SSD/NVMe cache and moving completed video
+folders to the final destination avoids zarr atomic-write failures on
+SMB/network shares and keeps remote I/O to a single sequential move
+per video.
 """
 
 import os
@@ -14,8 +14,9 @@ from pathlib import Path
 
 
 def is_network_path(path) -> bool:
-    r"""Return True for a UNC / network-share path (\\server\share or //server/share).
+    r"""Return True for a UNC / network-share path.
 
+    Matches paths of the form \\server\share or //server/share.
     Advisory only — used to warn the user, never to change behavior.
     """
     s = str(os.fspath(path)).replace("\\", "/")
