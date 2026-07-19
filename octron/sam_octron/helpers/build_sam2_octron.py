@@ -17,7 +17,7 @@ def build_sam2_octron(
     config_file_path,
     ckpt_path=None,
     mode="eval",
-    hydra_overrides_extra=[],
+    hydra_overrides_extra=None,
     apply_postprocessing=False,
     **kwargs,
 ):
@@ -82,6 +82,8 @@ def build_sam2_octron(
             "discussion."
         )
 
+    if hydra_overrides_extra is None:
+        hydra_overrides_extra = []
     # Hydra configuration
     if hq_mode:
         hydra_overrides = [

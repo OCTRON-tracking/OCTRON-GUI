@@ -1368,7 +1368,7 @@ class octron_widget(QWidget):
             logger.info("No folder selected.")
         return
 
-    def remove_all_layers(self, spare=[]):
+    def remove_all_layers(self, spare=None):
         """Remove all layers from the napari viewer.
 
         Parameters
@@ -1377,7 +1377,9 @@ class octron_widget(QWidget):
             List of layers that should not be removed
 
         """
-        if not isinstance(spare, list):
+        if spare is None:
+            spare = []
+        elif not isinstance(spare, list):
             spare = [spare]
         logger.info(f'Deleting all layers except "{spare}"')
         # First remove mask layers (to avoid dependencies with
@@ -1949,7 +1951,7 @@ class octron_widget(QWidget):
         layer_type: str = "",
         label_suffix: str = "",
         obj_id: int | None = None,
-        obj_color: list[float] = [],
+        obj_color: list[float] | None = None,
     ):
         """Handle clicks on the create annotation layer button.
 
