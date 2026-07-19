@@ -132,7 +132,14 @@ ignore = [
 
 [tool.ruff] # same as https://github.com/neuroinformatics-unit/movement/
 line-length = 79
-exclude = ["__init__.py", "build", ".eggs"]
+exclude = [
+    "__init__.py",
+    "build",
+    ".eggs",
+    # Qt-Designer-generated files (regenerated from octron.ui; edits are lost)
+    "octron/qt_gui/octron.py",
+    "octron/qt_gui/octron_corrected.py",
+]
 fix = true
 
 [tool.ruff.lint]
@@ -140,6 +147,7 @@ fix = true
 ignore = [
     "D203", # one blank line before class
     "D213", # multi-line-summary second line
+    "C901", # complex-structure; re-enable when the big GUI methods are split
 ]
 select = [
     "E",      # pycodestyle errors
@@ -153,11 +161,22 @@ select = [
     "D",      # pydocstyle
     "NPY201", # checks for syntax that was deprecated in numpy2.0
 ]
-per-file-ignores = { "tests/*" = [
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
     "D100", # missing docstring in public module
     "D205", # missing blank line between summary and description
     "D103", # missing docstring in public function
-] }
+]
+"octron/cli.py" = [
+    "B008",  # typer.Option/Argument calls in defaults are the Typer idiom
+    "UP042", # (str, Enum) kept: StrEnum would change str() of members
+]
+# Deliberate late imports (env vars / warning filters / Qt setup first)
+"octron/main.py" = ["E402"]
+"octron/reader.py" = ["E402"]
+"octron/yolo_octron/yolo_octron.py" = ["E402"]
+"octron/sam_octron/helpers/sam_zarr.py" = ["E402"]
+"*.ipynb" = ["E402"] # imports naturally spread across notebook cells
 
 [tool.ruff.format]
 docstring-code-format = true # Also format code in docstrings
@@ -165,6 +184,8 @@ docstring-code-format = true # Also format code in docstrings
 [tool.codespell]
 skip = '.git'
 check-hidden = true
+# Ignore long base64 runs (embedded images in notebook outputs)
+ignore-regex = '[A-Za-z0-9+/=]{40,}'
 
 [tool.tox]
 legacy_tox_ini = """
