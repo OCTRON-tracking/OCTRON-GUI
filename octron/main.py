@@ -145,7 +145,7 @@ class octron_widget(QWidget):
         self.train_mode = "segment"
         self.video_zarr = None
         # Collect zarrs in list so they can be cleaned up upon closing
-        self.all_zarrs = []
+        self.all_zarrs: list = []
         self.prefetcher_worker = None
         self.predictor, self.device = None, None
         self.loaded_model_name = None  # Name of the currently loaded SAM model
@@ -2255,7 +2255,10 @@ def _set_windows_app_id(app_id: str = "OCTRON-tracking.OCTRON") -> None:
     try:
         import ctypes
 
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        # windll only exists on Windows; guarded by os.name above
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined]  # noqa: E501
+            app_id
+        )
     except Exception as e:  # never let a cosmetic taskbar tweak break startup
         logger.debug(f"Could not set Windows AppUserModelID: {e}")
 

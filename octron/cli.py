@@ -116,7 +116,7 @@ def _enum_from_yaml(
         )
         data = {}
 
-    members = {}
+    members: dict[str, str] = {}
     for key, info in data.items():
         if (
             available_only
@@ -137,13 +137,16 @@ def _enum_from_yaml(
         members = {_sanitize_identifier(fallback): fallback}
 
     try:
-        return Enum(name, members, type=str)
+        # mypy cannot type dynamic functional Enum creation
+        return Enum(name, members, type=str)  # type: ignore[return-value]
     except Exception as e:
         logger.warning(
             f"Could not build {name} from '{yaml_path}': {e}. Falling back."
         )
         fb = fallback if fallback is not None else next(iter(members.values()))
-        return Enum(name, {_sanitize_identifier(fb): fb}, type=str)
+        return Enum(  # type: ignore[return-value]
+            name, {_sanitize_identifier(fb): fb}, type=str
+        )
 
 
 # The CLI choice enums are built dynamically from the YAML catalogs so the

@@ -298,7 +298,7 @@ class ObjectOrganizer(BaseModel):
         """Save the object organizer to disk as JSON."""
         file_path = Path(file_path)
         # Create a copy of the data without non-serializable objects
-        serializable_data = {
+        serializable_data: dict = {
             "entries": {},
             "settings": self.settings,
             # Add current timestamp in ISO format

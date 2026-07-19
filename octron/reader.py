@@ -36,12 +36,13 @@ def octron_reader(path: "PathOrPaths") -> Optional["ReaderFunction"]:
         Function to read the file or folder.
 
     """
-    path = Path(path)
-    if path.is_dir() and path.exists():
-        return read_octron_folder
-
-    if path.is_file() and path.exists():
-        return read_octron_file
+    if isinstance(path, str | Path):
+        p = Path(path)
+        if p.is_dir() and p.exists():
+            return read_octron_folder
+        if p.is_file() and p.exists():
+            return read_octron_file
+    return None
 
 
 def read_octron_file(path: "PathOrPaths") -> list["LayerData"]:
@@ -50,9 +51,10 @@ def read_octron_file(path: "PathOrPaths") -> list["LayerData"]:
     return [(None,)]
 
 
-def read_octron_folder(path: "Path") -> list["LayerData"]:
+def read_octron_folder(path: "PathOrPaths") -> list["LayerData"]:
     """Handle a folder dropped onto napari (predictions or videos)."""
-    path = Path(path)
+    # octron_reader only returns this for single str/Path folder inputs
+    folder = Path(path)  # type: ignore[arg-type]
     # Check what kind of folder you are dealing with.
     # There are three options:
     # A. Octron project folder
@@ -67,16 +69,16 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
 
     # Case C
     # Check if the folder has .csv files AND a prediction_metadata.json
-    csvs = list(path.glob("*.csv"))
-    prediction_metadata = path / "prediction_metadata.json"
+    csvs = list(folder.glob("*.csv"))
+    prediction_metadata = folder / "prediction_metadata.json"
     if csvs and prediction_metadata.exists():
-        logger.info(f"Detected OCTRON prediction folder: {path}")
+        logger.info(f"Detected OCTRON prediction folder: {folder}")
         # Load predictions
         from octron.yolo_octron.yolo_octron import YOLO_octron
 
         yolo_octron = YOLO_octron()
         for label, track_id, _, _, _, _ in yolo_octron.load_predictions(
-            save_dir=path,
+            save_dir=folder,
             sigma_tracking_pos=2,  # Fixed for now
         ):
             logger.debug(
@@ -107,7 +109,7 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
     # Find all video files in the folder
     video_files = []
     for fmt in video_formats:
-        video_files.extend(list(path.glob(f"*{fmt}")))
+        video_files.extend(list(folder.glob(f"*{fmt}")))
     if video_files:
         video_files = sorted(
             list(set(video_files))
@@ -115,7 +117,7 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
 
     # If we found video files, offer to transcode them
     if video_files:
-        logger.info(f"Found {len(video_files)} transcodable files in {path}")
+        logger.info(f"Found {len(video_files)} transcodable files in {folder}")
 
         # Create a dialog for transcoding options
         from qtpy.QtCore import QSize, Qt
@@ -274,10 +276,10 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
 
             # Create output folder if needed
             if create_subfolder:
-                output_folder = path / "mp4_transcoded"
+                output_folder = folder / "mp4_transcoded"
                 output_folder.mkdir(exist_ok=True)
             else:
-                output_folder = path
+                output_folder = folder
 
             fps_info = (
                 f"{fps_value} fps"
