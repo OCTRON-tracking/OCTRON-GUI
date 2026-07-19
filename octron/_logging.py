@@ -1,8 +1,9 @@
 """Central logging configuration for OCTRON.
 
 All modules import `from loguru import logger` and use it directly.
-Call `setup_logging()` once at startup (from the GUI entry point or CLI callback).
-The CLI branch can pass `debug=True` to enable DEBUG-level output.
+Call `setup_logging()` once at startup (from the GUI entry point or CLI
+callback). The CLI branch can pass `debug=True` to enable DEBUG-level
+output.
 """
 
 import sys

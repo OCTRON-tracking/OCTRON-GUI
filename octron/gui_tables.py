@@ -1,29 +1,31 @@
-# QT Table views
-# This is used in OCTRON for example in the project data view to display the label data in a table view
+"""QT Table views.
+
+This is used in OCTRON for example in the project data view to display
+the label data in a table view.
+"""
+
 from pathlib import Path
 
 from qtpy.QtCore import QAbstractTableModel, Qt, Signal
 
-# from qtpy.QtGui import QFont # Skip for now since font is unchanged (see commented )
+# from qtpy.QtGui import QFont # Skip for now since font is unchanged
+# (see commented )
 
 
 class ExistingDataTable(QAbstractTableModel):
-    """Table model for displaying label data that
-    has been found in .json organizer files
-    via the collect_labels() function.
+    """Table model for label data found via collect_labels().
 
-    The goal is to present the user with a table view
-    of already existing labeled data throughout a project
+    Label data is found in .json organizer files via the
+    collect_labels() function. The goal is to present the user with a
+    table view of already existing labeled data throughout a project
     folder.
-
-
-
     """
 
     # Add a signal for double-click events
     doubleClicked = Signal(str)
 
     def __init__(self, label_dict=None):
+        """Initialize the table model from a label dictionary."""
         super().__init__()
         self.label_dict = label_dict or {}
         self.headers = ["Folder name", "Video name", "# Labels", "# Frames"]
@@ -88,12 +90,15 @@ class ExistingDataTable(QAbstractTableModel):
         self.endResetModel()
 
     def rowCount(self, parent=None):
+        """Return the number of rows in the table."""
         return len(self._data)
 
     def columnCount(self, parent=None):
+        """Return the number of columns in the table."""
         return len(self.headers)
 
     def data(self, index, role=Qt.DisplayRole):
+        """Return the data for the given index and role."""
         if not index.isValid() or not (0 <= index.row() < len(self._data)):
             return None
 
@@ -125,12 +130,13 @@ class ExistingDataTable(QAbstractTableModel):
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
+        """Return the header label for the given section."""
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             return self.headers[section]
         return None
 
     def remove_row(self, row):
-        """Remove a row from the model and its corresponding entry from label_dict."""
+        """Remove a row from the model and its entry from label_dict."""
         if not (0 <= row < len(self._data)):
             return None
         self.beginResetModel()

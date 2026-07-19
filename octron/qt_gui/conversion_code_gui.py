@@ -1,12 +1,13 @@
-# Code to correct the octron.py file
-# that is created when running
-# uic -g python octron.ui > octron.py
+"""Code to correct the octron.py file.
 
-# Rational: The octron.py contains some errors that need to be corrected.
-# Some of the changes that need to be made are:
-# - Replace PySide2 imports with qtpy imports
-# - Replace "octron_widgetui" with "self" when used as a parameter
-# - Add "qt_gui/" in front of every SVG path
+That is created when running ``uic -g python octron.ui > octron.py``.
+
+Rational: The octron.py contains some errors that need to be corrected.
+Some of the changes that need to be made are:
+- Replace PySide2 imports with qtpy imports
+- Replace "octron_widgetui" with "self" when used as a parameter
+- Add "qt_gui/" in front of every SVG path
+"""
 
 import re
 
@@ -45,7 +46,8 @@ content = re.sub(
 content = re.sub(r"\boctron_widgetui\b", "self", content)
 
 # Add base_path in front of 'qt_gui/' within every SVG path in the strings,
-# with the variable appearing as {base_path} using an f-string with double braces.
+# with the variable appearing as {base_path} using an f-string with
+# double braces.
 content = re.sub(
     r'\bu"([^"]*\.svg")',
     lambda m: f'f"{{base_path}}/qt_gui/{m.group(1)}',
@@ -74,8 +76,10 @@ content = re.sub(
 )
 
 
-# Convert every "self." underneath the setupUi header to "self.octron." for the entire function body.
-# This pattern captures the function header and the complete body until the next top-level definition or EOF.
+# Convert every "self." underneath the setupUi header to "self.octron."
+# for the entire function body. This pattern captures the function
+# header and the complete body until the next top-level definition or
+# EOF.
 content = re.sub(
     r"(def setupUi\(self, base_path\):\n)([\s\S]+?)(?=^def |\Z)",
     lambda m: (
@@ -86,14 +90,16 @@ content = re.sub(
     flags=re.MULTILINE,
 )
 
-# Replace the video_file_drop_widget assignment line with the desired replacement.
+# Replace the video_file_drop_widget assignment line with the desired
+# replacement.
 content = re.sub(
     r"self\.octron\.video_file_drop_widget\s*=\s*QWidget\(self\.octron\.project_video_drop_groupbox\)",
     "self.octron.video_file_drop_widget = Mp4DropWidget()",
     content,
 )
 
-# Replace the video_file_drop_widget assignment for YOLO predict line with the desired replacement.
+# Replace the video_file_drop_widget assignment for YOLO predict line
+# with the desired replacement.
 content = re.sub(
     r"self\.octron\.predict_video_drop_widget\s*=\s*QWidget\(self\.octron\.predict_video_drop_groupbox\)",
     "self.octron.predict_video_drop_widget = Mp4DropWidget()",

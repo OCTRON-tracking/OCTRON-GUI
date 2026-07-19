@@ -1,4 +1,5 @@
-# All main GUI elements
+"""All main GUI elements."""
+
 import pathlib
 from importlib.metadata import version
 
@@ -33,10 +34,14 @@ __version__ = version("octron")
 
 
 class Mp4DropWidget(QWidget):
-    # Signal emitted when one or more mp4 files are dropped; sends list of file paths.
+    """Widget accepting MP4 files via drag-and-drop or a file dialog."""
+
+    # Signal emitted when one or more mp4 files are dropped; sends list
+    # of file paths.
     fileDropped = Signal(list)
 
     def __init__(self, parent=None, callback=None):
+        """Initialize the widget and its drop-target layout."""
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.callback = callback
@@ -51,9 +56,11 @@ class Mp4DropWidget(QWidget):
         self.setAutoFillBackground(True)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
+        """Accept the drag if it carries at least one .mp4 file URL."""
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            # Accept the event if any file URL ends with .mp4 (case insensitive)
+            # Accept the event if any file URL ends with .mp4 (case
+            # insensitive)
             for url in urls:
                 if url.isLocalFile() and url.toLocalFile().lower().endswith(
                     ".mp4"
@@ -63,6 +70,7 @@ class Mp4DropWidget(QWidget):
         event.ignore()
 
     def dropEvent(self, event: QDropEvent):
+        """Collect dropped .mp4 paths and emit them via fileDropped."""
         files = []
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
@@ -78,6 +86,7 @@ class Mp4DropWidget(QWidget):
         event.acceptProposedAction()
 
     def mousePressEvent(self, event):
+        """Open a file dialog to pick an MP4 file on left-click."""
         if event.button() == Qt.LeftButton:
             file, _ = QFileDialog.getOpenFileName(
                 self, "Select MP4 file", "", "MP4 Files (*.mp4)"
@@ -92,8 +101,10 @@ class Mp4DropWidget(QWidget):
 
 
 class octron_gui_elements(QWidget):
+    """Build and hold all Qt widgets for the OCTRON main window."""
+
     def __init__(self, parent: QWidget, base_path: pathlib.Path):
-        """Initializes the GUI elements for the OCTRON application.
+        """Initialize the GUI elements for the OCTRON application.
 
         Parameters
         ----------
@@ -113,8 +124,9 @@ class octron_gui_elements(QWidget):
         self.octron.setWindowTitle(f"OCTRON v{__version__}")
         self.octron.setObjectName(f"OCTRON v{__version__}")
 
-    ###### GUI SETUP CODE FROM QT DESIGNER ############################################################
+    ###### GUI SETUP CODE FROM QT DESIGNER ##############################
     def setupUi(self, base_path):
+        """Build and lay out every widget of the OCTRON main window."""
         if not self.octron.objectName():
             self.octron.setObjectName("self")
         self.octron.setEnabled(True)
@@ -2122,7 +2134,8 @@ class octron_gui_elements(QWidget):
         self.octron.sam3detect_thresh.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "SAM3 multi only: Detection threshold for objects (0-1). Default is 0.5.",
+                "SAM3 multi only: Detection threshold for objects (0-1). "
+                "Default is 0.5.",
                 None,
             )
         )
@@ -2221,7 +2234,8 @@ class octron_gui_elements(QWidget):
         self.octron.create_projection_layer_btn.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "Create an average projection out of all segmented images for the current label",
+                "Create an average projection out of all segmented images for "
+                "the current label",
                 None,
             )
         )
@@ -2238,7 +2252,8 @@ class octron_gui_elements(QWidget):
                 "self",
                 "Hard reset of the predictor.\n"
                 "Use this if prediction is not working well for you.\n"
-                "This will delete the masks on the current frame but no other (already annotated) frame.",
+                "This will delete the masks on the current frame but no other "
+                "(already annotated) frame.",
                 None,
             )
         )
@@ -2276,7 +2291,8 @@ class octron_gui_elements(QWidget):
         self.octron.batch_predict_progressbar.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "<html><head/><body><p>Batch predict progress bar</p></body></html>",
+                "<html><head/><body><p>Batch predict progress "
+                "bar</p></body></html>",
                 None,
             )
         )
@@ -2352,7 +2368,8 @@ class octron_gui_elements(QWidget):
         self.octron.detection_radiobutton.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "Click this, if you want to train (lightweight) detection models only\n"
+                "Click this, if you want to train (lightweight) detection "
+                "models only\n"
                 "that yield bboxes, but NO masks.",
                 None,
             )
@@ -2368,7 +2385,8 @@ class octron_gui_elements(QWidget):
         self.octron.train_polygons_overall_progressbar.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "<html><head/><body><p>Batch predict progress bar</p></body></html>",
+                "<html><head/><body><p>Batch predict progress "
+                "bar</p></body></html>",
                 None,
             )
         )
@@ -2380,7 +2398,8 @@ class octron_gui_elements(QWidget):
         self.octron.train_polygons_frames_progressbar.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "<html><head/><body><p>Batch predict progress bar</p></body></html>",
+                "<html><head/><body><p>Batch predict progress "
+                "bar</p></body></html>",
                 None,
             )
         )
@@ -2395,7 +2414,8 @@ class octron_gui_elements(QWidget):
         self.octron.train_export_overall_progressbar.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "<html><head/><body><p>Batch predict progress bar</p></body></html>",
+                "<html><head/><body><p>Batch predict progress "
+                "bar</p></body></html>",
                 None,
             )
         )
@@ -2407,7 +2427,8 @@ class octron_gui_elements(QWidget):
         self.octron.train_export_frames_progressbar.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "<html><head/><body><p>Batch predict progress bar</p></body></html>",
+                "<html><head/><body><p>Batch predict progress "
+                "bar</p></body></html>",
                 None,
             )
         )
@@ -2435,7 +2456,8 @@ class octron_gui_elements(QWidget):
         self.octron.train_data_watershed_checkBox.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "Enable watershed on mask data. This helps to separate masks that \n"
+                "Enable watershed on mask data. This helps to separate "
+                "masks that \n"
                 "are on the same layer and carry the same label assignment,\n"
                 "but should be separate entities in the training data.",
                 None,
@@ -2528,7 +2550,8 @@ class octron_gui_elements(QWidget):
         self.octron.train_epochs_progressbar.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "<html><head/><body><p>Batch predict progress bar</p></body></html>",
+                "<html><head/><body><p>Batch predict progress "
+                "bar</p></body></html>",
                 None,
             )
         )
@@ -2582,7 +2605,8 @@ class octron_gui_elements(QWidget):
         self.octron.predict_overall_progressbar.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "<html><head/><body><p>Batch predict progress bar</p></body></html>",
+                "<html><head/><body><p>Batch predict progress "
+                "bar</p></body></html>",
                 None,
             )
         )
@@ -2594,7 +2618,8 @@ class octron_gui_elements(QWidget):
         self.octron.predict_current_video_progressbar.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "<html><head/><body><p>Batch predict progress bar</p></body></html>",
+                "<html><head/><body><p>Batch predict progress "
+                "bar</p></body></html>",
                 None,
             )
         )
@@ -2622,7 +2647,8 @@ class octron_gui_elements(QWidget):
                 "self",
                 "Perform morphological opening of predicted masks?\n"
                 "Opens regions when > 0.0.\n"
-                "This gets rid of some noise in the detected regions, but slows down analysis quite a bit.",
+                "This gets rid of some noise in the detected regions, but "
+                "slows down analysis quite a bit.",
                 None,
             )
         )
@@ -2634,8 +2660,10 @@ class octron_gui_elements(QWidget):
         self.octron.prediction_iou_label.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "Intersection over union. This threshold determines how much overlap between bounding boxes\n"
-                "is allowed before they are considered to be detecting the same object.\n"
+                "Intersection over union. This threshold determines how "
+                "much overlap between bounding boxes\n"
+                "is allowed before they are considered to be detecting "
+                "the same object.\n"
                 "At IOU=0 all detected objects > conf. thresh\n"
                 "of one label will be fused into one mask.",
                 None,
@@ -2649,7 +2677,8 @@ class octron_gui_elements(QWidget):
         self.octron.prediction_conf_thresh_label.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "Confidence threshold for accepting prediction results as real",
+                "Confidence threshold for accepting prediction "
+                "results as real",
                 None,
             )
         )
@@ -2661,7 +2690,8 @@ class octron_gui_elements(QWidget):
         self.octron.prediction_skip_label.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "Skip frames in videos? 0: All frames are analyzed, >0: This many frames are being skipped. ",
+                "Skip frames in videos? 0: All frames are analyzed, >0: "
+                "This many frames are being skipped. ",
                 None,
             )
         )
@@ -2674,8 +2704,10 @@ class octron_gui_elements(QWidget):
             QCoreApplication.translate(
                 "self",
                 "Extract more info per region than just its coordinates?\n"
-                "Click this if you want properties like area, eccentricity, solidity etc. to be determined for each region.\n"
-                "This slows down analysis, but gives you much more info per tracked region.",
+                "Click this if you want properties like area, eccentricity, "
+                "solidity etc. to be determined for each region.\n"
+                "This slows down analysis, but gives you much more info "
+                "per tracked region.",
                 None,
             )
         )
@@ -2736,7 +2768,8 @@ class octron_gui_elements(QWidget):
         self.octron.videos_for_prediction_list.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "List of videos that will be analyzed, in order of processing.\n"
+                "List of videos that will be analyzed, in order of "
+                "processing.\n"
                 'Click on "Remove" in dropdown to remove videos from list.',
                 None,
             )
@@ -2755,7 +2788,8 @@ class octron_gui_elements(QWidget):
         self.octron.yolomodel_trained_list.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "OCTRON user trained models that are found in the project path",
+                "OCTRON user trained models that are found in the "
+                "project path",
                 None,
             )
         )
@@ -2767,7 +2801,8 @@ class octron_gui_elements(QWidget):
         self.octron.single_subject_checkBox.setToolTip(
             QCoreApplication.translate(
                 "self",
-                "Click this if you expect only one subject to be tracked per label.\n"
+                "Click this if you expect only one subject to be tracked "
+                "per label.\n"
                 "This prevents artificial splitting of tracks.",
                 None,
             )

@@ -1,3 +1,5 @@
+"""Napari reader plugin hooks for OCTRON project folders and files."""
+
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Optional
@@ -20,6 +22,7 @@ from loguru import logger
 
 def octron_reader(path: "PathOrPaths") -> Optional["ReaderFunction"]:
     """OCTRON napari reader.
+
     Accepts OCTRON project folders.
 
     Parameters
@@ -42,12 +45,13 @@ def octron_reader(path: "PathOrPaths") -> Optional["ReaderFunction"]:
 
 
 def read_octron_file(path: "PathOrPaths") -> list["LayerData"]:
-    """Single file reads that are dropped in the main window are not supported."""
+    """Reject single file drops on the main window (unsupported)."""
     show_error("Single file drops to main window are not supported")
     return [(None,)]
 
 
 def read_octron_folder(path: "Path") -> list["LayerData"]:
+    """Handle a folder dropped onto napari (predictions or videos)."""
     path = Path(path)
     # Check what kind of folder you are dealing with.
     # There are three options:
@@ -76,7 +80,8 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
             sigma_tracking_pos=2,  # Fixed for now
         ):
             logger.debug(
-                f"Adding tracking result to viewer | Label: {label}, Track ID: {track_id}"
+                f"Adding tracking result to viewer | Label: {label}, "
+                f"Track ID: {track_id}"
             )
         return [(None,)]
 
@@ -137,7 +142,8 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
         # Add description
         layout.addWidget(
             QLabel(
-                f"Found {len(video_files)} inputs. Select which to transcode to mp4:"
+                f"Found {len(video_files)} inputs. Select which to "
+                f"transcode to mp4:"
             )
         )
 
@@ -196,7 +202,8 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
         fps_check.setChecked(False)
         fps_check.setToolTip(
             "Set output framerate.\n"
-            "Videos: reinterprets source frames at this fps, changing playback speed\n"
+            "Videos: reinterprets source frames at this fps, changing "
+            "playback speed\n"
             "  (e.g. 10 fps source → 100 fps = plays 10x faster).\n"
             "  Leave unchecked to keep original playback speed.\n"
             "TIFFs: sets the playback fps of the output (default 20 fps)."
@@ -240,8 +247,9 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
 
         # Show dialog and wait for user input
         if dialog.exec_():
-            # User clicked OK, process the selected inputs through the shared
-            # GUI-free transcode helper (same code path as the `octron transcode` CLI).
+            # User clicked OK, process the selected inputs through the
+            # shared GUI-free transcode helper (same code path as the
+            # `octron transcode` CLI).
             from octron.tools.transcode import (
                 detect_h264_encoder,
                 transcode_one,
@@ -277,11 +285,13 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
                 else "source fps (videos) / 20 fps (TIFFs)"
             )
             logger.info(
-                f"Transcoding {len(selected_videos)} inputs to MP4 | CRF: {crf_value} | Framerate: {fps_info}"
+                f"Transcoding {len(selected_videos)} inputs to MP4 | "
+                f"CRF: {crf_value} | Framerate: {fps_info}"
             )
 
-            # Detect the encoder once up front (raises if ffmpeg/H.264 is missing).
-            # Transcode standardises on libx264 for reproducible, compatible output.
+            # Detect the encoder once up front (raises if ffmpeg/H.264 is
+            # missing). Transcode standardises on libx264 for
+            # reproducible, compatible output.
             try:
                 encoder = detect_h264_encoder(prefer_hardware=False)
             except RuntimeError as e:
@@ -300,7 +310,8 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
                 # Check if file exists and overwrite is not selected
                 if not overwrite_existing and output_path.exists():
                     logger.info(
-                        f"Skipped: '{output_path.name}' already exists and overwrite is disabled."
+                        f"Skipped: '{output_path.name}' already exists "
+                        f"and overwrite is disabled."
                     )
                     continue
 
@@ -317,7 +328,8 @@ def read_octron_folder(path: "Path") -> list["LayerData"]:
 
             # Report final results
             logger.info(
-                f"Successfully transcoded {successful}/{len(selected_videos)} inputs"
+                f"Successfully transcoded {successful}/"
+                f"{len(selected_videos)} inputs"
             )
 
         return [(None,)]

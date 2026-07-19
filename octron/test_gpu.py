@@ -1,4 +1,5 @@
-# Simple script to check the availability of a GPU on the system.
+"""Simple script to check the availability of a GPU on the system."""
+
 from loguru import logger
 
 from octron._logging import print_welcome, setup_logging

@@ -1,7 +1,4 @@
-"""OCTRON
-Main GUI file.
-
-"""
+"""OCTRON main GUI file."""
 
 import os
 import sys
@@ -108,8 +105,8 @@ from octron.yolo_octron.helpers.training import (
 )
 from octron.yolo_octron.yolo_octron import YOLO_octron
 
-# If there's already a QApplication instance (as may be the case when running as a napari plugin),
-# then set its style explicitly:
+# If there's already a QApplication instance (as may be the case when
+# running as a napari plugin), then set its style explicitly:
 # Enable high DPI support
 if hasattr(Qt, "AA_EnableHighDpiScaling"):
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
@@ -117,24 +114,28 @@ if hasattr(Qt, "AA_UseHighDpiPixmaps"):
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 app = QApplication.instance()
 if app is not None:
-    # This is a hack to get the style to look similar on darwin and windows systems
-    # for the ToolBox widget
+    # This is a hack to get the style to look similar on darwin and
+    # windows systems for the ToolBox widget
     app.setStyle(QStyleFactory.create("Fusion"))
 
 
 class octron_widget(QWidget):
     """Main OCTRON widget class.
-    It contains SAM2 methods for now.
-    All YOLO methods are in the YoloHandler class, to be found in yolo_octron/gui/yolo_handler.py.
+
+    It contains SAM2 methods for now. All YOLO methods are in the
+    YoloHandler class, to be found in yolo_octron/gui/yolo_handler.py.
     """
 
     def __init__(self, viewer: "napari.viewer.Viewer", parent=None):
+        """Initialize state, load SAM2 models, and build the GUI."""
         super().__init__(parent)
         base_path_parent = base_path  # TODO: Get rid of this path madness
         self.base_path = Path(os.path.abspath(__file__)).parent
         self._viewer = viewer
         self.app = QApplication.instance()
-        self.remove_all_layers()  # Aggressively delete all pre-existing layers in the viewer ...🪦 muahaha
+        # Aggressively delete all pre-existing layers in the viewer ...🪦
+        # muahaha
+        self.remove_all_layers()
 
         # Initialize some variables
         self.project_path = None  # Main project path that the user selects
@@ -143,7 +144,8 @@ class octron_widget(QWidget):
         self.current_video_hash = None  # Hashed video file
         self.train_mode = "segment"
         self.video_zarr = None
-        self.all_zarrs = []  # Collect zarrs in list so they can be cleaned up upon closing
+        # Collect zarrs in list so they can be cleaned up upon closing
+        self.all_zarrs = []
         self.prefetcher_worker = None
         self.predictor, self.device = None, None
         self.loaded_model_name = None  # Name of the currently loaded SAM model
@@ -154,7 +156,9 @@ class octron_widget(QWidget):
         self.layer_to_remove_idx = None  # Index of layer to remove
         self.layer_to_remove = None  # The actual layer to remove
         # ... and some parameters
-        self.chunk_size = 15  # Global parameter valid for both creation of zarr array and batch prediction
+        # Global parameter valid for both creation of zarr array and
+        # batch prediction
+        self.chunk_size = 15
         # For zarr arrays I set the minimum to ~50 frames for now
         self.skip_frames = 1  # Skip frames for prefetching images
 
@@ -242,10 +246,10 @@ class octron_widget(QWidget):
         )
         print(f"OCTRON GUI v{octron_version} initialized")
 
-    ###################################################################################################
+    ###########################################################
 
     def gui_callback_functions(self):
-        """Connect all callback functions to buttons and lists in the main GUI."""
+        """Connect all callback functions to buttons/lists in the GUI."""
         # Global layer insertion callback
         self._viewer.layers.events.inserted.connect(self.consolidate_layers)
 
@@ -310,7 +314,8 @@ class octron_widget(QWidget):
         self.label_list_combobox.currentIndexChanged.connect(
             self.on_label_change
         )
-        # Upon start, disable some of the toolbox tabs and functionality for video drop
+        # Upon start, disable some of the toolbox tabs and functionality
+        # for video drop
         self.project_video_drop_groupbox.setEnabled(False)
         self.main_toolbox.widget(1).setEnabled(False)  # Annotation
         self.main_toolbox.widget(2).setEnabled(False)  # Training
@@ -319,7 +324,8 @@ class octron_widget(QWidget):
         # Disable layer annotation until SAM2 model is loaded
         self.annotate_layer_create_groupbox.setEnabled(False)
 
-        # Disable SAM3 detection threshold until a SAM3 semantic model is loaded
+        # Disable SAM3 detection threshold until a SAM3 semantic model
+        # is loaded
         self.sam3detect_thresh.setEnabled(False)
         self.threshold_label.setEnabled(False)
 
@@ -336,14 +342,15 @@ class octron_widget(QWidget):
         self.app.lastWindowClosed.connect(self.closeEvent)
 
     def _update_train_mode_indicators(self, color):
-        """Update the colored square indicators on the generate and train groupboxes."""
+        """Update the colored square indicators on the train groupboxes."""
         icon = create_color_icon(color, size=14)
         pixmap = icon.pixmap(14, 14)
         self.generate_mode_indicator.setPixmap(pixmap)
         self.train_mode_indicator.setPixmap(pixmap)
 
     def on_train_mode_changed(self, checked):
-        """Callback triggered when the segmentation/detection radiobutton is toggled.
+        """Handle toggling of the segmentation/detection radiobutton.
+
         Updates self.train_mode, groupbox titles, and color indicators.
         """
         if checked:
@@ -363,7 +370,7 @@ class octron_widget(QWidget):
         logger.info(f"Train mode set to: {self.train_mode}")
 
     def on_toolbox_tab_changed(self, index):
-        """Callback triggered when a different tab is selected in the toolBox.
+        """Handle selection of a different tab in the toolBox.
 
         Parameters
         ----------
@@ -375,12 +382,13 @@ class octron_widget(QWidget):
             # When the first tab (project tab, index 0) is clicked,
             self.refresh_label_table_list(delete_old=False)
 
-    ###### SAM SPECIFIC CALLBACKS ####################################################################
+    ###### SAM SPECIFIC CALLBACKS #######################################
 
     def _check_model_data_compatibility(self, model_name):
-        """Check whether the model being loaded is compatible with existing
-        annotation data.  SAM2 models operate at 1024×1024 while SAM3 models
-        operate at 1008×1008 – the two are not interchangeable.
+        """Check whether the loading model is compatible with existing data.
+
+        SAM2 models operate at 1024×1024 while SAM3 models operate at
+        1008×1008 – the two are not interchangeable.
 
         The check reads the existing ``video data.zarr`` (which stores
         preprocessed images at the model's resolution) and compares its
@@ -421,7 +429,8 @@ class octron_widget(QWidget):
             existing_image_size = existing_shape[2]
         except Exception as e:
             logger.warning(
-                f"Warning: could not read existing zarr for compatibility check: {e}"
+                f"Warning: could not read existing zarr for "
+                f"compatibility check: {e}"
             )
             return True
 
@@ -432,14 +441,17 @@ class octron_widget(QWidget):
         new_family = "SAM3" if is_sam3 else "SAM2"
         show_error(
             f"Model incompatibility: existing annotations were created with "
-            f"{existing_family} ({existing_image_size}x{existing_image_size}). "
-            f"Cannot load {new_family} model ({new_image_size}x{new_image_size}). "
-            f"SAM2 and SAM3 use different image resolutions and are not interchangeable."
+            f"{existing_family} "
+            f"({existing_image_size}x{existing_image_size}). Cannot load "
+            f"{new_family} model ({new_image_size}x{new_image_size}). SAM2 "
+            f"and SAM3 use different image resolutions and are not "
+            f"interchangeable."
         )
         return False
 
     def load_model(self, model_name=""):
-        """Dispatcher: load the selected model from the dropdown.
+        """Dispatch loading of the selected model from the dropdown.
+
         Delegates to load_sam2model or load_sam3model depending on
         whether the selected name belongs to SAM2 or SAM3.
         """
@@ -465,14 +477,17 @@ class octron_widget(QWidget):
         self,
         model_name="",
     ):
-        """Load the selected SAM2 model and enable the batch prediction button,
-        setting the progress bar to the chunk size and the button text to predict next chunk size.
+        """Load the selected SAM2 model and enable batch prediction.
+
+        Sets the progress bar to the chunk size and the button text to
+        predict next chunk size.
 
         Parameters
         ----------
         model_name : str
-            The name of the SAM2 model to load. If None, the currently selected model in the dropdown list is used.
-            If no model is selected, the function returns without doing anything.
+            The name of the SAM2 model to load. If None, the currently
+            selected model in the dropdown list is used. If no model is
+            selected, the function returns without doing anything.
 
         """
         if not model_name:
@@ -496,8 +511,9 @@ class octron_widget(QWidget):
         self._cleanup_predictor()
         model = self.sam2models_dict[model_id]
         config_path = Path(model["config_path"])
-        # Checkpoints live in the per-user cache (config.get_sam_checkpoints_dir),
-        # where check_sam2_models downloads them.
+        # Checkpoints live in the per-user cache
+        # (config.get_sam_checkpoints_dir), where check_sam2_models
+        # downloads them.
         from octron.config import get_sam_checkpoints_dir
 
         checkpoint_path = (
@@ -513,7 +529,7 @@ class octron_widget(QWidget):
         self._on_model_loaded(model_name)
 
     def load_sam3model(self, model_name=""):
-        """Load the selected SAM3 model (Mode A or Mode B) and enable prediction controls.
+        """Load the SAM3 model (Mode A or Mode B) and enable prediction.
 
         Parameters
         ----------
@@ -540,8 +556,9 @@ class octron_widget(QWidget):
         logger.info(f"Loading SAM3 model {model_id}")
         self._cleanup_predictor()
         model = self.sam3models_dict[model_id]
-        # Checkpoints live in the per-user cache (config.get_sam_checkpoints_dir),
-        # where check_sam3_models downloads them.
+        # Checkpoints live in the per-user cache
+        # (config.get_sam_checkpoints_dir), where check_sam3_models
+        # downloads them.
         from octron.config import get_sam_checkpoints_dir
 
         checkpoint_path = (
@@ -575,8 +592,8 @@ class octron_widget(QWidget):
             QMessageBox.information(
                 self,
                 "SAM3 Multi — Workflow",
-                "SAM3 Multi is a heavy model that accepts multiple box prompts "
-                "at once.\n\n"
+                "SAM3 Multi is a heavy model that accepts multiple box "
+                "prompts at once.\n\n"
                 "Workflow:\n"
                 "1. Draw one or more rectangles on the canvas.\n"
                 '2. Click "▷ Run" to detect objects.\n'
@@ -584,8 +601,10 @@ class octron_widget(QWidget):
             )
 
     def _on_model_loaded(self, model_name):
-        """Common post-load setup shared by SAM2 and SAM3.
-        Disables the dropdown, enables prediction controls, starts zarr prefetcher.
+        """Run post-load setup shared by SAM2 and SAM3.
+
+        Disables the dropdown, enables prediction controls, starts
+        zarr prefetcher.
         """
         self.loaded_model_name = model_name
         # Deactivate the dropdown menu upon successful model loading
@@ -609,8 +628,8 @@ class octron_widget(QWidget):
         self.predict_next_batch_btn.setEnabled(False)
 
         # Check if you can create a zarr store for video
-        # Creating a zarr store for the video is only possible if a video has been loaded
-        # AND a model has been loaded
+        # Creating a zarr store for the video is only possible if a
+        # video has been loaded AND a model has been loaded
         self.init_zarr_prefetcher_threaded()
         # Enable the annotation layer creation tab
         self.annotate_layer_create_groupbox.setEnabled(True)
@@ -663,7 +682,7 @@ class octron_widget(QWidget):
         logger.info("Predictor cleaned up, GPU memory freed.")
 
     def reset_predictor(self):
-        """Reset the predictor and all layers, including clearing masks on current frame."""
+        """Reset the predictor and all layers, clearing current-frame masks."""
         self.predictor.reset_state()
 
         # Reset detector text embeddings if using SAM3 semantic mode
@@ -690,7 +709,8 @@ class octron_widget(QWidget):
                 entry.prediction_layer.data[current_frame] = 0
                 entry.prediction_layer.refresh()
 
-            # Clear accumulated semantic box prompts and masks if using SAM3 Mode B
+            # Clear accumulated semantic box prompts and masks if using
+            # SAM3 Mode B
             if hasattr(entry, "_semantic_box_prompts"):
                 entry._semantic_box_prompts.pop(current_frame, None)
             if hasattr(entry, "_semantic_accumulated_masks"):
@@ -711,9 +731,10 @@ class octron_widget(QWidget):
             self._semantic_frame_buffer = None
 
     def _batch_predict_yielded(self, value):
-        """prediction_worker()
-        Called upon yielding from the batch prediction thread worker.
-        Updates the progress bar and the mask layer with the predicted mask.
+        """Handle a value yielded by the batch prediction thread worker.
+
+        Updates the progress bar and the mask layer with the predicted
+        mask.
         """
         progress, frame_idx, obj_id, mask, last_run = value
 
@@ -766,7 +787,8 @@ class octron_widget(QWidget):
             self._pending_annotated_frames = pending
             prediction_layer.refresh()
         else:
-            # Flush any pending semantic buffer before handling non-semantic object
+            # Flush any pending semantic buffer before handling non-semantic
+            # object
             self._flush_semantic_frame_buffer()
 
             organizer_entry = self.object_organizer.get_entry(obj_id)
@@ -785,14 +807,16 @@ class octron_widget(QWidget):
         self.batch_predict_progressbar.setValue(progress)
 
     def _on_prediction_finished(self):
-        """prediction_worker()
-        Callback for when worker within init_prediction_threaded()
-        has finished executing.
+        """Handle completion of the worker in init_prediction_threaded().
+
+        Runs once the batch prediction thread worker has finished
+        executing.
         """
         # Flush the last semantic frame buffer (propagation ended)
         self._flush_semantic_frame_buffer()
 
-        # Batch-flush all pending annotated frame attrs accumulated during propagation
+        # Batch-flush all pending annotated frame attrs accumulated
+        # during propagation
         for zarr_array, frame_set in getattr(
             self, "_pending_annotated_frames", {}
         ).values():
@@ -811,24 +835,26 @@ class octron_widget(QWidget):
         self.batch_predict_progressbar.setValue(0)
 
         # Save the object organizer
-        # ! TODO: Make this more efficient. This slows down everything a lot since
-        # what we are doing here is creating a video hash from scratch twice (?) and
-        # load the video data, plus we find out which indices have annotation data in the
-        # video. So, that is a lot of processing ...
+        # ! TODO: Make this more efficient. This slows down everything a
+        # lot since what we are doing here is creating a video hash
+        # from scratch twice (?) and load the video data, plus we find
+        # out which indices have annotation data in the video. So, that
+        # is a lot of processing ...
         self.save_object_organizer()
         self.refresh_label_table_list(delete_old=False)
         self.batch_predict_progressbar.setMaximum(self.chunk_size)
 
     def init_prediction_threaded(self):
         """Thread worker for predicting the next batch of images."""
-        # Finalize any accumulated semantic masks from SAM3 Mode B before propagation
+        # Finalize any accumulated semantic masks from SAM3 Mode B
+        # before propagation
         from octron.sam_octron.helpers.sam3_octron import SAM3_semantic_octron
 
         if isinstance(self.predictor, SAM3_semantic_octron):
-            # Only rebuild the mapping when there are NEW accumulated masks to
-            # register.  On repeated propagation clicks (no new annotations) the
-            # tracker still holds the objects from the previous run, so the
-            # existing map must be preserved.
+            # Only rebuild the mapping when there are NEW accumulated
+            # masks to register.  On repeated propagation clicks (no
+            # new annotations) the tracker still holds the objects from
+            # the previous run, so the existing map must be preserved.
             # Rebuild the tracker when it has been reset (e.g. by a
             # new detection on any label) but accumulated masks exist.
             # We intentionally keep _semantic_accumulated_masks alive
@@ -846,7 +872,8 @@ class octron_widget(QWidget):
                 # Always start object IDs from 0 when rebuilding from
                 # accumulated masks.
                 self.predictor._next_obj_id = 0
-                self._semantic_obj_id_map = {}  # tracker_obj_id → (organizer_obj_id, mask_id)
+                # tracker_obj_id -> (organizer_obj_id, mask_id)
+                self._semantic_obj_id_map = {}
 
                 # Collect entries that have accumulated masks.
                 entries_with_masks = []
@@ -969,10 +996,10 @@ class octron_widget(QWidget):
             )
             self.prediction_worker_one.start()
 
-    ###### NAPARI SPECIFIC CALLBACKS ##################################################################
+    ###### NAPARI SPECIFIC CALLBACKS ####################################
 
     def closeEvent(self):
-        """Callback for the Napari viewer close event."""
+        """Handle the Napari viewer close event."""
         for zarr_store in self.all_zarrs:
             if zarr_store is not None:
                 store = zarr_store.store
@@ -991,7 +1018,8 @@ class octron_widget(QWidget):
 
         Returns
         -------
-        status : boolean : True if saving went through, False if no project was found
+        status : boolean
+            True if saving went through, False if no project was found
 
         """
         if (
@@ -999,7 +1027,8 @@ class octron_widget(QWidget):
             or not self.project_path_video.exists()
         ):
             logger.info(
-                "No project video path set or found. Not exporting object organizer."
+                "No project video path set or found. Not exporting "
+                "object organizer."
             )
             return False
         # Populate project-level settings before saving
@@ -1013,7 +1042,7 @@ class octron_widget(QWidget):
         return True
 
     def refresh_label_table_list(self, delete_old=False):
-        """Refresh the label list combobox with the current labels in the object organizer.
+        """Refresh the label list combobox with the current labels.
 
         Parameter
         ----------
@@ -1029,7 +1058,8 @@ class octron_widget(QWidget):
             min_num_frames=0,
         )
         if not label_dict:
-            # Clear the table if a model already exists (e.g. switching projects)
+            # Clear the table if a model already exists (e.g. switching
+            # projects)
             if hasattr(self, "label_table_model"):
                 self.label_table_model.update_data({}, delete_old=True)
             return
@@ -1040,7 +1070,8 @@ class octron_widget(QWidget):
             self.existing_data_table.setModel(self.label_table_model)
 
             # Configure the table appearance
-            # Prevent resizing of table columns by disabling interactive resizing
+            # Prevent resizing of table columns by disabling interactive
+            # resizing
             header = self.existing_data_table.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.Fixed)
             header.setSectionsMovable(False)
@@ -1074,8 +1105,9 @@ class octron_widget(QWidget):
             self.main_toolbox.widget(2).setEnabled(True)  # Training
             self.segmentation_bbox_decision_groupbox.setEnabled(True)
             self.train_generate_groupbox.setEnabled(True)
-            # train_train_groupbox is enabled only after training data generation finishes
-            # (see _on_training_data_finished in yolo_handler.py)
+            # train_train_groupbox is enabled only after training data
+            # generation finishes (see _on_training_data_finished in
+            # yolo_handler.py)
             # Enable some buttons too
             self.train_data_watershed_checkBox.setEnabled(True)
             self.train_data_overwrite_checkBox.setEnabled(True)
@@ -1083,6 +1115,7 @@ class octron_widget(QWidget):
 
     def on_label_table_context_menu(self, pos):
         """Handle right-click context menu on the existing data table.
+
         Offers a 'Delete' action that removes annotations from disk.
         """
         index = self.existing_data_table.indexAt(pos)
@@ -1107,16 +1140,19 @@ class octron_widget(QWidget):
             reply = QMessageBox.warning(
                 self,
                 "Delete annotations",
-                f"This will permanently delete all annotations for this video from disk:\n\n"
+                f"This will permanently delete all annotations for this video "
+                f"from disk:\n\n"
                 f"{folder.name}\nFull path: {folder.as_posix()}\n\n"
-                f"Associated video: '{Path(video_file_path).name}' (will not be deleted!)\n\n"
+                f"Associated video: '{Path(video_file_path).name}' (will not "
+                f"be deleted!)\n\n"
                 f"This action cannot be undone. Continue?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
 
             if reply == QMessageBox.Yes:
-                # If the video being deleted is currently loaded, remove its layers first
+                # If the video being deleted is currently loaded, remove
+                # its layers first
                 if (
                     self.video_layer is not None
                     and self.project_path_video is not None
@@ -1135,6 +1171,7 @@ class octron_widget(QWidget):
 
     def on_label_table_double_clicked(self, index):
         """Handle double-click events on the existing data table.
+
         This is the ExistingDataTable() instance.
 
         Parameters
@@ -1178,7 +1215,8 @@ class octron_widget(QWidget):
         self.hard_reset_layer_btn.setEnabled(False)
         self.sam3detect_thresh.setEnabled(False)
         self.threshold_label.setEnabled(False)
-        # Re-enable Points option (may have been disabled by SAM3 semantic model)
+        # Re-enable Points option (may have been disabled by SAM3
+        # semantic model)
         self.layer_type_combobox.model().item(2).setEnabled(True)
 
         # Use the file drop method to load the video
@@ -1252,7 +1290,8 @@ class octron_widget(QWidget):
                 layer_type = "Points"  # Default to Points if not specified
             # Create layers with the reconstructed information
             logger.debug(
-                f"Recreating layer: {label} {suffix} (ID: {obj_id}, Type: {layer_type})"
+                f"Recreating layer: {label} {suffix} (ID: {obj_id}, "
+                f"Type: {layer_type})"
             )
             self.create_annotation_layers(
                 recreate=True,
@@ -1269,6 +1308,7 @@ class octron_widget(QWidget):
 
     def set_project_folder(self, folder):
         """Set (new) OCTRON project folder.
+
         Makes sure existing video layers (and thereby all other layers)
         are removed from the viewer.
         Enables the video drop area and the project folder path label.
@@ -1278,14 +1318,16 @@ class octron_widget(QWidget):
         ----------
         folder : str or Path
             The path to the project folder.
-            This should be an existing folder that contains the OCTRON project data.
+            This should be an existing folder that contains the OCTRON
+            project data.
 
         """
         folder = Path(folder)
         assert folder.exists(), f"Project folder {folder} does not exist."
 
         # Remove the current video layer
-        # This triggers a bunch of things -> check function "on_layer_removed()"
+        # This triggers a bunch of things -> check function
+        # "on_layer_removed()"
         if self.video_layer is not None:
             self._viewer.layers.remove(self.video_layer)
 
@@ -1305,11 +1347,14 @@ class octron_widget(QWidget):
         return
 
     def open_project_folder_dialog(self):
-        """Open a file dialog for the user to choose a base folder for the current OCTRON project.
-        This yields self.project_path, which is used to store all project-related data.
+        """Open a file dialog to choose a base folder for the OCTRON project.
 
-        If the project path is an existing OCTRON project, it will be inspected and
-        the existing annotation data will be quickly displayed in a table view.
+        This yields self.project_path, which is used to store all
+        project-related data.
+
+        If the project path is an existing OCTRON project, it will be
+        inspected and the existing annotation data will be quickly
+        displayed in a table view.
 
         """
         # Open a directory selection dialog
@@ -1335,7 +1380,8 @@ class octron_widget(QWidget):
         if not isinstance(spare, list):
             spare = [spare]
         logger.info(f'Deleting all layers except "{spare}"')
-        # First remove mask layers (to avoid dependencies with annotation layers)
+        # First remove mask layers (to avoid dependencies with
+        # annotation layers)
         mask_layers = []
         other_layers = []
 
@@ -1361,10 +1407,12 @@ class octron_widget(QWidget):
             logger.info(f"Auto-deleted {total_deleted} layers")
 
     def on_layer_removed(self, event):
-        """Callback triggered from within the layer removal event.
-        (self.on_layer_removing() is called first)
-        This gives the user a chance to cancel the removal of the layer.
-        It also organizes the removal process according to which layer type is being removed.
+        """Handle the layer removal event.
+
+        (self.on_layer_removing() is called first). This gives the
+        user a chance to cancel the removal of the layer. It also
+        organizes the removal process according to which layer type is
+        being removed.
 
         """
         if not self.remove_current_layer:
@@ -1386,7 +1434,8 @@ class octron_widget(QWidget):
                 and "mask" in self.layer_to_remove.metadata["_name"]
             ):
                 # Remove the zarr zip file containing the layer data
-                # zarr_file_path = self.project_path / self.layer_to_remove.metadata['_zarr']
+                # zarr_file_path = self.project_path /
+                # self.layer_to_remove.metadata['_zarr']
                 # if Path(zarr_file_path).exists():
                 #     shutil.rmtree(zarr_file_path)
                 #     print(f'Removed Zarr file {zarr_file_path}')
@@ -1400,12 +1449,14 @@ class octron_widget(QWidget):
                 try:
                     self.predictor.remove_object(obj_id, strict=True)
                     logger.info(
-                        f"Removed object with ID{obj_id} from organizer and predictor"
+                        f"Removed object with ID{obj_id} from organizer "
+                        f"and predictor"
                     )
                 except (RuntimeError, AttributeError) as e:
                     logger.error(
                         f"Error when removing object from SAM2 predictor: {e} "
-                        "(This is likely due to the SAM2 model not being loaded and can be ignored.)"
+                        "(This is likely due to the SAM2 model not being "
+                        "loaded and can be ignored.)"
                     )
 
                 # Finally, trigger removal of the annotation layer
@@ -1458,7 +1509,8 @@ class octron_widget(QWidget):
                 self.threshold_label.setEnabled(False)
                 self.feed_input_to_predictor_btn.setEnabled(False)
                 self.feed_input_to_predictor_btn.setText("")
-                # Re-enable Points option (may have been disabled by SAM3 semantic model)
+                # Re-enable Points option (may have been disabled by SAM3
+                # semantic model)
                 self.layer_type_combobox.model().item(2).setEnabled(True)
                 # Object organizer
                 self.object_organizer = ObjectOrganizer()
@@ -1472,9 +1524,10 @@ class octron_widget(QWidget):
         return
 
     def on_layer_removing(self, event):
-        """Callback triggered when a layer is about to be removed.
-        The call to on_layer_removed() is triggered after this, and gives
-        the user a chance to cancel the removal of the layer.
+        """Handle a layer that is about to be removed.
+
+        The call to on_layer_removed() is triggered after this, and
+        gives the user a chance to cancel the removal of the layer.
         """
         self.layer_to_remove = event.source[event.index]
         self.layer_to_remove_idx = event.index
@@ -1488,7 +1541,8 @@ class octron_widget(QWidget):
         ]:
             # Silent removal of annotation layers
             self.remove_current_layer = True
-        # elif self.layer_to_remove._basename() == 'Image': #and 'VIDEO' not in self.layer_to_remove.name:
+        # elif self.layer_to_remove._basename() == 'Image': #and 'VIDEO'
+        # not in self.layer_to_remove.name:
         #     # Silent removal of image layers (visualizations)
         #     self.remove_current_layer = True
 
@@ -1498,7 +1552,8 @@ class octron_widget(QWidget):
         #     reply = QMessageBox.question(
         #         None,
         #         "Confirmation",
-        #         f"Are you sure you want to delete layer\n'{self.layer_to_remove}'",
+        #         f"Are you sure you want to delete layer\n"
+        #         f"'{self.layer_to_remove}'",
         #         QMessageBox.Yes | QMessageBox.No,
         #         QMessageBox.No
         #     )
@@ -1509,12 +1564,13 @@ class octron_widget(QWidget):
         return
 
     def consolidate_layers(self, event):
-        """Callback triggered when a layers are changed in the viewer.
+        """Handle a change in the viewer's layers.
+
         Currently triggered only on INSERTION events (layers are added).
 
         Takes care of defining video layers.
-        Searches for video layers with a basename of "Image" and "VIDEO" in
-        the name.
+        Searches for video layers with a basename of "Image" and
+        "VIDEO" in the name.
 
 
         Sets
@@ -1534,7 +1590,8 @@ class octron_widget(QWidget):
         """
         layer_name = event.value
 
-        # Search through viewer layers for video layers with the expected criteria
+        # Search through viewer layers for video layers with the
+        # expected criteria
         # Starting here as an example with video layers, but
         # this could be anything in the future ... let's see if we need it
         video_layers = []
@@ -1569,8 +1626,8 @@ class octron_widget(QWidget):
             self._viewer.dims.set_point(0, 0)
 
             # Check if you can create a zarr store for video
-            # Creating a zarr store for the video is only possible if a video has been loaded
-            # AND a model has been loaded
+            # Creating a zarr store for the video is only possible if a
+            # video has been loaded AND a model has been loaded
             self.init_zarr_prefetcher_threaded()
 
             logger.debug(f"VIDEO LAYER >>> {layer_name}")
@@ -1582,9 +1639,11 @@ class octron_widget(QWidget):
         return
 
     def on_mp4_file_dropped_area(self, video_paths):
-        """Adds video layer on freshly dropped mp4 file.
-        Callback function for the file drop area in the project management tab.
-        The area itself (a widget) is already filtering for mp4 files.
+        """Add a video layer for a freshly dropped mp4 file.
+
+        Callback function for the file drop area in the project
+        management tab. The area itself (a widget) is already
+        filtering for mp4 files.
         """
         # Check if project path is set
         if self.video_layer is not None:
@@ -1622,7 +1681,8 @@ class octron_widget(QWidget):
                     f"The video file is outside the project directory.\n\n"
                     f"Video: {video_path}\n"
                     f"Project: {self.project_path}\n\n"
-                    f"Would you like to copy the video to the project directory?",
+                    f"Would you like to copy the video to the project "
+                    f"directory?",
                     QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
                     QMessageBox.Yes,
                 )
@@ -1637,7 +1697,8 @@ class octron_widget(QWidget):
                     # Show progress dialog for large files
                     if video_path.stat().st_size > 50_000_000:  # 50 MB
                         show_info(
-                            "Copying large video file to project directory... Please wait."
+                            "Copying large video file to project "
+                            "directory... Please wait."
                         )
                     # Copy the file
                     shutil.copy2(video_path, new_video_path)
@@ -1668,8 +1729,10 @@ class octron_widget(QWidget):
 
     def init_sam2_model(self):
         """Initialize the SAM2 model for the current session.
-        This function requires a video to be loaded AND a model to be selected / loaded.
-        It is called only once from within the prefetcher worker.
+
+        This function requires a video to be loaded AND a model to be
+        selected / loaded. It is called only once from within the
+        prefetcher worker.
 
         """
         if not self.predictor:
@@ -1684,7 +1747,8 @@ class octron_widget(QWidget):
 
         # Prewarm SAM2 predictor (model)
         # This needs the zarr store to be initialized first
-        # -> that happens when either the model is loaded or a video layer is found
+        # -> that happens when either the model is loaded or a video
+        #    layer is found
         # -> on_changed_layer() and load_sam2model() take care of this
         if not self.predictor.is_initialized:
             self.predictor.init_state(
@@ -1697,14 +1761,16 @@ class octron_widget(QWidget):
         return
 
     def init_zarr_prefetcher_threaded(self):
-        """This function deals with storage (temporary and long term).
+        """Deal with storage (temporary and long term).
+
         Long term: Zarr store
         Short term: Threaded prefetcher worker.
 
         ...
         Create a zarr store for the video layer.
-        This will only work if a video layer is found and a sam2 model is loaded,
-        since both video and model information are required to create the zarr store.
+        This will only work if a video layer is found and a sam2 model
+        is loaded, since both video and model information are required
+        to create the zarr store.
 
         """
         if not self.project_path:
@@ -1719,7 +1785,8 @@ class octron_widget(QWidget):
             # only when a model is loaded
             return
 
-        # Collect some info about video layer before loading or creating zarr archive
+        # Collect some info about video layer before loading or
+        # creating zarr archive
         metadata = self.video_layer.metadata
         num_frames = metadata["num_frames"]
         video_height = metadata["height"]
@@ -1728,9 +1795,11 @@ class octron_widget(QWidget):
             self.predictor.image_size
         )  # SAM2 model image size
 
-        # Resize both (!) edges to the same square size matching the model's expected input.
-        # Use predictor_image_size directly to avoid floating-point rounding errors
-        # (e.g. int(floor(1008/1337*1337)) can yield 1007 instead of 1008).
+        # Resize both (!) edges to the same square size matching the
+        # model's expected input.
+        # Use predictor_image_size directly to avoid floating-point
+        # rounding errors (e.g. int(floor(1008/1337*1337)) can yield
+        # 1007 instead of 1008).
         resized_height = predictor_image_size
         resized_width = predictor_image_size
         logger.info(
@@ -1772,11 +1841,13 @@ class octron_widget(QWidget):
             with open(video_info_path, "w") as f:
                 f.write("# This info here is just for information purposes.\n")
                 f.write(
-                    "# It is not actually used anywhere in OCTRON and can be deleted\n"
+                    "# It is not actually used anywhere in OCTRON and "
+                    "can be deleted\n"
                 )
                 f.write("# or edited without consequences.\n")
                 f.write(
-                    "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n"
+                    "+++++++++++++++++++++++++++++++++++++++++++"
+                    "++++++++++++++++++++\n"
                 )
                 f.write(f"Video path: {metadata['video_file_path']}\n")
                 f.write(f"Video hash: {metadata['hash']}\n")
@@ -1785,11 +1856,13 @@ class octron_widget(QWidget):
                 )  # Used throughout as identifier
                 f.write(f"Number of frames: {num_frames}\n")
                 f.write(
-                    f"Original resolution (hxw): {video_height}x{video_width}\n"
+                    f"Original resolution (hxw): "
+                    f"{video_height}x{video_width}\n"
                 )
                 f.write(f"Info file created on: {datetime.now()}\n")
             logger.info(
-                f'New video zarr archive created "{video_zarr_path.as_posix()}"'
+                f"New video zarr archive created "
+                f'"{video_zarr_path.as_posix()}"'
             )
             logger.info(f'Video info saved to "{video_info_path.as_posix()}"')
         else:
@@ -1808,8 +1881,10 @@ class octron_widget(QWidget):
         self.prefetcher_worker.start()
 
     def on_label_change(self):
-        """Callback function for the label list combobox.
-        Handles the selection of labels, adding new labels, and removing labels.
+        """Handle changes to the label list combobox.
+
+        Handles the selection of labels, adding new labels, and
+        removing labels.
 
         """
         index = self.label_list_combobox.currentIndex()
@@ -1876,11 +1951,13 @@ class octron_widget(QWidget):
         obj_id: int | None = None,
         obj_color: list[float] = [],
     ):
-        """This is the main callback function for the create annotation layer button.
+        """Handle clicks on the create annotation layer button.
+
         Creates a new annotation layer based on the selected label
         and layer type (recreate=False).
-        It is also utilized to re-create layers from the object organizer when the user
-        double clicks on a table row (recreate=True).
+        It is also utilized to re-create layers from the object
+        organizer when the user double clicks on a table row
+        (recreate=True).
 
         Returns
         -------
@@ -1893,7 +1970,8 @@ class octron_widget(QWidget):
             If the layer already exists, it will return the existing layer.
             If the layer could not be created, it will return None.
         organizer_entry : Obj
-            The object entry in the object organizer that corresponds to the created layers.
+            The object entry in the object organizer that corresponds
+            to the created layers.
 
         """
         # Check if a video layer is loaded
@@ -1929,7 +2007,8 @@ class octron_widget(QWidget):
                 )
                 layer_type = layer_type.strip()
 
-        # Check if the object organizer already has an entry for this label and suffix
+        # Check if the object organizer already has an entry for this
+        # label and suffix
         organizer_entry = self.object_organizer.get_entry_by_label_suffix(
             label, label_suffix
         )
@@ -1937,7 +2016,8 @@ class octron_widget(QWidget):
             if organizer_entry.prediction_layer is None:
                 # Should never happen!
                 show_warning(
-                    f"Combination ({label}, {label_suffix}) exists. No mask layer found."
+                    f"Combination ({label}, {label_suffix}) exists. "
+                    f"No mask layer found."
                 )
                 return
             elif organizer_entry.annotation_layer is not None:
@@ -1949,7 +2029,8 @@ class octron_widget(QWidget):
                 create_prediction_layer = False
                 obj_id = self.object_organizer.get_entry_id(organizer_entry)
         else:
-            # No entry found, so create a new prediction and annotation layer from scratch
+            # No entry found, so create a new prediction and annotation
+            # layer from scratch
             create_prediction_layer = True
             if obj_id is None:
                 obj_id = self.object_organizer.min_available_id()
@@ -1963,7 +2044,7 @@ class octron_widget(QWidget):
                 obj_id
             ]  # Re-fetch to add more later
 
-        ######### Create new layers #############################################################################
+        ######### Create new layers ##########################################
 
         if not obj_color:
             obj_color = (
@@ -1974,7 +2055,7 @@ class octron_widget(QWidget):
             f"{label} {label_suffix}".strip()
         )  # This is used in all layer names
 
-        ######### Create a new prediction (mask) layer  #########################################################
+        ######### Create a new prediction (mask) layer  ######################
 
         if create_prediction_layer:
             prediction_layer_name = f"{layer_name} masks"
@@ -1997,7 +2078,8 @@ class octron_widget(QWidget):
             if prediction_layer is None:
                 show_error("Error when creating mask layer.")
                 return
-            # For each layer that we create, write the object ID and the name to the metadata
+            # For each layer that we create, write the object ID and
+            # the name to the metadata
             prediction_layer.metadata["_name"] = (
                 prediction_layer_name  # Save a copy of the name
             )
@@ -2010,19 +2092,20 @@ class octron_widget(QWidget):
             prediction_layer.metadata["_hash"] = self.current_video_hash
             try:
                 # By default, try to extract a relative file path.
-                # This enables users to move the project folder around without breaking the link.
+                # This enables users to move the project folder around
+                # without breaking the link.
                 prediction_layer.metadata["_video_file_path"] = Path(
                     self.video_layer.metadata["video_file_path"]
                 ).relative_to(self.project_path)
             except ValueError:
-                # If the video file is not in a subdirectory of the project folder,
-                # save the absolute path instead.
+                # If the video file is not in a subdirectory of the
+                # project folder, save the absolute path instead.
                 prediction_layer.metadata["_video_file_path"] = Path(
                     self.video_layer.metadata["video_file_path"]
                 )
             organizer_entry.prediction_layer = prediction_layer
 
-        ######### Create a new annotation layer ###############################################################
+        ######### Create a new annotation layer ###############################
         annotation_layer = None
         if layer_type == "Shapes":
             annotation_layer_name = f"{layer_name} shapes"
@@ -2036,7 +2119,8 @@ class octron_widget(QWidget):
                     self.predictor, SAM3_semantic_octron
                 )
             else:
-                # No model loaded yet (e.g. project reload) — check saved model name
+                # No model loaded yet (e.g. project reload) — check
+                # saved model name
                 semantic_mode = self.loaded_model_name is not None and any(
                     m.get("semantic", False)
                     for m in self.sam3models_dict.values()
@@ -2105,8 +2189,9 @@ class octron_widget(QWidget):
     def jump_to_next_annotated_frame(self):
         """Jump to next annotated frame in viewer timeline."""
         current_timeline_idx = self._viewer.dims.current_step[0]
-        # Go through all prediction_layers and check if they have a mask for the current frame
-        # If so, jump to the next frame with a mask
+        # Go through all prediction_layers and check if they have a
+        # mask for the current frame. If so, jump to the next frame with
+        # a mask
         prediction_layers = self.object_organizer.get_prediction_layers()
         if not prediction_layers:
             show_warning("No prediction layers found.")
@@ -2131,8 +2216,9 @@ class octron_widget(QWidget):
     def jump_to_previous_annotated_frame(self):
         """Jump to previous annotated frame in viewer timeline."""
         current_timeline_idx = self._viewer.dims.current_step[0]
-        # Go through all prediction_layers and check if they have a mask for the current frame
-        # If so, jump to the next frame with a mask
+        # Go through all prediction_layers and check if they have a
+        # mask for the current frame. If so, jump to the next frame with
+        # a mask
         prediction_layers = self.object_organizer.get_prediction_layers()
         if not prediction_layers:
             return
@@ -2201,8 +2287,9 @@ def _apply_windows_taskbar_icon(viewer) -> None:
 
 
 def octron_gui():
-    """This is the main entry point for the GUI call
-    defined in pyproject.toml as the `octron gui` console command
+    """Serve as the main entry point for the GUI call.
+
+    Defined in pyproject.toml as the `octron gui` console command
     (octron.cli:main -> octron.main:octron_gui).
 
     """
@@ -2210,8 +2297,8 @@ def octron_gui():
 
     setup_logging()
 
-    # Give OCTRON its own Windows taskbar identity, then (on Windows) create the
-    # QApplication ourselves *before* napari does.
+    # Give OCTRON its own Windows taskbar identity, then (on Windows)
+    # create the QApplication ourselves *before* napari does.
     _set_windows_app_id()
     _ensure_windows_qapp()
 
@@ -2219,19 +2306,19 @@ def octron_gui():
     _win = os.name == "nt" and not getattr(sys, "frozen", False)
     viewer = napari.Viewer(show=not _win)
 
-    # If there's already a QApplication instance (as may be the case when running as a napari plugin),
-    # then set its style explicitly:
+    # If there's already a QApplication instance (as may be the case
+    # when running as a napari plugin), then set its style explicitly:
     app = QApplication.instance()
     if app is not None:
-        # This is a hack to get the style to look similar on darwin and windows systems
-        # for the ToolBox widget
+        # This is a hack to get the style to look similar on darwin and
+        # windows systems for the ToolBox widget
         app.setStyle(QStyleFactory.create("Fusion"))
 
     viewer.window.add_dock_widget(octron_widget(viewer))
 
     if _win:
-        # Set the icon on the actual window, then show it, so the taskbar button
-        # is created with the icon already applied.
+        # Set the icon on the actual window, then show it, so the
+        # taskbar button is created with the icon already applied.
         _apply_windows_taskbar_icon(viewer)
         viewer.window.show()
         # napari runs this dock resize after showing when show=True; replicate

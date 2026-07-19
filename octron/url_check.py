@@ -1,4 +1,4 @@
-# General URL checking
+"""General URL checking."""
 
 import requests
 from loguru import logger
@@ -6,7 +6,9 @@ from loguru import logger
 
 def check_url_availability(url, verbose=False):
     """Quick check if a URL is available.
-    This is used throughout the package to check if the model files are available.
+
+    This is used throughout the package to check if the model files are
+    available.
 
     Parameters
     ----------

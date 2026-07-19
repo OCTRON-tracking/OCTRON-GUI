@@ -1,5 +1,7 @@
-# This file collects custom input dialogs for the main OCTRON application,
-# such as little pop-ups where users can input additional information.
+"""Custom input dialogs for the main OCTRON application.
+
+Little pop-ups where users can input additional information.
+"""
 
 from qtpy.QtWidgets import (
     QDialog,
@@ -15,13 +17,10 @@ from qtpy.QtWidgets import (
 
 
 class add_new_label_dialog(QDialog):
-    """Allows user to add a new label name to the list
-    of labels in the octron GUI.
-
-
-    """
+    """Allow the user to add a new label name to the label list."""
 
     def __init__(self, parent: QWidget):
+        """Initialize the dialog and build its layout."""
         super().__init__(parent)
         self.setWindowTitle("Create new label")
         self.label_name = QLineEdit()
@@ -47,18 +46,17 @@ class add_new_label_dialog(QDialog):
 
 
 class remove_label_dialog(QDialog):
-    """A dialog that shows a list of  current label_names
-    and allows the user to click on an entry to remove it.
-    """
+    """Show a list of current label names and let the user remove one."""
 
     def __init__(self, parent: QWidget, items: list):
-        """Parameters
+        """Initialize the dialog with the given label names.
+
+        Parameters
         ----------
         parent : QWidget
             That is the octron main GUI
         items : list
             A list of current label names
-
 
         """
         super().__init__(parent)
@@ -92,18 +90,17 @@ class remove_label_dialog(QDialog):
 
 
 class remove_video_dialog(QDialog):
-    """A dialog that shows a list of  current videos for prediction,
-    and allows the user to click on an entry to remove it.
-    """
+    """Show a list of current videos and let the user remove one or more."""
 
     def __init__(self, parent: QWidget, items: list):
-        """Parameters
+        """Initialize the dialog with the given video names.
+
+        Parameters
         ----------
         parent : QWidget
             That is the octron main GUI
         items : list
             A list of current label names
-
 
         """
         super().__init__(parent)
