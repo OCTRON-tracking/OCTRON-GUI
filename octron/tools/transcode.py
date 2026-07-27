@@ -37,6 +37,8 @@ def _load_tiff_as_rgb(path):
     Grayscale and 1–4 channel stacks are mapped to RGB; intensities are
     normalised to uint8 while preserving relative scale. A time axis (T) is
     preferred as the frame axis; a Z-stack is used when there is no time axis.
+    A generic image-sequence axis ('I') is treated as the time axis when a
+    Y and X image plane are also present.
 
     Parameters
     ----------
@@ -77,6 +79,18 @@ def _load_tiff_as_rgb(path):
     except Exception as e:
         logger.error(f"Failed to read TIFF '{path.name}': {e}")
         return None
+
+    # tifffile labels a generic image-sequence axis 'I' (e.g. a plain stack of
+    # 2D frames saved as axes='IYX'). When such an 'I' axis accompanies a
+    # recognised Y and X image plane and there is no explicit time axis, treat
+    # it as the time (T) / frame axis for video conversion.
+    if 'T' not in sizes and 'I' in sizes and 'Y' in sizes and 'X' in sizes:
+        logger.info(
+            f"Interpreting generic 'I' axis (size {sizes['I']}) as the time (T) "
+            f"axis for video conversion (axes='{axes}')."
+        )
+        axes = axes.replace('I', 'T')
+        sizes = dict(zip(axes, stack.shape))
 
     n_t = sizes.get('T', 0)
     n_z = sizes.get('Z', 0)
