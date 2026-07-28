@@ -9,7 +9,9 @@ arguments, and the even-dimension filter come from
 :mod:`octron.tools._ffmpeg`, which is also used by the render pipeline.
 """
 
+import contextlib
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from loguru import logger
 
 from octron.tools._ffmpeg import (
     EVEN_DIM_YUV420P,
+    _FfmpegWriter,
     detect_h264_encoder,
     h264_codec_args,
 )
@@ -40,12 +43,90 @@ VIDEO_EXTENSIONS = {
 TIFF_EXTENSIONS = {".tif", ".tiff"}
 
 
-def _load_tiff_as_rgb(path):
-    """Read a multi-frame TIFF into an RGB ``(frames, Y, X, 3)`` uint8 array.
+class _TiffPlan:
+    """A memory-bounded plan for streaming a multi-frame TIFF as RGB frames.
 
-    Grayscale and 1–4 channel stacks are mapped to RGB; intensities are
-    normalised to uint8 while preserving relative scale. A time axis (T) is
-    preferred as the frame axis; a Z-stack is used when there is no time axis.
+    ``arr`` is a lazy/memmap view of the stack reordered to canonical
+    ``(frames, [extra...,] [C,] Y, X)`` order (a transpose is a cheap view, so
+    no data is copied). Frames are materialised one at a time by
+    :func:`_iter_rgb_frames`; ``gmin``/``gmax`` are the stack-global intensity
+    bounds used to normalise every frame to uint8 consistently. Call
+    :meth:`close` to release the underlying file when done.
+    """
+
+    def __init__(
+        self, tif, arr, n_leading, n_c, frame_count, height, width, gmin, gmax
+    ):
+        self._tif = tif
+        self.arr = arr
+        self.n_leading = n_leading
+        self.n_c = n_c
+        self.frame_count = frame_count
+        self.height = height
+        self.width = width
+        self.gmin = gmin
+        self.gmax = gmax
+
+    def close(self):
+        _safe_close(self._tif)
+
+
+def _safe_close(tif):
+    with contextlib.suppress(Exception):
+        tif.close()
+
+
+def _to_uint8_frame(arr, gmin, gmax, np):
+    """Normalise one frame to uint8 using the stack-global ``gmin``/``gmax``.
+
+    Values are already within ``[gmin, gmax]`` (global bounds), so no clipping
+    is needed. uint8 input is passed through unchanged (``gmin``/``gmax`` are
+    ``None`` in that case).
+    """
+    if arr.dtype == np.uint8:
+        return arr
+    if gmax is not None and gmax > gmin:
+        return (
+            (arr.astype(np.float32) - gmin) / (gmax - gmin) * 255.0
+        ).astype(np.uint8)
+    return np.zeros(arr.shape, dtype=np.uint8)
+
+
+def _frame_to_rgb(frame, n_c, gmin, gmax, np):
+    """Map one raw frame to an ``(Y, X, 3)`` uint8 RGB array.
+
+    ``frame`` is ``(Y, X)`` when ``n_c == 0`` and ``(C, Y, X)`` otherwise. The
+    channel mapping mirrors the previous whole-array behaviour: grayscale/1ch
+    are broadcast to RGB, 2ch → R/G (B=0), 3ch → RGB, 4+ch use the first 3.
+    """
+    if n_c == 0:
+        g = _to_uint8_frame(frame, gmin, gmax, np)  # (Y, X)
+        return np.repeat(g[..., np.newaxis], 3, axis=-1)
+    frame = np.moveaxis(frame, 0, -1)  # (C, Y, X) -> (Y, X, C)
+    if n_c == 1:
+        g = _to_uint8_frame(frame[..., 0], gmin, gmax, np)
+        return np.repeat(g[..., np.newaxis], 3, axis=-1)
+    if n_c == 2:
+        g = _to_uint8_frame(frame, gmin, gmax, np)  # (Y, X, 2)
+        zeros = np.zeros((*g.shape[:2], 1), dtype=np.uint8)
+        return np.concatenate([g, zeros], axis=-1)
+    if n_c == 3:
+        return _to_uint8_frame(frame, gmin, gmax, np)
+    return _to_uint8_frame(
+        frame[..., :3], gmin, gmax, np
+    )  # 4+ channels: drop extras
+
+
+def _read_tiff_plan(path):
+    """Open a multi-frame TIFF and plan a memory-bounded RGB frame stream.
+
+    The stack is read disk-backed (memmap) rather than into RAM, so very large
+    stacks (thousands of frames) do not exhaust memory. A time axis (T) is
+    preferred as the frame axis; a Z-stack is used when there is no time axis;
+    a generic image-sequence axis ('I') is treated as the time axis when a Y
+    and X image plane are also present. Grayscale and 1–4 channel stacks are
+    mapped to RGB, with intensities normalised to uint8 using stack-global
+    min/max (computed here so a streamed encode keeps consistent brightness).
 
     Parameters
     ----------
@@ -54,10 +135,12 @@ def _load_tiff_as_rgb(path):
 
     Returns
     -------
-    tuple or None
-        ``(stack, frame_count, height, width)`` on success, or ``None`` (after
-        logging the reason) for unsupported inputs (single-frame/2D TIFFs,
-        ambiguous T+Z stacks, read failures, or missing numpy/tifffile).
+    _TiffPlan or None
+        A plan whose ``arr`` is a lazy view reordered to
+        ``(frames, [extra...,] [C,] Y, X)``, or ``None`` (after logging the
+        reason) for unsupported inputs (single-frame/2D TIFFs, ambiguous T+Z
+        stacks, read failures, or missing numpy/tifffile). Call ``close()`` on
+        the returned plan when done.
 
     """
     try:
@@ -67,36 +150,51 @@ def _load_tiff_as_rgb(path):
         logger.error(f"TIFF transcoding requires numpy+tifffile: {e}")
         return None
 
-    def _to_uint8(arr):
-        """Normalise array to uint8, preserving relative intensities."""
-        if arr.dtype == np.uint8:
-            return arr
-        smin, smax = float(arr.min()), float(arr.max())
-        if smax > smin:
-            return (
-                (arr.astype(np.float32) - smin) / (smax - smin) * 255
-            ).astype(np.uint8)
-        return np.zeros_like(arr, dtype=np.uint8)
-
     try:
-        with tifffile.TiffFile(str(path)) as tif:
-            series = tif.series[0]
-            axes = series.axes  # e.g. "TCYX", "TYX", "TZYXC"
-            stack = series.asarray()
-            # Build sizes from axes + shape directly.
-            # series.sizes can be unreliable across tifffile versions.
-            sizes = dict(zip(axes, stack.shape, strict=False))
+        tif = tifffile.TiffFile(str(path))
     except Exception as e:
         logger.error(f"Failed to read TIFF '{path.name}': {e}")
         return None
+
+    try:
+        series = tif.series[0]
+        axes = series.axes  # e.g. "TCYX", "TYX", "TZYXC"
+        # Read disk-backed so huge stacks are not materialised in RAM; fall
+        # back to an in-memory read only if a memmap cannot be created.
+        try:
+            arr = series.asarray(out="memmap")
+        except Exception as e:
+            logger.debug(
+                f"TIFF memmap unavailable for '{path.name}' ({e}); "
+                "reading into RAM."
+            )
+            arr = series.asarray()
+        # Build sizes from axes + shape directly.
+        # series.sizes can be unreliable across tifffile versions.
+        sizes = dict(zip(axes, arr.shape, strict=True))
+    except Exception as e:
+        _safe_close(tif)
+        logger.error(f"Failed to read TIFF '{path.name}': {e}")
+        return None
+
+    # tifffile labels a generic image-sequence axis 'I' (e.g. a plain stack of
+    # 2D frames saved as axes='IYX'). When such an 'I' axis accompanies a
+    # recognised Y and X image plane and there is no explicit time axis, treat
+    # it as the time (T) / frame axis for video conversion.
+    if "T" not in sizes and "I" in sizes and "Y" in sizes and "X" in sizes:
+        logger.info(
+            f"Interpreting generic 'I' axis (size {sizes['I']}) as the "
+            f"time (T) axis for video conversion (axes='{axes}')."
+        )
+        axes = axes.replace("I", "T")
+        sizes = dict(zip(axes, arr.shape, strict=True))
 
     n_t = sizes.get("T", 0)
     n_z = sizes.get("Z", 0)
     n_c = sizes.get("C", 0)
 
     logger.info(
-        f"TIFF detected: axes='{axes}' shape={stack.shape} "
-        f"dtype={stack.dtype} "
+        f"TIFF detected: axes='{axes}' shape={arr.shape} dtype={arr.dtype} "
         f"| T={n_t} Z={n_z} C={n_c} "
         f"H={sizes.get('Y', '?')} W={sizes.get('X', '?')} "
         f"| {path.name}"
@@ -105,6 +203,7 @@ def _load_tiff_as_rgb(path):
     # Reject TIFFs with both a time AND a Z axis — ambiguous for video
     # conversion
     if n_t > 0 and n_z > 0:
+        _safe_close(tif)
         logger.warning(
             f"Skipped '{path.name}': TIFF contains both a time axis "
             f"(T={n_t}) and a Z axis (Z={n_z}) (axes='{axes}'). "
@@ -121,6 +220,7 @@ def _load_tiff_as_rgb(path):
             f"No time axis; treating Z-stack ({n_z} slices) as frames."
         )
     else:
+        _safe_close(tif)
         logger.warning(
             f"Skipped '{path.name}': single-frame or 2D TIFF "
             f"(axes='{axes}'). Only multi-frame TIFFs are supported."
@@ -129,6 +229,10 @@ def _load_tiff_as_rgb(path):
 
     # Reorder axes to canonical order:
     # (frame_key, [unknown extras,] [C,] Y, X)
+    # transpose() on a memmap is a view (no copy). We deliberately do NOT
+    # reshape the whole array to flatten leading dims (that would force a
+    # full-size copy and defeat the streaming); _iter_rgb_frames walks the
+    # leading dims with np.ndindex instead.
     axes_list = list(axes)
     known = {"T", "Z", "C", "Y", "X"}
     extra = [a for a in axes_list if a not in known]
@@ -138,48 +242,84 @@ def _load_tiff_as_rgb(path):
     )
 
     perm = [axes_list.index(a) for a in target_order]
-    if perm != list(range(stack.ndim)):
-        stack = stack.transpose(perm)
+    if perm != list(range(arr.ndim)):
+        arr = arr.transpose(perm)
 
-    # Flatten any extra leading dims into the frames axis.
-    # The last `trailing` dims are always (C,) Y, X.
     trailing = 3 if n_c > 0 else 2
-    n_leading = stack.ndim - trailing
+    n_leading = arr.ndim - trailing
+    frame_count = int(np.prod(arr.shape[:n_leading]))
     if n_leading > 1:
-        n_frames = int(np.prod(stack.shape[:n_leading]))
-        stack = stack.reshape(n_frames, *stack.shape[n_leading:])
-        logger.info(f"Flattened leading axes → {n_frames} frames.")
-
-    # Move C from position 1 to last → (frames, Y, X, C)
-    if n_c > 0:
-        stack = np.moveaxis(stack, 1, -1)
-
-    # Map channels to RGB (frames, Y, X, 3)
-    if n_c == 0:
-        # Grayscale: (frames, Y, X) → (frames, Y, X, 3)
-        stack = _to_uint8(stack)
-        stack = np.repeat(stack[..., np.newaxis], 3, axis=-1)
-    elif n_c == 1:
-        stack = _to_uint8(stack[..., 0])
-        stack = np.repeat(stack[..., np.newaxis], 3, axis=-1)
-    elif n_c == 2:
-        # Map to R/G channels, B = 0
-        stack = _to_uint8(stack)
-        zeros = np.zeros((*stack.shape[:3], 1), dtype=np.uint8)
-        stack = np.concatenate([stack, zeros], axis=-1)
+        logger.info(f"Flattened leading axes → {frame_count} frames.")
+    height, width = int(arr.shape[-2]), int(arr.shape[-1])
+    if n_c == 2:
         logger.info("2-channel TIFF mapped to R/G channels (B=0).")
-    elif n_c == 3:
-        stack = _to_uint8(stack)
-    elif n_c == 4:
-        stack = _to_uint8(stack[..., :3])  # drop alpha
-    else:
+    elif n_c > 4:
         logger.warning(
             f"'{path.name}': {n_c} channels detected; using first 3 as RGB."
         )
-        stack = _to_uint8(stack[..., :3])
 
-    frame_count, height, width, _ = stack.shape
-    return stack, frame_count, height, width
+    # Precompute stack-global min/max over the channels that will actually be
+    # used, so per-frame uint8 normalisation is consistent across a streamed
+    # encode (matches the old whole-array behaviour). Reductions over a memmap
+    # stream through the data without materialising it. Skipped for uint8
+    # (passed through unchanged). The channel axis is at -3 once n_c > 0.
+    gmin = gmax = None
+    if arr.dtype != np.uint8:
+        if n_c == 0:
+            sel = arr
+        elif n_c == 1:
+            sel = arr[..., 0:1, :, :]
+        elif n_c >= 4:
+            sel = arr[..., 0:3, :, :]  # first 3 channels (drop alpha/extras)
+        else:  # 2 or 3 channels: use all
+            sel = arr
+        gmin, gmax = float(sel.min()), float(sel.max())
+
+    return _TiffPlan(
+        tif, arr, n_leading, n_c, frame_count, height, width, gmin, gmax
+    )
+
+
+def _iter_rgb_frames(plan):
+    """Yield successive ``(Y, X, 3)`` uint8 RGB frames from a planned TIFF.
+
+    One frame is materialised at a time (the source stays memmapped), so peak
+    memory is bounded by a single frame regardless of stack length.
+    """
+    import numpy as np
+
+    arr = plan.arr
+    leading_shape = arr.shape[: plan.n_leading]
+    for idx in np.ndindex(*leading_shape):
+        frame = np.asarray(arr[idx])
+        yield _frame_to_rgb(frame, plan.n_c, plan.gmin, plan.gmax, np)
+
+
+def _load_tiff_as_rgb(path):
+    """Read a multi-frame TIFF into an RGB ``(frames, Y, X, 3)`` uint8 array.
+
+    Thin convenience wrapper over :func:`_read_tiff_plan` +
+    :func:`_iter_rgb_frames` that materialises the whole stack in memory.
+    :func:`transcode_one` streams frames instead (bounded memory) and does
+    not use this; it remains for small-stack/programmatic/test callers.
+
+    Returns
+    -------
+    tuple or None
+        ``(stack, frame_count, height, width)`` on success, or ``None`` for
+        unsupported inputs (see :func:`_read_tiff_plan`).
+
+    """
+    plan = _read_tiff_plan(path)
+    if plan is None:
+        return None
+    try:
+        import numpy as np
+
+        stack = np.stack(list(_iter_rgb_frames(plan)), axis=0)
+    finally:
+        plan.close()
+    return stack, plan.frame_count, plan.height, plan.width
 
 
 def transcode_one(
@@ -244,67 +384,46 @@ def transcode_one(
     codec_args = h264_codec_args(encoder, crf=crf, preset="superfast")
     is_tiff = input_path.suffix.lower() in TIFF_EXTENSIONS
 
-    stack_bytes = None
     if is_tiff:
-        loaded = _load_tiff_as_rgb(input_path)
-        if loaded is None:
-            return False
-        stack, frame_count, height, width = loaded
-        out_fps = fps if fps is not None else 20.0
-        logger.info(
-            f"Transcoding TIFF: {frame_count} frames ({width}\u00d7{height}) "
-            f"@ {out_fps} fps | '{input_path.name}'"
+        # TIFF stacks are streamed frame-by-frame (bounded memory) so very
+        # large stacks do not exhaust RAM.
+        return _transcode_tiff(
+            input_path,
+            output_path,
+            codec_args,
+            encoder,
+            overwrite=overwrite,
+            fps=fps,
         )
-        cmd = ["ffmpeg"]
-        if overwrite:
-            cmd.append("-y")
-        cmd += [
-            "-f",
-            "rawvideo",
-            "-pixel_format",
-            "rgb24",
-            "-video_size",
-            f"{width}x{height}",
-            "-framerate",
-            str(out_fps),
-            "-i",
-            "-",
-            *codec_args,
-            "-an",  # raw RGB frames carry no audio
-            "-vf",
-            EVEN_DIM_YUV420P,
-            str(output_path),
-        ]
-        stack_bytes = stack.tobytes()
+
+    # --- Video inputs -------------------------------------------------------
+    if fps is not None:
+        logger.info(
+            f"Transcoding video: source fps reinterpreted as {fps} fps "
+            f"(faster playback) | '{input_path.name}'"
+        )
     else:
-        if fps is not None:
-            logger.info(
-                f"Transcoding video: source fps reinterpreted as {fps} fps "
-                f"(faster playback) | '{input_path.name}'"
-            )
-        else:
-            logger.info(
-                f"Transcoding video: keeping source fps | '{input_path.name}'"
-            )
-        cmd = ["ffmpeg"]
-        if overwrite:
-            cmd.append("-y")
-        # -r before -i reinterprets the source timestamps at the given fps,
-        # changing playback speed without duplicating frames.
-        if fps is not None:
-            cmd += ["-r", str(fps)]
-        cmd += ["-i", str(input_path), *codec_args]
-        if keep_audio:
-            cmd += ["-c:a", "aac", "-b:a", "128k"]
-        else:
-            cmd += ["-an"]
-        cmd += ["-vf", EVEN_DIM_YUV420P, str(output_path)]
+        logger.info(
+            f"Transcoding video: keeping source fps | '{input_path.name}'"
+        )
+    cmd = ["ffmpeg"]
+    if overwrite:
+        cmd.append("-y")
+    # -r before -i reinterprets the source timestamps at the given fps,
+    # changing playback speed without duplicating frames.
+    if fps is not None:
+        cmd += ["-r", str(fps)]
+    cmd += ["-i", str(input_path), *codec_args]
+    if keep_audio:
+        cmd += ["-c:a", "aac", "-b:a", "128k"]
+    else:
+        cmd += ["-an"]
+    cmd += ["-vf", EVEN_DIM_YUV420P, str(output_path)]
 
     t0 = time.time()
     try:
         subprocess.run(
             cmd,
-            input=stack_bytes,
             capture_output=True,
             check=True,
         )
@@ -323,14 +442,94 @@ def transcode_one(
             logger.error(f"Failed to transcode '{input_path.name}': {e}")
         return False
 
-    elapsed = time.time() - t0
+    _log_transcode_success(input_path, output_path, time.time() - t0)
+    return True
+
+
+def _log_transcode_success(input_path, output_path, elapsed):
+    """Log a one-line transcode summary (elapsed time + size reduction)."""
     in_mb = input_path.stat().st_size / 1_048_576
     out_mb = output_path.stat().st_size / 1_048_576
     reduction = 100 * (1 - out_mb / in_mb) if in_mb > 0 else 0
     logger.info(
         f"Transcoded '{input_path.name}' in {elapsed:.1f}s | "
-        f"{in_mb:.1f} MB → {out_mb:.1f} MB ({reduction:.0f}% smaller)"
+        f"{in_mb:.1f} MB \u2192 {out_mb:.1f} MB ({reduction:.0f}% smaller)"
     )
+
+
+def _transcode_tiff(
+    input_path, output_path, codec_args, encoder, *, overwrite, fps
+):
+    """Stream a multi-frame TIFF to MP4, one RGB frame at a time.
+
+    Frames are read disk-backed and piped to ffmpeg incrementally (via
+    :class:`_FfmpegWriter`), so peak memory stays at a single frame -- this is
+    what lets very large stacks (thousands of frames) transcode without
+    exhausting RAM. Returns True on success, or False if the TIFF is
+    unsupported or ffmpeg fails.
+    """
+    plan = _read_tiff_plan(input_path)
+    if plan is None:
+        return False
+    out_fps = fps if fps is not None else 20.0
+    logger.info(
+        f"Transcoding TIFF: {plan.frame_count} frames "
+        f"({plan.width}\u00d7{plan.height}) @ {out_fps} fps | "
+        f"'{input_path.name}'"
+    )
+    cmd = ["ffmpeg"]
+    if overwrite:
+        cmd.append("-y")
+    cmd += [
+        "-f",
+        "rawvideo",
+        "-pixel_format",
+        "rgb24",
+        "-video_size",
+        f"{plan.width}x{plan.height}",
+        "-framerate",
+        str(out_fps),
+        "-i",
+        "-",
+        *codec_args,
+        "-an",  # raw RGB frames carry no audio
+        "-vf",
+        EVEN_DIM_YUV420P,
+        str(output_path),
+    ]
+    t0 = time.time()
+    with tempfile.TemporaryFile(mode="w+b") as stderr_file:
+        try:
+            proc = subprocess.Popen(
+                cmd, stdin=subprocess.PIPE, stderr=stderr_file
+            )
+        except FileNotFoundError:
+            plan.close()
+            logger.error(
+                f"Failed to transcode '{input_path.name}': "
+                "ffmpeg not found on PATH."
+            )
+            return False
+
+        # Pipe frames incrementally; peak memory is one frame, not the whole
+        # stack.
+        writer = _FfmpegWriter(proc, stderr_file, encoder, output_path)
+        try:
+            for rgb in _iter_rgb_frames(plan):
+                writer.write(rgb.tobytes())
+            writer.close()
+        except Exception as e:
+            # A dead ffmpeg pipe surfaces as RuntimeError from the writer; a
+            # mid-stream frame read/decode error surfaces here too. Kill
+            # ffmpeg (close(check=False)) and report a skipped input rather
+            # than crash.
+            writer.close(check=False)
+            logger.error(f"Failed to transcode '{input_path.name}': {e}")
+            return False
+        finally:
+            plan.close()
+
+    _log_transcode_success(input_path, output_path, time.time() - t0)
     return True
 
 

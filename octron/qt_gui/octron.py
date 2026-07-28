@@ -30,7 +30,7 @@ class Ui_octron_widgetui:
         self.mainLayout.setSizeConstraint(
             QLayout.SizeConstraint.SetNoConstraint
         )
-        self.mainLayout.setContentsMargins(0, 0, 0, 0)
+        self.mainLayout.setContentsMargins(0, 10, 0, 0)
         self.octron_logo = QLabel(self.verticalLayoutWidget)
         self.octron_logo.setObjectName("octron_logo")
         self.octron_logo.setEnabled(True)
@@ -184,6 +184,32 @@ class Ui_octron_widgetui:
         self.existing_data_table.setObjectName("existing_data_table")
         self.existing_data_table.setMinimumSize(QSize(380, 180))
         self.existing_data_table.setMaximumSize(QSize(380, 180))
+        self.existing_data_table.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+        self.existing_data_table.setAutoFillBackground(False)
+        self.existing_data_table.setStyleSheet(u"QTableView {\n"
+"    background-color: transparent;\n"
+"    gridline-color: transparent;\n"
+"}\n"
+"QTableView::item {\n"
+"    background-color: transparent;\n"
+"    border: none;\n"
+"    border-bottom: 1px solid #555;\n"
+"}\n"
+"QHeaderView {\n"
+"    background-color: transparent;\n"
+"}\n"
+"QHeaderView::section {\n"
+"    background-color: transparent;\n"
+"    border: none;\n"
+"    border-bottom: 1px solid #555;\n"
+"    padding: 2px 4px;\n"
+"}\n"
+"QTableCornerButton::section {\n"
+"    background-color: transparent;\n"
+"}")
+        self.existing_data_table.setFrameShape(QFrame.Shape.NoFrame)
+        self.existing_data_table.setFrameShadow(QFrame.Shadow.Plain)
+        self.existing_data_table.setLineWidth(1)
         self.existing_data_table.setEditTriggers(
             QAbstractItemView.EditTrigger.AnyKeyPressed
             | QAbstractItemView.EditTrigger.EditKeyPressed
@@ -206,7 +232,8 @@ class Ui_octron_widgetui:
         )
         self.existing_data_table.horizontalHeader().setMinimumSectionSize(85)
         self.existing_data_table.horizontalHeader().setDefaultSectionSize(85)
-        self.existing_data_table.horizontalHeader().setHighlightSections(False)
+        self.existing_data_table.horizontalHeader().setHighlightSections(True)
+        self.existing_data_table.horizontalHeader().setStretchLastSection(True)
         self.existing_data_table.verticalHeader().setVisible(False)
         self.existing_data_table.verticalHeader().setMinimumSectionSize(20)
         self.existing_data_table.verticalHeader().setDefaultSectionSize(20)
@@ -636,7 +663,7 @@ class Ui_octron_widgetui:
         self.train_tab.setSizePolicy(sizePolicy1)
         self.verticalLayoutWidget_4 = QWidget(self.train_tab)
         self.verticalLayoutWidget_4.setObjectName("verticalLayoutWidget_4")
-        self.verticalLayoutWidget_4.setGeometry(QRect(0, 0, 402, 475))
+        self.verticalLayoutWidget_4.setGeometry(QRect(0, 0, 402, 461))
         self.train_vertical_layout = QVBoxLayout(self.verticalLayoutWidget_4)
         self.train_vertical_layout.setSpacing(20)
         self.train_vertical_layout.setObjectName("train_vertical_layout")

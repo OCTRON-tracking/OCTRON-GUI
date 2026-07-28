@@ -306,6 +306,22 @@ def test_load_tiff_as_rgb_grayscale_frames(tmp_path):
     assert stack.dtype == np.uint8
 
 
+def test_load_tiff_as_rgb_generic_I_axis_treated_as_time(tmp_path):
+    np = pytest.importorskip("numpy")
+    tifffile = pytest.importorskip("tifffile")
+    # tifffile labels a plain image-sequence axis 'I'; with a Y/X plane present
+    # it should be treated as the time/frame axis (previously rejected as 2D).
+    arr = np.arange(4 * 8 * 8, dtype=np.uint8).reshape(4, 8, 8)
+    p = tmp_path / "iseq.tif"
+    tifffile.imwrite(str(p), arr, metadata={"axes": "IYX"})
+    loaded = _load_tiff_as_rgb(p)
+    assert loaded is not None
+    stack, n_frames, height, width = loaded
+    assert (n_frames, height, width) == (4, 8, 8)
+    assert stack.shape == (4, 8, 8, 3)
+    assert stack.dtype == np.uint8
+
+
 def test_load_tiff_as_rgb_rejects_single_frame(tmp_path):
     np = pytest.importorskip("numpy")
     tifffile = pytest.importorskip("tifffile")

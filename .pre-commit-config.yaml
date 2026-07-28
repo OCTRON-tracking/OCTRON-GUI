@@ -7,6 +7,8 @@ repos:
       rev: v6.0.0
       hooks:
           - id: check-docstring-first
+            # Qt-Designer-generated files (regenerated from octron.ui; edits are lost)
+            exclude: ^octron/qt_gui/(octron|octron_corrected)\.py$
           - id: check-executables-have-shebangs
           - id: check-merge-conflict
           - id: check-toml

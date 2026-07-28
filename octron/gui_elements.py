@@ -40,17 +40,33 @@ class Mp4DropWidget(QWidget):
     # of file paths.
     fileDropped = Signal(list)
 
+    # Prompt shown when the drop area is ready to accept a video.
+    DEFAULT_TEXT = "🎥 Click, or drag and drop .MP4 file here"
+
     def __init__(self, parent=None, callback=None):
         """Initialize the widget and its drop-target layout."""
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.callback = callback
         layout = QVBoxLayout(self)
-        self.label = QLabel("🎥 Click, or drag and drop .MP4 file here", self)
+        self.label = QLabel(self.DEFAULT_TEXT, self)
         self.label.setAlignment(Qt.AlignCenter)
+        self.label.setWordWrap(True)
         layout.addWidget(self.label)
         self.setLayout(layout)
         self._setup_styles()
+
+    def set_locked(self, locked, message=None):
+        """Lock (disable) or unlock (enable) the drop area.
+
+        When locked, the widget stops accepting drops and clicks and shows
+        ``message`` instead of the default prompt. When unlocked, it accepts
+        files again and restores the default prompt.
+        """
+        self.setEnabled(not locked)
+        self.label.setText(
+            message if (locked and message) else self.DEFAULT_TEXT
+        )
 
     def _setup_styles(self):
         self.setAutoFillBackground(True)
@@ -144,7 +160,7 @@ class octron_gui_elements(QWidget):
         self.octron.mainLayout.setSizeConstraint(
             QLayout.SizeConstraint.SetNoConstraint
         )
-        self.octron.mainLayout.setContentsMargins(0, 0, 0, 0)
+        self.octron.mainLayout.setContentsMargins(0, 10, 0, 0)
         self.octron.octron_logo = QLabel(self.octron.verticalLayoutWidget)
         self.octron.octron_logo.setObjectName("octron_logo")
         self.octron.octron_logo.setEnabled(True)
@@ -326,6 +342,36 @@ class octron_gui_elements(QWidget):
         self.octron.existing_data_table.setObjectName("existing_data_table")
         self.octron.existing_data_table.setMinimumSize(QSize(380, 180))
         self.octron.existing_data_table.setMaximumSize(QSize(380, 180))
+        self.octron.existing_data_table.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.DefaultContextMenu
+        )
+        self.octron.existing_data_table.setAutoFillBackground(False)
+        self.octron.existing_data_table.setStyleSheet(
+            "QTableView {\n"
+            "    background-color: transparent;\n"
+            "    gridline-color: transparent;\n"
+            "}\n"
+            "QTableView::item {\n"
+            "    background-color: transparent;\n"
+            "    border: none;\n"
+            "    border-bottom: 1px solid #555;\n"
+            "}\n"
+            "QHeaderView {\n"
+            "    background-color: transparent;\n"
+            "}\n"
+            "QHeaderView::section {\n"
+            "    background-color: transparent;\n"
+            "    border: none;\n"
+            "    border-bottom: 1px solid #555;\n"
+            "    padding: 2px 4px;\n"
+            "}\n"
+            "QTableCornerButton::section {\n"
+            "    background-color: transparent;\n"
+            "}"
+        )
+        self.octron.existing_data_table.setFrameShape(QFrame.Shape.NoFrame)
+        self.octron.existing_data_table.setFrameShadow(QFrame.Shadow.Plain)
+        self.octron.existing_data_table.setLineWidth(1)
         self.octron.existing_data_table.setEditTriggers(
             QAbstractItemView.EditTrigger.AnyKeyPressed
             | QAbstractItemView.EditTrigger.EditKeyPressed
@@ -353,7 +399,10 @@ class octron_gui_elements(QWidget):
             85
         )
         self.octron.existing_data_table.horizontalHeader().setHighlightSections(
-            False
+            True
+        )
+        self.octron.existing_data_table.horizontalHeader().setStretchLastSection(
+            True
         )
         self.octron.existing_data_table.verticalHeader().setVisible(False)
         self.octron.existing_data_table.verticalHeader().setMinimumSectionSize(
@@ -865,7 +914,7 @@ class octron_gui_elements(QWidget):
         self.octron.verticalLayoutWidget_4.setObjectName(
             "verticalLayoutWidget_4"
         )
-        self.octron.verticalLayoutWidget_4.setGeometry(QRect(0, 0, 402, 475))
+        self.octron.verticalLayoutWidget_4.setGeometry(QRect(0, 0, 402, 461))
         self.octron.train_vertical_layout = QVBoxLayout(
             self.octron.verticalLayoutWidget_4
         )
