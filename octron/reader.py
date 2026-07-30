@@ -1,18 +1,12 @@
 """Napari reader plugin hooks for OCTRON project folders and files."""
 
-from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from napari.types import LayerData
-from napari.utils.notifications import (
-    show_error,
-)
+from napari.utils.notifications import show_error
 
-# Define some types
-PathLike = str
-PathOrPaths = PathLike | Sequence[PathLike]
-ReaderFunction = Callable[[PathOrPaths], list[LayerData]]
+if TYPE_CHECKING:
+    from napari.types import LayerData, PathOrPaths, ReaderFunction
 
 import warnings
 
@@ -53,8 +47,13 @@ def read_octron_file(path: "PathOrPaths") -> list["LayerData"]:
 
 def read_octron_folder(path: "PathOrPaths") -> list["LayerData"]:
     """Handle a folder dropped onto napari (predictions or videos)."""
-    # octron_reader only returns this for single str/Path folder inputs
-    folder = Path(path)  # type: ignore[arg-type]
+    # octron_reader only returns this callable for single str/Path folder
+    # inputs
+    if not isinstance(path, str | Path):
+        raise TypeError(
+            "read_octron_folder expects a single path, not a sequence"
+        )
+    folder = Path(path)
     # Check what kind of folder you are dealing with.
     # There are three options:
     # A. Octron project folder
