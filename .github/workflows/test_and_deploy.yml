@@ -8,7 +8,7 @@ on:
       - '*'
   pull_request:
 
-# Cancel in-progress runs if a new run is triggered, 
+# Cancel in-progress runs if a new run is triggered,
 # except for main branch.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,7 +42,7 @@ jobs:
       - uses: FedericoCarboni/setup-ffmpeg@v3.1
         with:
             # to increase request limit to Github API;
-            # github.token is auto-provided per run 
+            # github.token is auto-provided per run
             github-token: ${{ github.token }}
             # tests the latest release as
             # posted in https://ffmpeg.org/download.html#releases

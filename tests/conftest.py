@@ -19,6 +19,7 @@ pytest_plugins = [
     if "__" not in fixture.name
 ]
 
+
 # define other fixtures shared by the whole suite here
 @pytest.fixture(scope="session")
 def rng():
