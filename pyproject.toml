@@ -147,7 +147,7 @@ fix = true
 ignore = [
     "D203", # one blank line before class
     "D213", # multi-line-summary second line
-    "C901", # complex-structure; re-enable when the big GUI methods are split
+    "C901", # ignoring complex-structure for now; to re-enable when the big GUI methods are split
 ]
 select = [
     "E",      # pycodestyle errors
