@@ -1,14 +1,16 @@
-"""
-Tests for octron.yolo_octron.helpers.cache_io — the prediction cache staging
+"""Tests for octron.yolo_octron.helpers.cache_io — the prediction cache staging
 helpers used by core predict_batch.
 """
 
-from octron.yolo_octron.helpers.cache_io import is_network_path, move_prediction_folder
-
+from octron.yolo_octron.helpers.cache_io import (
+    is_network_path,
+    move_prediction_folder,
+)
 
 # ---------------------------------------------------------------------------
 # is_network_path (advisory only)
 # ---------------------------------------------------------------------------
+
 
 def test_is_network_path_detects_unc_and_posix_shares():
     assert is_network_path("//server/share/x")
@@ -24,6 +26,7 @@ def test_is_network_path_rejects_local_paths():
 # ---------------------------------------------------------------------------
 # move_prediction_folder
 # ---------------------------------------------------------------------------
+
 
 def test_move_prediction_folder_moves_contents(tmp_path):
     src = tmp_path / "cache" / "octron_predictions" / "vid_bytetrack"

@@ -1,13 +1,13 @@
 BaseTracker:
   tracker_type: "none"
   name: "base tracker"
-  is_reid: false # Is this a model that uses ReID in some form or another? 
+  is_reid: false # Is this a model that uses ReID in some form or another?
   reid_model: none
   win_height: 400
   parameters:
-    det_thresh: 
+    det_thresh:
       current_value: 0.3
-      default_value: 0.3 
+      default_value: 0.3
       disabled: false
       docstring: Detection threshold for considering detections
       gui_element: double_spin_box
@@ -15,7 +15,7 @@ BaseTracker:
       - 0.0
       - 1.0
 
-    max_age: 
+    max_age:
       current_value: 300
       default_value: 300
       disabled: false
@@ -25,7 +25,7 @@ BaseTracker:
       - 1
       - 10000
 
-    max_obs: 
+    max_obs:
       current_value: 305
       default_value: 305
       disabled: false
@@ -35,8 +35,8 @@ BaseTracker:
       range:
       - 5
       - 10000
-    
-    min_hits: 
+
+    min_hits:
       current_value: 3
       default_value: 3
       disabled: false
@@ -45,8 +45,8 @@ BaseTracker:
       range:
       - 1
       - 20
-    
-    iou_threshold: 
+
+    iou_threshold:
       current_value: 0.3
       default_value: 0.3
       disabled: false
@@ -55,15 +55,15 @@ BaseTracker:
       range:
       - 0.1
       - 0.9
-    
-    per_class: 
+
+    per_class:
       current_value: true
       default_value: true
       disabled: false
       docstring: Enables class-separated tracking. When true, tracks different object classes separately.
       gui_element: checkbox
-    
-    nr_classes: 
+
+    nr_classes:
       current_value: 5
       default_value: 5
       disabled: true
@@ -72,8 +72,8 @@ BaseTracker:
       range:
       - 1
       - 20
-    
-    asso_func: 
+
+    asso_func:
       current_value: "iou"
       default_value: "iou"
       disabled: false
@@ -86,8 +86,8 @@ BaseTracker:
       - ciou
       - diou
       - centroid
-    
-    is_obb: 
+
+    is_obb:
       current_value: false
       default_value: false
       disabled: true

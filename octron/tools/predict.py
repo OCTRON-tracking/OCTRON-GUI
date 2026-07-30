@@ -1,8 +1,7 @@
-"""
-OCTRON prediction pipeline.
+"""OCTRON prediction pipeline.
 
-Wraps ``YOLO_octron.predict_batch()`` into a single callable usable from the CLI
-or programmatically.
+Wraps ``YOLO_octron.predict_batch()`` into a single callable usable from
+the CLI or programmatically.
 
 Local prediction caching (staging output on a fast local disk, then moving each
 finished video to its final destination) now lives in core ``predict_batch`` so
@@ -11,9 +10,9 @@ the GUI and programmatic callers share it. It is opt-in: set
 ``--local-cache-dir`` on the CLI). ``run_predict`` only prints progress.
 """
 
+import time
 from collections import deque
 from pathlib import Path
-import time
 
 
 def run_predict(
@@ -35,8 +34,7 @@ def run_predict(
     debug=False,
     local_cache_dir=None,
 ):
-    """
-    Run YOLO prediction and tracking on one or more videos.
+    """Run YOLO prediction and tracking on one or more videos.
 
     Parameters
     ----------
@@ -83,6 +81,7 @@ def run_predict(
         ``predict_batch`` stages each video's output under
         ``<cache>/octron_cache_<pid>`` and moves the finished folder to
         ``output_dir``. Caching is OFF unless a cache dir is configured.
+
     """
     if isinstance(videos, (str, Path)):
         videos = [videos]
@@ -90,7 +89,9 @@ def run_predict(
     for v in videos:
         v = Path(v)
         if v.is_dir():
-            found = sorted(f for f in v.iterdir() if f.suffix.lower() == ".mp4")
+            found = sorted(
+                f for f in v.iterdir() if f.suffix.lower() == ".mp4"
+            )
             if not found:
                 raise ValueError(f"No .mp4 files found in directory: {v}")
             print(f"Found {len(found)} video(s) in {v}")
@@ -109,21 +110,24 @@ def run_predict(
         found = next((c for c in candidates if c.exists()), None)
         if found is None:
             raise FileNotFoundError(
-                f"model_path is a directory but no best.pt found inside: {model_path}"
+                f"model_path is a directory but no best.pt found "
+                f"inside: {model_path}"
             )
         model_path = found
 
     from loguru import logger
-    from octron.yolo_octron.yolo_octron import YOLO_octron
+
     from octron.test_gpu import auto_device
+    from octron.yolo_octron.yolo_octron import YOLO_octron
 
     # Silence boxmot's verbose INFO chatter (tracker init parameter dumps).
     logger.disable("boxmot")
 
     # Unwrap a Device enum to its plain string value (mirrors run_training).
-    # boxmot's select_device() calls str(device).lower(); a (str, Enum) member
-    # stringifies to e.g. "Device.mps" -> "device.mps", which it then misreads
-    # as a CUDA device and rejects. Passing the bare value ("mps") avoids that.
+    # boxmot's select_device() calls str(device).lower(); a (str, Enum)
+    # member stringifies to e.g. "Device.mps" -> "device.mps", which it
+    # then misreads as a CUDA device and rejects. Passing the bare value
+    # ("mps") avoids that.
     device = device.value if hasattr(device, "value") else str(device)
 
     if device == "auto":
@@ -132,9 +136,10 @@ def run_predict(
     yolo = YOLO_octron()
 
     _wall_start = time.time()
-    # Consumer-side fps: timestamps of the last _FPS_WINDOW seconds of frames.
-    # Time-based eviction means stall outliers fall out of the window immediately
-    # after the stall ends, avoiding both mean-poisoning and median bimodal issues.
+    # Consumer-side fps: timestamps of the last _FPS_WINDOW seconds of
+    # frames. Time-based eviction means stall outliers fall out of the
+    # window immediately after the stall ends, avoiding both
+    # mean-poisoning and median bimodal issues.
     _FPS_WINDOW = 5.0  # seconds
     _fps_ts: deque[float] = deque()
     _current_video_frames = 0
@@ -177,8 +182,10 @@ def run_predict(
             if stage == "skipped_video":
                 _close_progress()
                 logger.warning(
-                    f"Skipped {progress.get('video_name', '')} — predictions already "
-                    f"exist at {progress.get('save_dir', '')}. Use --overwrite to replace."
+                    f"Skipped {progress.get('video_name', '')} — "
+                    f"predictions already exist at "
+                    f"{progress.get('save_dir', '')}. "
+                    f"Use --overwrite to replace."
                 )
                 continue
 
@@ -203,8 +210,9 @@ def run_predict(
                 _current_video_frames = total_f
                 _fps_ts.clear()  # reset fps window per video
                 _close_progress()
+                total_videos = progress.get("total_videos", "?")
                 logger.info(
-                    f"Video {video_index + 1}/{progress.get('total_videos', '?')}: "
+                    f"Video {video_index + 1}/{total_videos}: "
                     f"{progress.get('video_name', '')}  ({total_f:,} frames)"
                 )
 
@@ -215,20 +223,28 @@ def run_predict(
             _fps_ts.append(now_t)
             while _fps_ts[0] < now_t - _FPS_WINDOW:
                 _fps_ts.popleft()
-            fps = (len(_fps_ts) - 1) / (_fps_ts[-1] - _fps_ts[0]) if len(_fps_ts) >= 2 else 0.0
+            fps = (
+                (len(_fps_ts) - 1) / (_fps_ts[-1] - _fps_ts[0])
+                if len(_fps_ts) >= 2
+                else 0.0
+            )
 
             pct = 100.0 * frame / total_f if total_f > 0 else 0.0
             eta_s = int((total_f - frame) / fps) if fps > 0 else 0
-            eta_str = f"{eta_s // 3600:02d}:{(eta_s % 3600) // 60:02d}:{eta_s % 60:02d}"
+            eta_h, eta_rem = divmod(eta_s, 3600)
+            eta_m, eta_sec = divmod(eta_rem, 60)
+            eta_str = f"{eta_h:02d}:{eta_m:02d}:{eta_sec:02d}"
 
             if now_t - _last_print_t >= _PRINT_INTERVAL:
+                progress_msg = (
+                    f"{frame:,}/{total_f:,} | {pct:.1f}% | "
+                    f"{fps:.1f} fps | ETA: {eta_str}"
+                )
                 if debug:
-                    logger.info(
-                        f"[progress] {frame:,}/{total_f:,} | {pct:.1f}% | {fps:.1f} fps | ETA: {eta_str}"
-                    )
+                    logger.info(f"[progress] {progress_msg}")
                 else:
                     print(
-                        f"\r\033[K  {frame:,}/{total_f:,} | {pct:.1f}% | {fps:.1f} fps | ETA: {eta_str}",
+                        f"\r\033[K  {progress_msg}",
                         end="",
                         flush=True,
                     )

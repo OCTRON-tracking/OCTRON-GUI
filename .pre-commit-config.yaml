@@ -1,5 +1,3 @@
-
-
 # Configuring https://pre-commit.ci/
 ci:
     autoupdate_schedule: monthly
@@ -9,6 +7,8 @@ repos:
       rev: v6.0.0
       hooks:
           - id: check-docstring-first
+            # Qt-Designer-generated files (regenerated from octron.ui; edits are lost)
+            exclude: ^octron/qt_gui/(octron|octron_corrected)\.py$
           - id: check-executables-have-shebangs
           - id: check-merge-conflict
           - id: check-toml
@@ -30,6 +30,8 @@ repos:
           - id: mypy
             additional_dependencies:
                 - types-setuptools
+                - types-requests
+                - types-PyYAML
     - repo: https://github.com/mgedmin/check-manifest
       rev: "0.50"
       hooks:

@@ -6,7 +6,7 @@ OCTRON is a pipeline built on [napari](https://www.napari.org) that enables segm
 <br><br>
 OCTRON is built on [Napari](https://www.napari.org), [Segment Anything (SAM2/SAM3)](https://aidemos.meta.com/), [YOLO](https://www.ultralytics.com/), [BoxMOT](https://github.com/mikel-brostrom/boxmot) and 💜.
 
-### Documentation 
+### Documentation
 All documentation can be found under [OCTRON-docs on github pages](https://octron-tracking.github.io/OCTRON-docs/).
 
 ### Support

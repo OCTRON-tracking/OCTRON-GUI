@@ -1,36 +1,53 @@
-"""
-Dialog for configuring which scikit-image region properties
-are extracted during YOLO segmentation prediction.
+"""Dialog for configuring scikit-image region properties to extract.
 
-Modeled after BoxmotTrackerConfigDialog in tracking/tracker_config_ui.py.
+Extracted during YOLO segmentation prediction. Modeled after
+BoxmotTrackerConfigDialog in tracking/tracker_config_ui.py.
 """
 
 import re
-from qtpy.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QPushButton, QCheckBox, QFrame, QScrollArea,
-    QWidget, QGroupBox, QSizePolicy
-)
-from qtpy.QtCore import Qt
 
-from octron.yolo_octron.constants import ALL_REGION_PROPERTIES, DEFAULT_REGION_PROPERTIES
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
+
+from octron.yolo_octron.constants import (
+    ALL_REGION_PROPERTIES,
+    DEFAULT_REGION_PROPERTIES,
+)
 
 # Hardcoded original defaults (used by "Reset Defaults" button).
-_ORIGINAL_DEFAULTS = ('area',)
+_ORIGINAL_DEFAULTS = ("area",)
 
 
 class RegionPropertiesDialog(QDialog):
-    """Modal dialog that displays all scikit-image region property options
-    in a two-column layout with a checkbox next to each one."""
+    """Modal dialog that displays scikit-image region property options.
+
+    Options are shown in a two-column layout with a checkbox next to
+    each one.
+    """
 
     def __init__(self, parent=None, current_selection=None):
-        """
+        """Initialize the dialog and build the checkbox UI.
+
         Parameters
         ----------
         parent : QWidget
             Parent widget.
         current_selection : set or tuple or list, optional
-            Currently enabled property names.  Defaults to DEFAULT_REGION_PROPERTIES.
+            Currently enabled property names.  Defaults to
+            DEFAULT_REGION_PROPERTIES.
+
         """
         super().__init__(parent)
 
@@ -143,7 +160,9 @@ class RegionPropertiesDialog(QDialog):
 
     def get_selected_properties(self) -> tuple:
         """Return a tuple of currently checked property names."""
-        return tuple(name for name, cb in self.checkboxes.items() if cb.isChecked())
+        return tuple(
+            name for name, cb in self.checkboxes.items() if cb.isChecked()
+        )
 
     # ------------------------------------------------------------------
     # Persistence
@@ -152,32 +171,34 @@ class RegionPropertiesDialog(QDialog):
     def _write_defaults_to_constants(selected: tuple):
         """Rewrite DEFAULT_REGION_PROPERTIES in constants.py on disk."""
         import octron.yolo_octron.constants as _mod
+
         path = _mod.__file__
 
-        with open(path, 'r') as f:
+        with open(path) as f:
             content = f.read()
 
         # Build the replacement tuple string
         if selected:
-            items = '\n'.join(f"    '{p}'," for p in selected)
+            items = "\n".join(f"    '{p}'," for p in selected)
             new_block = f"DEFAULT_REGION_PROPERTIES = (\n{items}\n)"
         else:
             new_block = "DEFAULT_REGION_PROPERTIES = ()"
 
         # Replace the existing DEFAULT_REGION_PROPERTIES block
         content = re.sub(
-            r'DEFAULT_REGION_PROPERTIES\s*=\s*\(.*?\)',
+            r"DEFAULT_REGION_PROPERTIES\s*=\s*\(.*?\)",
             new_block,
             content,
             count=1,
             flags=re.DOTALL,
         )
 
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             f.write(content)
 
         # Reload so the running process picks up the change
         import importlib
+
         importlib.reload(_mod)
 
     def _save(self):
@@ -189,12 +210,15 @@ class RegionPropertiesDialog(QDialog):
     # Public accessor
     # ------------------------------------------------------------------
     def get_config(self):
-        """Return the selected properties (mirrors BoxmotTrackerConfigDialog API)."""
+        """Return the selected properties.
+
+        Mirrors the BoxmotTrackerConfigDialog API.
+        """
         return self.get_selected_properties()
 
 
 def open_region_properties_dialog(parent, current_selection=None):
-    """Opens a modal dialog to configure region properties.
+    """Open a modal dialog to configure region properties.
 
     Returns the selected properties as a tuple, or None if cancelled.
     """
