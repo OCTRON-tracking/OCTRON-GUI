@@ -17,15 +17,25 @@ def _make_results(header_lines=7):
     return obj
 
 
+def _write_tracking_csv(path, data_rows, header_lines=7):
+    """Write a valid tracking CSV: metadata header + column row + data rows.
+
+    Mirrors the on-disk layout ``_csv_observation_count`` expects:
+    ``header_lines`` fixed metadata lines, one column-header row, then the
+    given data rows.
+    """
+    lines = (
+        [f"# meta {i}" for i in range(header_lines)]
+        + ["frame_idx,track_id,label"]
+        + list(data_rows)
+    )
+    path.write_text("\n".join(lines) + "\n")
+
+
 def test_csv_observation_count_counts_data_rows(tmp_path):
     obj = _make_results(header_lines=7)
     csv = tmp_path / "clip_track_1.csv"
-    lines = (
-        [f"# meta {i}" for i in range(7)]  # 7 fixed metadata header lines
-        + ["frame_idx,track_id,label"]  # 1 column-header row
-        + ["0,1,a", "1,1,a", "2,1,a"]  # 3 data rows
-    )
-    csv.write_text("\n".join(lines) + "\n")
+    _write_tracking_csv(csv, ["0,1,a", "1,1,a", "2,1,a"], header_lines=7)
     assert obj._csv_observation_count(csv) == 3
 
 
@@ -39,12 +49,7 @@ def test_csv_observation_count_floors_at_zero(tmp_path):
 def test_csv_observation_count_respects_header_lines(tmp_path):
     obj = _make_results(header_lines=3)
     csv = tmp_path / "clip_track_3.csv"
-    lines = (
-        [f"# meta {i}" for i in range(3)]
-        + ["frame_idx,track_id,label"]
-        + ["0,3,a", "1,3,a"]
-    )
-    csv.write_text("\n".join(lines) + "\n")
+    _write_tracking_csv(csv, ["0,3,a", "1,3,a"], header_lines=3)
     assert obj._csv_observation_count(csv) == 2
 
 
