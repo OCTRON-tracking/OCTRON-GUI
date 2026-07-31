@@ -36,7 +36,6 @@ jobs:
           python-version: "3.11"
         - os: windows-latest
           python-version: "3.11"
-
     steps:
       # Install ffmpeg for the relevant platform
       # by default, tests the latest release as
