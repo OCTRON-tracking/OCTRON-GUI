@@ -280,7 +280,7 @@ def get_model_cache_dir() -> Path:
     raw = get_value("model_cache_dir")
     if raw:
         return Path(raw).expanduser()
-    return Path(platformdirs.user_cache_dir("octron"))
+    return Path(platformdirs.user_cache_dir("octron", opinion=False))
 
 
 def get_yolo_models_dir() -> Path:
