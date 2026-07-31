@@ -39,7 +39,8 @@ jobs:
 
     steps:
       # Install ffmpeg for the relevant platform
-      - uses: FedericoCarboni/setup-ffmpeg@v3.1
+      # pin to support for Node.js 24 (after GH deprecated Node.js 20)
+      - uses: FedericoCarboni/setup-ffmpeg@8073ccb51e517ed576e6871c7f2360c6de4ebb7c
         with:
             # to increase request limit to Github API;
             # github.token is auto-provided per run
