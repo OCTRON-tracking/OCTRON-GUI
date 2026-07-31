@@ -28,11 +28,11 @@ def test_run_predict_empty_video_directory_via_str(tmp_path):
         run_predict(videos=str(empty_dir), model_path=tmp_path / "fake.pt")
 
 
-def test_run_predict_model_dir_without_best_pt_raises(tmp_path):
+def test_run_predict_model_dir_without_best_pt_raises(tmp_path, touch_file):
     """model_path at a directory with no recognised best.pt errors."""
     # Need a real .mp4 so we get past video validation and into
     # model_path checks.
-    (tmp_path / "clip.mp4").write_bytes(b"")
+    touch_file("clip.mp4")
     model_dir = tmp_path / "trained_run"
     model_dir.mkdir()
     with pytest.raises(FileNotFoundError, match="no best.pt"):
@@ -42,16 +42,17 @@ def test_run_predict_model_dir_without_best_pt_raises(tmp_path):
         )
 
 
-def test_run_predict_model_dir_with_weights_best_pt_resolves(tmp_path):
+def test_run_predict_model_dir_with_weights_best_pt_resolves(
+    tmp_path, touch_file
+):
     """If weights/best.pt exists inside the model directory, validation passes.
 
     We only confirm model_path resolution accepts this layout — any later error
     (the .pt is empty, no torch model can load) is fine.
     """
-    (tmp_path / "clip.mp4").write_bytes(b"")
+    touch_file("clip.mp4")
     model_dir = tmp_path / "trained_run"
-    (model_dir / "weights").mkdir(parents=True)
-    (model_dir / "weights" / "best.pt").write_bytes(b"")
+    touch_file("trained_run/weights/best.pt")
 
     with pytest.raises(Exception) as exc:
         run_predict(
@@ -97,7 +98,7 @@ def _stub_predict_batch(monkeypatch):
     return captured
 
 
-def test_run_predict_unwraps_device_enum(monkeypatch, tmp_path):
+def test_run_predict_unwraps_device_enum(monkeypatch, tmp_path, touch_file):
     """A Device enum must reach predict_batch as a plain string.
 
     boxmot's select_device() does str(device).lower(); a (str, Enum) member
@@ -105,8 +106,8 @@ def test_run_predict_unwraps_device_enum(monkeypatch, tmp_path):
     device. run_predict must forward the bare value ("mps") instead.
     """
     captured = _stub_predict_batch(monkeypatch)
-    (tmp_path / "clip.mp4").write_bytes(b"")
-    (tmp_path / "model.pt").write_bytes(b"")
+    touch_file("clip.mp4")
+    touch_file("model.pt")
 
     from octron.cli import Device
 
@@ -120,11 +121,13 @@ def test_run_predict_unwraps_device_enum(monkeypatch, tmp_path):
     assert type(captured["device"]) is str  # plain str, not the Device enum
 
 
-def test_run_predict_auto_device_is_resolved(monkeypatch, tmp_path):
+def test_run_predict_auto_device_is_resolved(
+    monkeypatch, tmp_path, touch_file
+):
     """device='auto' (or Device.auto) must be resolved via auto_device()."""
     captured = _stub_predict_batch(monkeypatch)  # auto_device() -> "cpu"
-    (tmp_path / "clip.mp4").write_bytes(b"")
-    (tmp_path / "model.pt").write_bytes(b"")
+    touch_file("clip.mp4")
+    touch_file("model.pt")
 
     from octron.cli import Device
 

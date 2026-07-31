@@ -58,20 +58,18 @@ def test_csv_observation_count_respects_header_lines(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_candidate_video_path_finds_sibling(tmp_path):
+def test_candidate_video_path_finds_sibling(tmp_path, touch_file):
     (tmp_path / "clipA_ByteTrack").mkdir()
-    video = tmp_path / "clipA.mp4"
-    video.write_bytes(b"")
+    video = touch_file("clipA.mp4")
     obj = YOLO_results.__new__(YOLO_results)
     obj.results_dir = tmp_path / "clipA_ByteTrack"
     assert obj._candidate_video_path() == video
 
 
-def test_candidate_video_path_finds_nested(tmp_path):
+def test_candidate_video_path_finds_nested(tmp_path, touch_file):
     folder = tmp_path / "octron_predictions" / "clipB_ByteTrack"
     folder.mkdir(parents=True)
-    video = tmp_path / "clipB.mp4"
-    video.write_bytes(b"")
+    video = touch_file("clipB.mp4")
     obj = YOLO_results.__new__(YOLO_results)
     obj.results_dir = folder
     assert obj._candidate_video_path() == video
