@@ -382,7 +382,10 @@ def transcode_one(
         cmd += ["-r", str(fps)]
     cmd += ["-i", str(input_path), *codec_args]
     if keep_audio:
-        cmd += ["-c:a", "aac", "-b:a", "128k"]
+        # -map 0:a? makes audio optional: ffmpeg silently skips audio when
+        # the input has no audio stream (e.g. OCTRON-rendered MP4s), but
+        # preserves and re-encodes audio when it is present.
+        cmd += ["-map", "0:a?", "-c:a", "aac", "-b:a", "128k"]
     else:
         cmd += ["-an"]
     cmd += ["-vf", EVEN_DIM_YUV420P, str(output_path)]
