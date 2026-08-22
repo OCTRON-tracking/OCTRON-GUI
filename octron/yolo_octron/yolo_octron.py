@@ -1156,12 +1156,16 @@ class YOLO_octron:
         if not hasattr(self, 'training_path') or self.training_path is None:
             pass
         else:
-            self.yolo_settings.update({
+            # Only update keys that exist in the installed ultralytics version —
+            # some keys (e.g. 'hub') have been removed in recent releases.
+            _desired = {
                 'sync': False,
-                'hub': False,
                 'tensorboard': True,
-                'runs_dir': self.training_path.as_posix()
-            })
+                'runs_dir': self.training_path.as_posix(),
+            }
+            _valid = {k: v for k, v in _desired.items() if k in self.yolo_settings}
+            if _valid:
+                self.yolo_settings.update(_valid)
         from ultralytics import YOLO   
         
         # Load specified model
