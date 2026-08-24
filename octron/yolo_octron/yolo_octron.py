@@ -1737,6 +1737,16 @@ class YOLO_octron:
         _ULTRA_DEFAULT_BATCH = (
             16  # what ultralytics returns when AutoBatch fails
         )
+        # AutoBatch targets 60% of VRAM and profiles a single-object
+        # forward/backward pass, so it is optimistic for real segmentation
+        # training (mask head, many objects, EMA, val, augmentation). A batch
+        # that "fits" while profiling can then OOM on the first real step;
+        # ultralytics reacts by auto-reducing the batch and retrying, which
+        # can *hang* (a dataloader-worker deadlock after a CUDA OOM) rather
+        # than recover. Stay out of that path: profile against a smaller
+        # memory fraction and keep extra headroom on the result.
+        _AUTOBATCH_FRACTION = 0.5  # profile against 50% VRAM (default 0.6)
+        _BATCH_SAFETY_MARGIN = 0.7  # keep 30% headroom on the result
         import torch
 
         try:
@@ -1757,7 +1767,13 @@ class YOLO_octron:
                 f"consider a smaller image size (e.g. 640)."
             )
         arch = self.model.model.__class__.__name__
-        cache_key = f"{arch}_{imgsz}_cuda_{gpu_name}"
+        # Include the AutoBatch tuning in the key so changing the fraction/
+        # margin (or upgrading from an older, less conservative heuristic)
+        # invalidates stale cached batch sizes automatically.
+        cache_key = (
+            f"{arch}_{imgsz}_cuda_{gpu_name}"
+            f"_f{_AUTOBATCH_FRACTION}_m{_BATCH_SAFETY_MARGIN}"
+        )
         cache_path = self.training_path / "autobatch_cache.json"
         cache = {}
         if cache_path.exists():
@@ -1780,9 +1796,14 @@ class YOLO_octron:
             from ultralytics.utils.autobatch import check_train_batch_size
 
             # Profile on the GPU so AutoBatch measures real CUDA memory.
+            # Passing batch=<0..1> makes ultralytics use it as the memory
+            # fraction instead of its optimistic 0.6 default.
             self.model.model.to("cuda")
             batch = check_train_batch_size(
-                self.model.model, imgsz=imgsz, amp=True
+                self.model.model,
+                imgsz=imgsz,
+                amp=True,
+                batch=_AUTOBATCH_FRACTION,
             )
         except Exception as e:
             logger.warning(
@@ -1805,6 +1826,10 @@ class YOLO_octron:
                 f"(e.g. 640)."
             )
             return _SAFE_BATCH
+        # Extra headroom on top of the reduced fraction: AutoBatch's linear
+        # fit sits right at the memory ceiling, so back the batch off a bit
+        # more so it actually fits real training (never below the safe min).
+        batch = max(_SAFE_BATCH, int(batch * _BATCH_SAFETY_MARGIN))
         cache[cache_key] = batch
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)

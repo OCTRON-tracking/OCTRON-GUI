@@ -222,6 +222,7 @@ def reconstruct(
     (data, warnings) : tuple[dict, list[str]]
         ``data`` is the reconstructed mapping; ``warnings`` lists notes to
         review before trusting the result.
+
     """
     subfolder = Path(subfolder)
     if not subfolder.is_dir():
@@ -263,7 +264,7 @@ def reconstruct(
     entries: dict[str, Any] = {}
     hashes: set[str] = set()
     for obj_id, ((zf, label, suffix), color) in enumerate(
-        zip(parsed, colors)
+        zip(parsed, colors, strict=True)
     ):
         store = _read_mask_store(zf)
         if store["video_hash"]:
