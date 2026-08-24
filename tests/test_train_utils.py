@@ -1,7 +1,7 @@
-"""
-Tests for model-name resolution.
+"""Tests for model-name resolution.
 
-Resolution now lives in core ``YOLO_octron.resolve_model_name`` (case-insensitive
+Resolution now lives in core ``YOLO_octron.resolve_model_name``
+(case-insensitive
 match against the model catalog), shared by the CLI and the GUI, replacing the
 old CLI-only ``_normalise_model_name``.
 
@@ -17,11 +17,16 @@ import yaml
 
 from octron.yolo_octron.yolo_octron import YOLO_octron
 
-MODELS_YAML = Path(__file__).parent.parent / "octron" / "yolo_octron" / "yolo_models.yaml"
+MODELS_YAML = (
+    Path(__file__).parent.parent
+    / "octron"
+    / "yolo_octron"
+    / "yolo_models.yaml"
+)
 
 
 def _resolver():
-    """A YOLO_octron (no __init__) whose models_dict keys are the catalog names."""
+    """Build a YOLO_octron (no __init__) with catalog-name model keys."""
     with open(MODELS_YAML) as f:
         keys = list((yaml.safe_load(f) or {}).keys())
     obj = YOLO_octron.__new__(YOLO_octron)
@@ -32,6 +37,7 @@ def _resolver():
 # ---------------------------------------------------------------------------
 # resolve_model_name
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_exact_match():
     obj, _ = _resolver()
@@ -75,11 +81,13 @@ def test_resolve_accepts_enum_like_object():
 
 
 # ---------------------------------------------------------------------------
-# Training-state helpers: config_path / _resolve_batch_size / resolve_resume_state
+# Training-state helpers:
+# config_path / _resolve_batch_size / resolve_resume_state
 #
 # These live in core so the CLI and GUI share one implementation. __init__ is
 # bypassed via __new__; only the attributes the helpers touch are set.
 # ---------------------------------------------------------------------------
+
 
 def _make_yolo(tmp_path):
     """Build a minimal YOLO_octron instance without running __init__."""
@@ -89,7 +97,9 @@ def _make_yolo(tmp_path):
     obj.data_path = obj.training_path / "training_data"
     obj._config_path = None
     obj.model = None
-    (obj.training_path / "training" / "weights").mkdir(parents=True, exist_ok=True)
+    (obj.training_path / "training" / "weights").mkdir(
+        parents=True, exist_ok=True
+    )
     return obj
 
 
@@ -99,12 +109,14 @@ def _weights_dir(obj):
 
 def _write_checkpoint(path, epoch, imgsz=640, include_imgsz=True):
     import torch
+
     path.parent.mkdir(parents=True, exist_ok=True)
     train_args = {"imgsz": imgsz} if include_imgsz else {}
     torch.save({"epoch": epoch, "train_args": train_args}, path)
 
 
 # config_path property -------------------------------------------------------
+
 
 def test_config_path_derives_from_data_path(tmp_path):
     obj = _make_yolo(tmp_path)
@@ -129,6 +141,7 @@ def test_config_path_none_without_data_path(tmp_path):
 
 # _resolve_batch_size (cpu / mps) -------------------------------------------
 
+
 @pytest.mark.parametrize("device", ["cpu", "mps"])
 def test_resolve_batch_size_non_cuda_returns_minus_one(tmp_path, device):
     obj = _make_yolo(tmp_path)
@@ -137,6 +150,7 @@ def test_resolve_batch_size_non_cuda_returns_minus_one(tmp_path, device):
 
 
 # resolve_resume_state ------------------------------------------------------
+
 
 def test_resume_state_fresh_when_nothing(tmp_path):
     obj = _make_yolo(tmp_path)
@@ -204,17 +218,21 @@ def test_resume_state_handles_imgsz_as_list(tmp_path):
 # Loading a video then returning to the project tab before generating any data
 # used to crash: the per-video subfolder (project/<hash>) doesn't exist yet, so
 # scanning it raised FileNotFoundError. It should yield no labels instead.
-# These early-return before any heavy (napari/zarr) imports, so they stay light.
+# These early-return before any heavy (napari/zarr) imports, so they
+# stay light.
 # ---------------------------------------------------------------------------
+
 
 def test_collect_labels_missing_subfolder_returns_empty(tmp_path):
     from octron.yolo_octron.helpers.training import collect_labels
+
     # Project dir exists; the per-video subfolder has not been created yet.
     assert collect_labels(tmp_path, subfolder="acb207d1") == {}
 
 
 def test_find_files_with_depth_limit_missing_base_returns_empty(tmp_path):
     from octron.yolo_octron.helpers.training import find_files_with_depth_limit
+
     missing = tmp_path / "does_not_exist"
     assert find_files_with_depth_limit(missing, "object_organizer.json") == []
 

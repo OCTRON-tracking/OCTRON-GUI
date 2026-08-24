@@ -174,7 +174,7 @@ automatically from git tags. This is configured under `[tool.setuptools_scm]` in
 * **On a tagged commit**, the version is the tag itself (e.g. tag `v1.0.0` → version `1.0.0`).
 * **On commits after a tag**, the version is derived from the most recent tag
   reachable from the current commit, plus the number of commits since that tag.
-  We use the `post-release` scheme with `no-local-version`, so this looks like 
+  We use the `post-release` scheme with `no-local-version`, so this looks like
   `1.0.0.post3` ("3 commits after 1.0.0"), without the default trailing `+<commit-hash>`
   segment.
 

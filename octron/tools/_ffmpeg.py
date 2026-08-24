@@ -1,19 +1,18 @@
+"""Shared ffmpeg helpers for OCTRON's video tools.
+
+Centralises the H.264 encoder selection, codec-argument construction, and
+the even-dimension scaling filter so the transcode path
+(``octron/tools/transcode.py`` and the napari reader dialog) and the
+render pipeline (``octron/tools/render.py``) all agree on how to drive
+ffmpeg.
+
+Imports are deliberately light (stdlib only) so this is cheap to import
+from the CLI, the GUI reader, and core.
 """
-Shared ffmpeg helpers for OCTRON's video tools.
 
-Centralises the H.264 encoder selection, codec-argument construction, and the
-even-dimension scaling filter so the transcode path (``octron/tools/transcode.py``
-and the napari reader dialog) and the render pipeline (``octron/tools/render.py``)
-all agree on how to drive ffmpeg.
-
-Imports are deliberately light (stdlib only) so this is cheap to import from the
-CLI, the GUI reader, and core.
-"""
-
+import contextlib
 import shutil
 import subprocess
-import tempfile
-
 
 # Even-dimension + yuv420p filter.
 #
@@ -32,11 +31,11 @@ def detect_h264_encoder(prefer_hardware=True):
     Parameters
     ----------
     prefer_hardware : bool
-        When True (the default, used by the render pipeline) prefer the hardware
-        encoder ``h264_nvenc`` for speed, falling back to ``libx264``. When
-        False (used by the transcode path) prefer ``libx264`` for reproducible,
-        broadly-compatible output, falling back to ``h264_nvenc`` only if
-        libx264 is unavailable.
+        When True (the default, used by the render pipeline) prefer the
+        hardware encoder ``h264_nvenc`` for speed, falling back to
+        ``libx264``. When False (used by the transcode path) prefer
+        ``libx264`` for reproducible, broadly-compatible output, falling
+        back to ``h264_nvenc`` only if libx264 is unavailable.
 
     Returns
     -------
@@ -49,19 +48,25 @@ def detect_h264_encoder(prefer_hardware=True):
     RuntimeError
         If ffmpeg is not on PATH, or is present but exposes no usable H.264
         encoder (neither h264_nvenc nor libx264).
+
     """
     if shutil.which("ffmpeg") is None:
         raise RuntimeError(
-            "ffmpeg is required but was not found on PATH. Please install ffmpeg."
+            "ffmpeg is required but was not found on PATH. "
+            "Please install ffmpeg."
         )
     try:
         result = subprocess.run(
             ["ffmpeg", "-encoders", "-v", "quiet"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         text = result.stdout + result.stderr
         candidates = (
-            ["h264_nvenc", "libx264"] if prefer_hardware else ["libx264", "h264_nvenc"]
+            ["h264_nvenc", "libx264"]
+            if prefer_hardware
+            else ["libx264", "h264_nvenc"]
         )
         for name in candidates:
             if name in text:
@@ -96,6 +101,7 @@ def h264_codec_args(encoder, crf=23, preset="superfast"):
     -------
     list of str
         The ``-c:v ...`` argument list to splice into an ffmpeg command.
+
     """
     if encoder == "h264_nvenc":
         return ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", str(crf)]
@@ -155,8 +161,9 @@ class _FfmpegWriter:
     def _nvenc_hint(self):
         if self._encoder == "h264_nvenc":
             return (
-                " The GPU encoder h264_nvenc failed to start -- your NVIDIA driver "
-                "may be too old for this ffmpeg build, or NVENC is unavailable. "
+                " The GPU encoder h264_nvenc failed to start -- your NVIDIA "
+                "driver may be too old for this ffmpeg build, or NVENC is "
+                "unavailable. "
                 "Retry with '--no-nvenc' (or '--encoder libx264')."
             )
         return ""
@@ -164,8 +171,9 @@ class _FfmpegWriter:
     def write(self, data):
         try:
             self._proc.stdin.write(data)
-        except (BrokenPipeError, OSError):
-            # ffmpeg exited early: broken pipe on POSIX, OSError EINVAL on Windows.
+        except (BrokenPipeError, OSError) as e:
+            # ffmpeg exited early: broken pipe on POSIX, OSError EINVAL on
+            # Windows.
             tail = self._stderr_tail()
             self.close(check=False)
             msg = (
@@ -174,7 +182,7 @@ class _FfmpegWriter:
             )
             if tail:
                 msg += f"\n--- ffmpeg output ---\n{tail}"
-            raise RuntimeError(msg + self._nvenc_hint())
+            raise RuntimeError(msg + self._nvenc_hint()) from e
 
     def close(self, check=True):
         if self._closed:
@@ -183,22 +191,16 @@ class _FfmpegWriter:
         proc = self._proc
         try:
             if proc.stdin is not None and not proc.stdin.closed:
-                try:
+                with contextlib.suppress(OSError):
                     proc.stdin.close()
-                except OSError:
-                    pass
             rc = proc.wait()
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 proc.kill()
-            except Exception:
-                pass
             rc = proc.poll()
         tail = self._stderr_tail()
-        try:
+        with contextlib.suppress(Exception):
             self._stderr_file.close()
-        except Exception:
-            pass
         if check and rc not in (0, None):
             msg = (
                 f"ffmpeg exited with code {rc} "
@@ -210,7 +212,5 @@ class _FfmpegWriter:
         return rc
 
     def __del__(self):
-        try:
+        with contextlib.suppress(Exception):
             self.close(check=False)
-        except Exception:
-            pass

@@ -1,15 +1,15 @@
-"""
-OCTRON video transcoding tool.
+"""OCTRON video transcoding tool.
 
 Transcodes video files and multi-frame TIFF stacks to MP4 (H.264) using ffmpeg.
 
-The per-input work lives in the GUI-free :func:`transcode_one` helper so the CLI
-(:func:`run_transcode`) and the napari reader dialog (``octron/reader.py``) share
-one implementation. Encoder selection, codec arguments, and the even-dimension
-filter come from :mod:`octron.tools._ffmpeg`, which is also used by the render
-pipeline.
+The per-input work lives in the GUI-free :func:`transcode_one` helper so
+the CLI (:func:`run_transcode`) and the napari reader dialog
+(``octron/reader.py``) share one implementation. Encoder selection, codec
+arguments, and the even-dimension filter come from
+:mod:`octron.tools._ffmpeg`, which is also used by the render pipeline.
 """
 
+import contextlib
 import subprocess
 import tempfile
 import time
@@ -24,10 +24,20 @@ from octron.tools._ffmpeg import (
     h264_codec_args,
 )
 
-
 VIDEO_EXTENSIONS = {
-    ".avi", ".mov", ".mj2", ".mpg", ".mpeg", ".mjpeg", ".mjpg",
-    ".wmv", ".mp4", ".mkv", ".mts", ".tif", ".tiff",
+    ".avi",
+    ".mov",
+    ".mj2",
+    ".mpg",
+    ".mpeg",
+    ".mjpeg",
+    ".mjpg",
+    ".wmv",
+    ".mp4",
+    ".mkv",
+    ".mts",
+    ".tif",
+    ".tiff",
 }
 
 TIFF_EXTENSIONS = {".tif", ".tiff"}
@@ -44,7 +54,9 @@ class _TiffPlan:
     :meth:`close` to release the underlying file when done.
     """
 
-    def __init__(self, tif, arr, n_leading, n_c, frame_count, height, width, gmin, gmax):
+    def __init__(
+        self, tif, arr, n_leading, n_c, frame_count, height, width, gmin, gmax
+    ):
         self._tif = tif
         self.arr = arr
         self.n_leading = n_leading
@@ -60,10 +72,8 @@ class _TiffPlan:
 
 
 def _safe_close(tif):
-    try:
+    with contextlib.suppress(Exception):
         tif.close()
-    except Exception:
-        pass
 
 
 def _to_uint8_frame(arr, gmin, gmax, np):
@@ -76,7 +86,9 @@ def _to_uint8_frame(arr, gmin, gmax, np):
     if arr.dtype == np.uint8:
         return arr
     if gmax is not None and gmax > gmin:
-        return ((arr.astype(np.float32) - gmin) / (gmax - gmin) * 255.0).astype(np.uint8)
+        return (
+            (arr.astype(np.float32) - gmin) / (gmax - gmin) * 255.0
+        ).astype(np.uint8)
     return np.zeros(arr.shape, dtype=np.uint8)
 
 
@@ -88,19 +100,21 @@ def _frame_to_rgb(frame, n_c, gmin, gmax, np):
     are broadcast to RGB, 2ch → R/G (B=0), 3ch → RGB, 4+ch use the first 3.
     """
     if n_c == 0:
-        g = _to_uint8_frame(frame, gmin, gmax, np)            # (Y, X)
+        g = _to_uint8_frame(frame, gmin, gmax, np)  # (Y, X)
         return np.repeat(g[..., np.newaxis], 3, axis=-1)
-    frame = np.moveaxis(frame, 0, -1)                         # (C, Y, X) -> (Y, X, C)
+    frame = np.moveaxis(frame, 0, -1)  # (C, Y, X) -> (Y, X, C)
     if n_c == 1:
         g = _to_uint8_frame(frame[..., 0], gmin, gmax, np)
         return np.repeat(g[..., np.newaxis], 3, axis=-1)
     if n_c == 2:
-        g = _to_uint8_frame(frame, gmin, gmax, np)            # (Y, X, 2)
+        g = _to_uint8_frame(frame, gmin, gmax, np)  # (Y, X, 2)
         zeros = np.zeros((*g.shape[:2], 1), dtype=np.uint8)
         return np.concatenate([g, zeros], axis=-1)
     if n_c == 3:
         return _to_uint8_frame(frame, gmin, gmax, np)
-    return _to_uint8_frame(frame[..., :3], gmin, gmax, np)    # 4+ channels: drop extras
+    return _to_uint8_frame(
+        frame[..., :3], gmin, gmax, np
+    )  # 4+ channels: drop extras
 
 
 def _read_tiff_plan(path):
@@ -127,6 +141,7 @@ def _read_tiff_plan(path):
         reason) for unsupported inputs (single-frame/2D TIFFs, ambiguous T+Z
         stacks, read failures, or missing numpy/tifffile). Call ``close()`` on
         the returned plan when done.
+
     """
     try:
         import numpy as np
@@ -143,19 +158,20 @@ def _read_tiff_plan(path):
 
     try:
         series = tif.series[0]
-        axes = series.axes   # e.g. "TCYX", "TYX", "TZYXC"
+        axes = series.axes  # e.g. "TCYX", "TYX", "TZYXC"
         # Read disk-backed so huge stacks are not materialised in RAM; fall
         # back to an in-memory read only if a memmap cannot be created.
         try:
             arr = series.asarray(out="memmap")
         except Exception as e:
             logger.debug(
-                f"TIFF memmap unavailable for '{path.name}' ({e}); reading into RAM."
+                f"TIFF memmap unavailable for '{path.name}' ({e}); "
+                "reading into RAM."
             )
             arr = series.asarray()
         # Build sizes from axes + shape directly.
         # series.sizes can be unreliable across tifffile versions.
-        sizes = dict(zip(axes, arr.shape))
+        sizes = dict(zip(axes, arr.shape, strict=True))
     except Exception as e:
         _safe_close(tif)
         logger.error(f"Failed to read TIFF '{path.name}': {e}")
@@ -165,17 +181,17 @@ def _read_tiff_plan(path):
     # 2D frames saved as axes='IYX'). When such an 'I' axis accompanies a
     # recognised Y and X image plane and there is no explicit time axis, treat
     # it as the time (T) / frame axis for video conversion.
-    if 'T' not in sizes and 'I' in sizes and 'Y' in sizes and 'X' in sizes:
+    if "T" not in sizes and "I" in sizes and "Y" in sizes and "X" in sizes:
         logger.info(
-            f"Interpreting generic 'I' axis (size {sizes['I']}) as the time (T) "
-            f"axis for video conversion (axes='{axes}')."
+            f"Interpreting generic 'I' axis (size {sizes['I']}) as the "
+            f"time (T) axis for video conversion (axes='{axes}')."
         )
-        axes = axes.replace('I', 'T')
-        sizes = dict(zip(axes, arr.shape))
+        axes = axes.replace("I", "T")
+        sizes = dict(zip(axes, arr.shape, strict=True))
 
-    n_t = sizes.get('T', 0)
-    n_z = sizes.get('Z', 0)
-    n_c = sizes.get('C', 0)
+    n_t = sizes.get("T", 0)
+    n_z = sizes.get("Z", 0)
+    n_c = sizes.get("C", 0)
 
     logger.info(
         f"TIFF detected: axes='{axes}' shape={arr.shape} dtype={arr.dtype} "
@@ -184,7 +200,8 @@ def _read_tiff_plan(path):
         f"| {path.name}"
     )
 
-    # Reject TIFFs with both a time AND a Z axis — ambiguous for video conversion
+    # Reject TIFFs with both a time AND a Z axis — ambiguous for video
+    # conversion
     if n_t > 0 and n_z > 0:
         _safe_close(tif)
         logger.warning(
@@ -196,10 +213,12 @@ def _read_tiff_plan(path):
 
     # Reject single-frame / 2D-only images
     if n_t >= 2:
-        frame_key = 'T'
+        frame_key = "T"
     elif n_z >= 2:
-        frame_key = 'Z'
-        logger.info(f"No time axis; treating Z-stack ({n_z} slices) as frames.")
+        frame_key = "Z"
+        logger.info(
+            f"No time axis; treating Z-stack ({n_z} slices) as frames."
+        )
     else:
         _safe_close(tif)
         logger.warning(
@@ -215,10 +234,12 @@ def _read_tiff_plan(path):
     # full-size copy and defeat the streaming); _iter_rgb_frames walks the
     # leading dims with np.ndindex instead.
     axes_list = list(axes)
-    known = {'T', 'Z', 'C', 'Y', 'X'}
+    known = {"T", "Z", "C", "Y", "X"}
     extra = [a for a in axes_list if a not in known]
 
-    target_order = [frame_key] + extra + (['C'] if n_c > 0 else []) + ['Y', 'X']
+    target_order = (
+        [frame_key] + extra + (["C"] if n_c > 0 else []) + ["Y", "X"]
+    )
 
     perm = [axes_list.index(a) for a in target_order]
     if perm != list(range(arr.ndim)):
@@ -233,7 +254,9 @@ def _read_tiff_plan(path):
     if n_c == 2:
         logger.info("2-channel TIFF mapped to R/G channels (B=0).")
     elif n_c > 4:
-        logger.warning(f"'{path.name}': {n_c} channels detected; using first 3 as RGB.")
+        logger.warning(
+            f"'{path.name}': {n_c} channels detected; using first 3 as RGB."
+        )
 
     # Precompute stack-global min/max over the channels that will actually be
     # used, so per-frame uint8 normalisation is consistent across a streamed
@@ -247,12 +270,14 @@ def _read_tiff_plan(path):
         elif n_c == 1:
             sel = arr[..., 0:1, :, :]
         elif n_c >= 4:
-            sel = arr[..., 0:3, :, :]   # first 3 channels (drop alpha/extras)
+            sel = arr[..., 0:3, :, :]  # first 3 channels (drop alpha/extras)
         else:  # 2 or 3 channels: use all
             sel = arr
         gmin, gmax = float(sel.min()), float(sel.max())
 
-    return _TiffPlan(tif, arr, n_leading, n_c, frame_count, height, width, gmin, gmax)
+    return _TiffPlan(
+        tif, arr, n_leading, n_c, frame_count, height, width, gmin, gmax
+    )
 
 
 def _iter_rgb_frames(plan):
@@ -273,22 +298,24 @@ def _iter_rgb_frames(plan):
 def _load_tiff_as_rgb(path):
     """Read a multi-frame TIFF into an RGB ``(frames, Y, X, 3)`` uint8 array.
 
-    Thin convenience wrapper over :func:`_read_tiff_plan` + :func:`_iter_rgb_frames`
-    that materialises the whole stack in memory. :func:`transcode_one` streams
-    frames instead (bounded memory) and does not use this; it remains for
-    small-stack/programmatic/test callers.
+    Thin convenience wrapper over :func:`_read_tiff_plan` +
+    :func:`_iter_rgb_frames` that materialises the whole stack in memory.
+    :func:`transcode_one` streams frames instead (bounded memory) and does
+    not use this; it remains for small-stack/programmatic/test callers.
 
     Returns
     -------
     tuple or None
         ``(stack, frame_count, height, width)`` on success, or ``None`` for
         unsupported inputs (see :func:`_read_tiff_plan`).
+
     """
     plan = _read_tiff_plan(path)
     if plan is None:
         return None
     try:
         import numpy as np
+
         stack = np.stack(list(_iter_rgb_frames(plan)), axis=0)
     finally:
         plan.close()
@@ -320,11 +347,13 @@ def transcode_one(
     crf : int
         Constant Rate Factor (0–51). Lower means better quality. Default 23.
     overwrite : bool
-        Pass ffmpeg's ``-y`` so it overwrites an existing output. Default False.
+        Pass ffmpeg's ``-y`` so it overwrites an existing output. Default
+        False.
     fps : float, optional
-        Output framerate. For videos this reinterprets the source timestamps
-        (changing playback speed); for TIFF stacks it sets the playback fps.
-        Defaults to source fps for videos and 20 fps for TIFFs.
+        Output framerate. For videos this reinterprets the source
+        timestamps (changing playback speed); for TIFF stacks it sets the
+        playback fps. Defaults to source fps for videos and 20 fps for
+        TIFFs.
     keep_audio : bool
         Re-encode audio to AAC (128k) for video inputs. Default True. TIFF
         inputs are raw frames with no audio, so this is ignored for them.
@@ -343,12 +372,14 @@ def transcode_one(
     ------
     RuntimeError
         If no usable H.264 encoder is available and ``encoder`` is not given.
+
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
     if encoder is None:
-        # Transcode standardises on libx264 (-preset superfast) for reproducible,
-        # widely-compatible output; nvenc is only used if libx264 is unavailable.
+        # Transcode standardises on libx264 (-preset superfast) for
+        # reproducible, widely-compatible output; nvenc is only used if
+        # libx264 is unavailable.
         encoder = detect_h264_encoder(prefer_hardware=False)
     codec_args = h264_codec_args(encoder, crf=crf, preset="superfast")
     is_tiff = input_path.suffix.lower() in TIFF_EXTENSIONS
@@ -372,7 +403,9 @@ def transcode_one(
             f"(faster playback) | '{input_path.name}'"
         )
     else:
-        logger.info(f"Transcoding video: keeping source fps | '{input_path.name}'")
+        logger.info(
+            f"Transcoding video: keeping source fps | '{input_path.name}'"
+        )
     cmd = ["ffmpeg"]
     if overwrite:
         cmd.append("-y")
@@ -394,14 +427,20 @@ def transcode_one(
     try:
         subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=True,
         )
     except subprocess.CalledProcessError as e:
-        stderr_msg = e.stderr.decode("utf-8", errors="ignore").strip() if e.stderr else ""
+        stderr_msg = (
+            e.stderr.decode("utf-8", errors="ignore").strip()
+            if e.stderr
+            else ""
+        )
         if stderr_msg:
-            logger.error(f"Failed to transcode '{input_path.name}': {stderr_msg.splitlines()[-1]}")
+            last_line = stderr_msg.splitlines()[-1]
+            logger.error(
+                f"Failed to transcode '{input_path.name}': {last_line}"
+            )
         else:
             logger.error(f"Failed to transcode '{input_path.name}': {e}")
         return False
@@ -421,7 +460,9 @@ def _log_transcode_success(input_path, output_path, elapsed):
     )
 
 
-def _transcode_tiff(input_path, output_path, codec_args, encoder, *, overwrite, fps):
+def _transcode_tiff(
+    input_path, output_path, codec_args, encoder, *, overwrite, fps
+):
     """Stream a multi-frame TIFF to MP4, one RGB frame at a time.
 
     Frames are read disk-backed and piped to ffmpeg incrementally (via
@@ -436,49 +477,60 @@ def _transcode_tiff(input_path, output_path, codec_args, encoder, *, overwrite, 
     out_fps = fps if fps is not None else 20.0
     logger.info(
         f"Transcoding TIFF: {plan.frame_count} frames "
-        f"({plan.width}\u00d7{plan.height}) @ {out_fps} fps | '{input_path.name}'"
+        f"({plan.width}\u00d7{plan.height}) @ {out_fps} fps | "
+        f"'{input_path.name}'"
     )
     cmd = ["ffmpeg"]
     if overwrite:
         cmd.append("-y")
     cmd += [
-        "-f", "rawvideo",
-        "-pixel_format", "rgb24",
-        "-video_size", f"{plan.width}x{plan.height}",
-        "-framerate", str(out_fps),
-        "-i", "-",
+        "-f",
+        "rawvideo",
+        "-pixel_format",
+        "rgb24",
+        "-video_size",
+        f"{plan.width}x{plan.height}",
+        "-framerate",
+        str(out_fps),
+        "-i",
+        "-",
         *codec_args,
         "-an",  # raw RGB frames carry no audio
-        "-vf", EVEN_DIM_YUV420P,
+        "-vf",
+        EVEN_DIM_YUV420P,
         str(output_path),
     ]
     t0 = time.time()
-    stderr_file = tempfile.TemporaryFile(mode="w+b")
-    try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=stderr_file)
-    except FileNotFoundError:
-        stderr_file.close()
-        plan.close()
-        logger.error(
-            f"Failed to transcode '{input_path.name}': ffmpeg not found on PATH."
-        )
-        return False
+    with tempfile.TemporaryFile(mode="w+b") as stderr_file:
+        try:
+            proc = subprocess.Popen(
+                cmd, stdin=subprocess.PIPE, stderr=stderr_file
+            )
+        except FileNotFoundError:
+            plan.close()
+            logger.error(
+                f"Failed to transcode '{input_path.name}': "
+                "ffmpeg not found on PATH."
+            )
+            return False
 
-    # Pipe frames incrementally; peak memory is one frame, not the whole stack.
-    writer = _FfmpegWriter(proc, stderr_file, encoder, output_path)
-    try:
-        for rgb in _iter_rgb_frames(plan):
-            writer.write(rgb.tobytes())
-        writer.close()
-    except Exception as e:
-        # A dead ffmpeg pipe surfaces as RuntimeError from the writer; a
-        # mid-stream frame read/decode error surfaces here too. Kill ffmpeg
-        # (close(check=False)) and report a skipped input rather than crash.
-        writer.close(check=False)
-        logger.error(f"Failed to transcode '{input_path.name}': {e}")
-        return False
-    finally:
-        plan.close()
+        # Pipe frames incrementally; peak memory is one frame, not the whole
+        # stack.
+        writer = _FfmpegWriter(proc, stderr_file, encoder, output_path)
+        try:
+            for rgb in _iter_rgb_frames(plan):
+                writer.write(rgb.tobytes())
+            writer.close()
+        except Exception as e:
+            # A dead ffmpeg pipe surfaces as RuntimeError from the writer; a
+            # mid-stream frame read/decode error surfaces here too. Kill
+            # ffmpeg (close(check=False)) and report a skipped input rather
+            # than crash.
+            writer.close(check=False)
+            logger.error(f"Failed to transcode '{input_path.name}': {e}")
+            return False
+        finally:
+            plan.close()
 
     _log_transcode_success(input_path, output_path, time.time() - t0)
     return True
@@ -492,8 +544,7 @@ def run_transcode(
     fps=None,
     keep_audio=True,
 ):
-    """
-    Transcode one or more video files (or multi-frame TIFF stacks) to MP4 (H.264).
+    """Transcode one or more video files (or TIFF stacks) to MP4 (H.264).
 
     Parameters
     ----------
@@ -511,6 +562,7 @@ def run_transcode(
         for videos and 20 fps for TIFF stacks.
     keep_audio : bool
         Keep (re-encode to AAC) the audio track of video inputs. Default True.
+
     """
     if not isinstance(videos, list):
         videos = [videos]
@@ -521,8 +573,7 @@ def run_transcode(
     for v in videos:
         if v.is_dir():
             found = sorted(
-                f for f in v.iterdir()
-                if f.suffix.lower() in VIDEO_EXTENSIONS
+                f for f in v.iterdir() if f.suffix.lower() in VIDEO_EXTENSIONS
             )
             if not found:
                 print(f"No video files found in directory: {v}")

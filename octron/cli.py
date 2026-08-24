@@ -1,5 +1,4 @@
-"""
-OCTRON command-line interface.
+"""OCTRON command-line interface.
 
 Entry point: `octron`
 
@@ -10,21 +9,23 @@ Subcommands
   split       Prepare and export train/val/test data from an OCTRON project
   train       Prepare training data and run YOLO model training
   predict     Run YOLO prediction and tracking on one or more videos
-  dump-tracker-config  Print a tracker's default config YAML (edit, then pass via --tracker-config)
+  dump-tracker-config  Print a tracker's default config YAML (edit,
+                        then pass via --tracker-config)
   render      Render annotated video(s) from prediction output
               (use --bbox-sizes to report bbox sizes instead of rendering)
   transcode   Transcode video files to MP4 (H.264/libx264) using ffmpeg
   gif         Convert MP4/MOV/AVI videos to GIF (GUI)
   download-yolo   Download/refresh YOLO base weights into the model cache
   download-sam2   Download/refresh SAM2 checkpoints into the model cache
-  download-sam3   Download/refresh the SAM3 checkpoint (needs HuggingFace access)
+  download-sam3   Download/refresh the SAM3 checkpoint (needs
+                  HuggingFace access)
 """
 
-
-from typing import List, Optional, TYPE_CHECKING
-from pathlib import Path
-from enum import Enum
 import re
+from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import typer
 import yaml
 from loguru import logger
@@ -33,7 +34,8 @@ from octron.yolo_octron.constants import ALL_REGION_PROPERTIES
 
 _PKG_DIR = Path(__file__).parent
 
-# Flat tuple of all valid scikit-image region-property names (for predict --detailed).
+# Flat tuple of all valid scikit-image region-property names (for
+# predict --detailed).
 _REGION_PROPERTY_NAMES = tuple(
     name for group in ALL_REGION_PROPERTIES.values() for name in group
 )
@@ -42,7 +44,8 @@ _DETAILED_HELP = (
     "(ignored for detection models). Pass a comma-separated list of property "
     "names, or 'all'. Custom measurement functions are supported only via the "
     "Python API (predict_batch extra_properties). Available: "
-    + ", ".join(_REGION_PROPERTY_NAMES) + "."
+    + ", ".join(_REGION_PROPERTY_NAMES)
+    + "."
 )
 
 
@@ -72,11 +75,11 @@ def _parse_region_properties(detailed):
 
 
 def _sanitize_identifier(value: str) -> str:
-    """Turn an arbitrary string into a valid Python identifier for an Enum member.
+    """Turn an arbitrary string into a valid Enum member identifier.
 
-    Non-alphanumeric characters become ``_`` and a leading digit is prefixed
-    with ``_`` so catalog keys like ``3d-sort`` or ``bot.sort`` do not make the
-    functional ``Enum(...)`` call raise at import time.
+    Non-alphanumeric characters become ``_`` and a leading digit is
+    prefixed with ``_`` so catalog keys like ``3d-sort`` or ``bot.sort``
+    do not make the functional ``Enum(...)`` call raise at import time.
     """
     member = re.sub(r"\W", "_", value)
     if not member or member[0].isdigit():
@@ -85,16 +88,23 @@ def _sanitize_identifier(value: str) -> str:
 
 
 def _enum_from_yaml(
-    name: str, yaml_path: Path, *, available_only: bool = False, fallback: Optional[str] = None
+    name: str,
+    yaml_path: Path,
+    *,
+    available_only: bool = False,
+    fallback: str | None = None,
 ) -> type:
-    """Build a (str, Enum) from a YAML mapping. Keys are lower-cased for CLI
-    values and sanitised into valid identifiers for the member names.
+    """Build a (str, Enum) from a YAML mapping.
 
-    The build is defensive so a single malformed/missing catalog does not break
-    the import of every CLI subcommand: on a read/parse failure, or when no
-    usable entries are produced, a minimal enum containing only ``fallback`` is
-    returned (with a warning). If no fallback is given in that case, a clear
-    error naming the catalog is raised.
+    Keys are lower-cased for CLI values and sanitised into valid
+    identifiers for the member names.
+
+    The build is defensive so a single malformed/missing catalog does
+    not break the import of every CLI subcommand: on a read/parse
+    failure, or when no usable entries are produced, a minimal enum
+    containing only ``fallback`` is returned (with a warning). If no
+    fallback is given in that case, a clear error naming the catalog is
+    raised.
     """
     try:
         with open(yaml_path) as f:
@@ -106,24 +116,37 @@ def _enum_from_yaml(
         )
         data = {}
 
-    members = {}
+    members: dict[str, str] = {}
     for key, info in data.items():
-        if available_only and isinstance(info, dict) and not info.get("available", False):
+        if (
+            available_only
+            and isinstance(info, dict)
+            and not info.get("available", False)
+        ):
             continue
         value = str(key).lower()
-        members.setdefault(_sanitize_identifier(value), value)  # first spelling wins on collision
+        members.setdefault(
+            _sanitize_identifier(value), value
+        )  # first spelling wins on collision
 
     if not members:
         if fallback is None:
-            raise RuntimeError(f"No usable entries found in {name} catalog '{yaml_path}'.")
+            raise RuntimeError(
+                f"No usable entries found in {name} catalog '{yaml_path}'."
+            )
         members = {_sanitize_identifier(fallback): fallback}
 
     try:
-        return Enum(name, members, type=str)
+        # mypy cannot type dynamic functional Enum creation
+        return Enum(name, members, type=str)  # type: ignore[return-value]
     except Exception as e:
-        logger.warning(f"Could not build {name} from '{yaml_path}': {e}. Falling back.")
+        logger.warning(
+            f"Could not build {name} from '{yaml_path}': {e}. Falling back."
+        )
         fb = fallback if fallback is not None else next(iter(members.values()))
-        return Enum(name, {_sanitize_identifier(fb): fb}, type=str)
+        return Enum(  # type: ignore[return-value]
+            name, {_sanitize_identifier(fb): fb}, type=str
+        )
 
 
 # The CLI choice enums are built dynamically from the YAML catalogs so the
@@ -133,36 +156,52 @@ def _enum_from_yaml(
 # carry only the members used as defaults below; the real enums are built at
 # runtime in the else branch.
 if TYPE_CHECKING:
+
     class YOLOModel(str, Enum):
+        """Type-checking stand-in for the runtime-built YOLOModel enum."""
+
         yolo26m = "yolo26m"
 
     class TrackerName(str, Enum):
+        """Type-checking stand-in for the runtime-built TrackerName enum."""
+
         bytetrack = "bytetrack"
 else:
     YOLOModel = _enum_from_yaml(
-        "YOLOModel", _PKG_DIR / "yolo_octron" / "yolo_models.yaml",
+        "YOLOModel",
+        _PKG_DIR / "yolo_octron" / "yolo_models.yaml",
         fallback="yolo26m",
     )
     TrackerName = _enum_from_yaml(
-        "TrackerName", _PKG_DIR / "tracking" / "boxmot_trackers.yaml",
-        available_only=True, fallback="bytetrack",
+        "TrackerName",
+        _PKG_DIR / "tracking" / "boxmot_trackers.yaml",
+        available_only=True,
+        fallback="bytetrack",
     )
 
 
 class TrainMode(str, Enum):
+    """YOLO task mode: instance segmentation or object detection."""
+
     segment = "segment"
     detect = "detect"
 
 
 class Device(str, Enum):
+    """Compute device to run training/inference on."""
+
     auto = "auto"
     cpu = "cpu"
     cuda = "cuda"
     mps = "mps"
 
+
 app = typer.Typer(
     name="octron",
-    help="OCTRON – segmentation and tracking for animal behavior quantification.",
+    help=(
+        "OCTRON – segmentation and tracking for animal behavior "
+        "quantification."
+    ),
     invoke_without_command=True,
 )
 
@@ -185,10 +224,12 @@ def default(ctx: typer.Context):
     # the parent callback cannot reliably see the subcommand's --help token via
     # ctx.args/ctx.protected_args (and protected_args is removed in Click 9).
     import sys
+
     _argv = sys.argv[1:]
     _wants_help = "--help" in _argv or "-h" in _argv
     if not ctx.resilient_parsing and not _wants_help:
-        from octron._logging import setup_logging, print_welcome
+        from octron._logging import print_welcome, setup_logging
+
         setup_logging()
         print_welcome()
 
@@ -212,12 +253,29 @@ def gpu_test():
 
 @app.command()
 def split(
-    project_path: Path = typer.Argument(..., help="Path to the OCTRON project directory."),
-    train_mode: TrainMode = typer.Option(TrainMode.segment, "--mode", help="Training mode."),
-    train_fraction: float = typer.Option(0.7, "--train", help="Fraction of frames for training."),
-    val_fraction: float = typer.Option(0.15, "--val", help="Fraction of frames for validation. The remainder becomes the test split."),
-    seed: int = typer.Option(88, "--seed", help="Random seed for reproducibility."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Print split sizes without writing files."),
+    project_path: Path = typer.Argument(
+        ..., help="Path to the OCTRON project directory."
+    ),
+    train_mode: TrainMode = typer.Option(
+        TrainMode.segment, "--mode", help="Training mode."
+    ),
+    train_fraction: float = typer.Option(
+        0.7, "--train", help="Fraction of frames for training."
+    ),
+    val_fraction: float = typer.Option(
+        0.15,
+        "--val",
+        help=(
+            "Fraction of frames for validation. The remainder becomes "
+            "the test split."
+        ),
+    ),
+    seed: int = typer.Option(
+        88, "--seed", help="Random seed for reproducibility."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print split sizes without writing files."
+    ),
 ):
     """Prepare and export train/val/test data from an OCTRON project."""
     from octron.tools.split import run_split
@@ -234,21 +292,60 @@ def split(
 
 @app.command()
 def train(
-    project_path: Path = typer.Argument(..., help="Path to the OCTRON project directory."),
-    model: YOLOModel = typer.Option(YOLOModel.yolo26m, help="YOLO model to train."),
-    train_mode: TrainMode = typer.Option(TrainMode.segment, "--mode", help="Training mode."),
+    project_path: Path = typer.Argument(
+        ..., help="Path to the OCTRON project directory."
+    ),
+    model: YOLOModel = typer.Option(
+        YOLOModel.yolo26m, help="YOLO model to train."
+    ),
+    train_mode: TrainMode = typer.Option(
+        TrainMode.segment, "--mode", help="Training mode."
+    ),
     device: Device = typer.Option(Device.auto, help="Device to train on."),
     epochs: int = typer.Option(250, help="Number of training epochs."),
     imagesz: int = typer.Option(640, help="Input image size."),
-    save_period: int = typer.Option(50, help="Save a checkpoint every N epochs."),
-    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite an existing trained model. Default: skip if best.pt already exists."),
-    resume: bool = typer.Option(False, help="Resume from an existing last.pt checkpoint."),
-    no_split: bool = typer.Option(False, "--no-split", help="Skip data preparation. Use when 'octron split' has already been run."),
-    train_fraction: float = typer.Option(0.7, "--train", help="Fraction of frames for training (ignored with --no-split)."),
-    val_fraction: float = typer.Option(0.15, "--val", help="Fraction of frames for validation (ignored with --no-split)."),
-    seed: int = typer.Option(88, "--seed", help="Random seed for the split (ignored with --no-split)."),
+    save_period: int = typer.Option(
+        50, help="Save a checkpoint every N epochs."
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help=(
+            "Overwrite an existing trained model. Default: skip if "
+            "best.pt already exists."
+        ),
+    ),
+    resume: bool = typer.Option(
+        False, help="Resume from an existing last.pt checkpoint."
+    ),
+    no_split: bool = typer.Option(
+        False,
+        "--no-split",
+        help=(
+            "Skip data preparation. Use when 'octron split' has "
+            "already been run."
+        ),
+    ),
+    train_fraction: float = typer.Option(
+        0.7,
+        "--train",
+        help="Fraction of frames for training (ignored with --no-split).",
+    ),
+    val_fraction: float = typer.Option(
+        0.15,
+        "--val",
+        help="Fraction of frames for validation (ignored with --no-split).",
+    ),
+    seed: int = typer.Option(
+        88,
+        "--seed",
+        help="Random seed for the split (ignored with --no-split).",
+    ),
 ):
-    """Prepare training data and run YOLO model training on an OCTRON project."""
+    (
+        """Prepare training data and run YOLO model training on an """
+        """OCTRON project."""
+    )
     from octron.tools.train import run_training
 
     run_training(
@@ -270,24 +367,72 @@ def train(
 
 @app.command()
 def predict(
-    videos: List[Path] = typer.Argument(..., help="One or more video file paths."),
-    model_path: Path = typer.Option(..., "--model", help="Path to a trained YOLO .pt file."),
-    tracker: TrackerName = typer.Option(TrackerName.bytetrack, "--tracker", help="Tracker algorithm."),
-    tracker_config: Optional[Path] = typer.Option(None, "--tracker-config", help="Path to a custom tracker config YAML (overrides --tracker)."),
-    device: Device = typer.Option(Device.auto, help="Device to run inference on."),
-    conf_thresh: float = typer.Option(0.5, help="Confidence threshold for detection."),
+    videos: list[Path] = typer.Argument(
+        ..., help="One or more video file paths."
+    ),
+    model_path: Path = typer.Option(
+        ..., "--model", help="Path to a trained YOLO .pt file."
+    ),
+    tracker: TrackerName = typer.Option(
+        TrackerName.bytetrack, "--tracker", help="Tracker algorithm."
+    ),
+    tracker_config: Path | None = typer.Option(
+        None,
+        "--tracker-config",
+        help="Path to a custom tracker config YAML (overrides --tracker).",
+    ),
+    device: Device = typer.Option(
+        Device.auto, help="Device to run inference on."
+    ),
+    conf_thresh: float = typer.Option(
+        0.5, help="Confidence threshold for detection."
+    ),
     iou_thresh: float = typer.Option(0.7, help="IOU threshold for NMS."),
-    skip_frames: int = typer.Option(0, help="Number of frames to skip between predictions."),
-    one_object_per_label: bool = typer.Option(False, help="Track only the top-confidence detection per label."),
-    opening_radius: int = typer.Option(0, help="Morphological opening radius applied to masks."),
-    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite existing prediction results. Default: skip videos that already have predictions."),
-    detailed: Optional[str] = typer.Option(None, "--detailed", help=_DETAILED_HELP),
-    buffer_size: int = typer.Option(500, help="Frame buffer size before writing to zarr."),
-    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Directory where octron_predictions/ folders are written. Defaults to alongside each video file."),
-    local_cache_dir: Optional[Path] = typer.Option(None, "--local-cache-dir", help="Stage prediction output in this local dir, then move each finished video to --output-dir. Overrides the config.yaml 'prediction_cache_dir'; if neither is set, caching is off."),
+    skip_frames: int = typer.Option(
+        0, help="Number of frames to skip between predictions."
+    ),
+    one_object_per_label: bool = typer.Option(
+        False, help="Track only the top-confidence detection per label."
+    ),
+    opening_radius: int = typer.Option(
+        0, help="Morphological opening radius applied to masks."
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help=(
+            "Overwrite existing prediction results. Default: skip "
+            "videos that already have predictions."
+        ),
+    ),
+    detailed: str | None = typer.Option(
+        None, "--detailed", help=_DETAILED_HELP
+    ),
+    buffer_size: int = typer.Option(
+        500, help="Frame buffer size before writing to zarr."
+    ),
+    output_dir: Path | None = typer.Option(
+        None,
+        "--output-dir",
+        "-o",
+        help=(
+            "Directory where octron_predictions/ folders are written. "
+            "Defaults to alongside each video file."
+        ),
+    ),
+    local_cache_dir: Path | None = typer.Option(
+        None,
+        "--local-cache-dir",
+        help=(
+            "Stage prediction output in this local dir, then move each "
+            "finished video to --output-dir. Overrides the config.yaml "
+            "'prediction_cache_dir'; if neither is set, caching is off."
+        ),
+    ),
 ):
     """Run YOLO prediction and tracking on one or more videos."""
-    # Validate --detailed up front (before any heavy import) so a typo fails fast.
+    # Validate --detailed up front (before any heavy import) so a typo
+    # fails fast.
     region_properties = _parse_region_properties(detailed)
 
     from octron.tools.predict import run_predict
@@ -320,10 +465,14 @@ def predict(
 @app.command("dump-tracker-config")
 def dump_tracker_config(
     tracker: TrackerName = typer.Argument(
-        TrackerName.bytetrack, help="Tracker whose default config to dump.",
+        TrackerName.bytetrack,
+        help="Tracker whose default config to dump.",
     ),
-    output: Optional[Path] = typer.Option(
-        None, "--output", "-o", help="Write to this file instead of printing to stdout.",
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write to this file instead of printing to stdout.",
     ),
 ):
     """Print (or write with -o) a tracker's default config YAML.
@@ -331,13 +480,20 @@ def dump_tracker_config(
     A starting point for customization: edit the values, then pass the file to
     `octron predict --tracker-config <file>`.
     """
-    from octron.tracking.helpers.tracker_checks import load_boxmot_trackers, resolve_tracker
+    from octron.tracking.helpers.tracker_checks import (
+        load_boxmot_trackers,
+        resolve_tracker,
+    )
 
-    trackers_dict = load_boxmot_trackers(_PKG_DIR / "tracking" / "boxmot_trackers.yaml")
+    trackers_dict = load_boxmot_trackers(
+        _PKG_DIR / "tracking" / "boxmot_trackers.yaml"
+    )
     tracker_id, info = resolve_tracker(tracker.value, trackers_dict)
     src = _PKG_DIR / info["config_path"]
     if not src.exists():
-        raise typer.BadParameter(f"Tracker config not found: {src}", param_hint="TRACKER")
+        raise typer.BadParameter(
+            f"Tracker config not found: {src}", param_hint="TRACKER"
+        )
     content = src.read_text()
     if output is None:
         typer.echo(content)
@@ -354,98 +510,207 @@ def dump_tracker_config(
 @app.command()
 def render(
     predictions_path: Path = typer.Argument(
-        ..., help="Path to a prediction output directory (octron_predictions/video_Tracker/).",
+        ...,
+        help=(
+            "Path to a prediction output directory "
+            "(octron_predictions/video_Tracker/)."
+        ),
     ),
     # --- Input / output ---
     video_path: Path = typer.Option(
-        None, "--video",
-        help="Path to the original video. Auto-detected if alongside octron_predictions/.",
+        None,
+        "--video",
+        help=(
+            "Path to the original video. Auto-detected if alongside "
+            "octron_predictions/."
+        ),
     ),
     output_path: Path = typer.Option(
-        None, "--output", "-o",
+        None,
+        "--output",
+        "-o",
         help="Output directory. Defaults to <predictions_path>/rendered/.",
     ),
     preset: str = typer.Option(
-        "draft", "--preset",
-        help="Quality preset: 'preview' (0.25×), 'draft' (0.5×), 'final' (full resolution).",
+        "draft",
+        "--preset",
+        help=(
+            "Quality preset: 'preview' (0.25×), 'draft' (0.5×), 'final' "
+            "(full resolution)."
+        ),
     ),
     encoder: str = typer.Option(
-        "auto", "--encoder",
-        help="Video encoder: 'auto' (prefer GPU h264_nvenc, else libx264), 'nvenc' (force GPU), or 'libx264' (force CPU).",
+        "auto",
+        "--encoder",
+        help=(
+            "Video encoder: 'auto' (prefer GPU h264_nvenc, else "
+            "libx264), 'nvenc' (force GPU), or 'libx264' (force CPU)."
+        ),
     ),
     no_nvenc: bool = typer.Option(
-        False, "--no-nvenc",
-        help="Force the CPU encoder (libx264); shorthand for --encoder libx264. Use if h264_nvenc fails (e.g. old NVIDIA driver).",
+        False,
+        "--no-nvenc",
+        help=(
+            "Force the CPU encoder (libx264); shorthand for --encoder "
+            "libx264. Use if h264_nvenc fails (e.g. old NVIDIA driver)."
+        ),
     ),
-    start: int = typer.Option(None, "--start", help="First frame to render (inclusive)."),
-    end: int = typer.Option(None, "--end", help="Last frame to render (exclusive)."),
+    start: int = typer.Option(
+        None, "--start", help="First frame to render (inclusive)."
+    ),
+    end: int = typer.Option(
+        None, "--end", help="Last frame to render (exclusive)."
+    ),
     # --- Overlay options ---
-    alpha: float = typer.Option(0.4, "--alpha", help="Mask overlay opacity (0–1)."),
-    draw_masks: Optional[bool] = typer.Option(
-        None, "--masks/--no-masks",
-        help="Render segmentation masks. Default: on for overlay, off for tracklets.",
+    alpha: float = typer.Option(
+        0.4, "--alpha", help="Mask overlay opacity (0–1)."
     ),
-    draw_boxes: Optional[bool] = typer.Option(
-        None, "--boxes/--no-boxes",
-        help="Render bounding boxes. Default: on for overlay, off for tracklets.",
+    draw_masks: bool | None = typer.Option(
+        None,
+        "--masks/--no-masks",
+        help=(
+            "Render segmentation masks. Default: on for overlay, off "
+            "for tracklets."
+        ),
     ),
-    draw_labels: Optional[bool] = typer.Option(
-        None, "--labels/--no-labels",
-        help="Render label text above bounding boxes (overlay mode only; never drawn on tracklets).",
+    draw_boxes: bool | None = typer.Option(
+        None,
+        "--boxes/--no-boxes",
+        help=(
+            "Render bounding boxes. Default: on for overlay, off for "
+            "tracklets."
+        ),
+    ),
+    draw_labels: bool | None = typer.Option(
+        None,
+        "--labels/--no-labels",
+        help=(
+            "Render label text above bounding boxes (overlay mode "
+            "only; never drawn on tracklets)."
+        ),
     ),
     # --- Tracklet options ---
-    tracklets: bool = typer.Option(False, "--tracklets", help="Generate one crop video per tracked animal."),
-    tracklet_size: Optional[str] = typer.Option("auto", "--tracklet-size", help="Side length in pixels of each tracklet crop, or 'auto' to use the largest bounding box + 20px padding."),
+    tracklets: bool = typer.Option(
+        False,
+        "--tracklets",
+        help="Generate one crop video per tracked animal.",
+    ),
+    tracklet_size: str | None = typer.Option(
+        "auto",
+        "--tracklet-size",
+        help=(
+            "Side length in pixels of each tracklet crop, or 'auto' to "
+            "use the largest bounding box + 20px padding."
+        ),
+    ),
     tracklet_smooth_sigma: float = typer.Option(
-        2.0, "--tracklet-smooth-sigma",
-        help="Gaussian smoothing strength (standard deviation in frames) for centroid smoothing. 0=off.",
+        2.0,
+        "--tracklet-smooth-sigma",
+        help=(
+            "Gaussian smoothing strength (standard deviation in "
+            "frames) for centroid smoothing. 0=off."
+        ),
     ),
     tracklet_interpolate: int = typer.Option(
-        0, "--tracklet-interpolate", help="Fill gaps between track segments by linear interpolation. Value caps how many consecutive missing frames to bridge (longer gaps are partially filled); 0 = off.",
+        0,
+        "--tracklet-interpolate",
+        help=(
+            "Fill gaps between track segments by linear interpolation. "
+            "Value caps how many consecutive missing frames to bridge "
+            "(longer gaps are partially filled); 0 = off."
+        ),
     ),
     tracklet_segment_only: bool = typer.Option(
-        False, "--tracklet-segment-only",
-        help="Black out all pixels outside each animal's segmentation mask (requires mask data).",
+        False,
+        "--tracklet-segment-only",
+        help=(
+            "Black out all pixels outside each animal's segmentation "
+            "mask (requires mask data)."
+        ),
     ),
     tracklet_segment_keep: int = typer.Option(
-        0, "--tracklet-segment-keep",
-        help="When --tracklet-segment-only is set, keep only the N largest connected components of the mask. 0 = keep all components (default).",
+        0,
+        "--tracklet-segment-keep",
+        help=(
+            "When --tracklet-segment-only is set, keep only the N "
+            "largest connected components of the mask. 0 = keep all "
+            "components (default)."
+        ),
     ),
-    tracklet_offset: Optional[str] = typer.Option(
-        None, "--tracklet-offset",
-        help="Offset of the tracklet crop centre as 'DX,DY' in source-video pixels (e.g. '20,-30'). Positive = right/down. Applied consistently in overlay and raw modes. Default: 0,0.",
+    tracklet_offset: str | None = typer.Option(
+        None,
+        "--tracklet-offset",
+        help=(
+            "Offset of the tracklet crop centre as 'DX,DY' in "
+            "source-video pixels (e.g. '20,-30'). Positive = "
+            "right/down. Applied consistently in overlay and raw "
+            "modes. Default: 0,0."
+        ),
     ),
     # --- Filtering ---
-    track_ids: Optional[str] = typer.Option(
-        None, "--track-ids",
-        help="Comma-separated list of track IDs to render (e.g. 1,3,5). Renders all tracks if omitted.",
+    track_ids: str | None = typer.Option(
+        None,
+        "--track-ids",
+        help=(
+            "Comma-separated list of track IDs to render (e.g. "
+            "1,3,5). Renders all tracks if omitted."
+        ),
     ),
     min_observations: int = typer.Option(
-        0, "--min-observations", help="Skip tracks with fewer than this many observations. 0 = keep all tracks.",
+        0,
+        "--min-observations",
+        help=(
+            "Skip tracks with fewer than this many observations. 0 = "
+            "keep all tracks."
+        ),
     ),
     min_confidence: float = typer.Option(
-        0.5, "--min-confidence", min=0.0, max=1.0,
-        help="Skip individual detections whose confidence is below this threshold (0–1). Default 0.5.",
+        0.5,
+        "--min-confidence",
+        min=0.0,
+        max=1.0,
+        help=(
+            "Skip individual detections whose confidence is below "
+            "this threshold (0–1). Default 0.5."
+        ),
     ),
     trim: bool = typer.Option(
-        False, "--trim", help="Trim each tracklet video to the track's first and last observation (within --start/--end if given).",
+        False,
+        "--trim",
+        help=(
+            "Trim each tracklet video to the track's first and last "
+            "observation (within --start/--end if given)."
+        ),
     ),
     skip_empty: bool = typer.Option(
-        False, "--skip-empty",
-        help="Skip frames with no detection at/above --min-confidence (e.g. from predict --skip-frames). "
-             "Tracklets: each track's video keeps only its own detected frames. Overlay: keeps frames with any detection.",
+        False,
+        "--skip-empty",
+        help=(
+            "Skip frames with no detection at/above --min-confidence "
+            "(e.g. from predict --skip-frames). Tracklets: each "
+            "track's video keeps only its own detected frames. "
+            "Overlay: keeps frames with any detection."
+        ),
     ),
     bbox_sizes: bool = typer.Option(
-        False, "--bbox-sizes",
-        help="Report per-track bounding-box sizes to help choose --tracklet-size, then exit.",
+        False,
+        "--bbox-sizes",
+        help=(
+            "Report per-track bounding-box sizes to help choose "
+            "--tracklet-size, then exit."
+        ),
     ),
     debug: bool = typer.Option(
-        False, "--debug",
-        help="Enable DEBUG-level logging with per-stage timing (decode / blend / encode).",
+        False,
+        "--debug",
+        help=(
+            "Enable DEBUG-level logging with per-stage timing "
+            "(decode / blend / encode)."
+        ),
     ),
 ):
     """Render annotated video(s) from OCTRON prediction output."""
-    from octron.tools.render import run_render, PRESETS, report_bbox_sizes
+    from octron.tools.render import PRESETS, report_bbox_sizes, run_render
 
     if bbox_sizes:
         report_bbox_sizes(predictions_path)
@@ -453,13 +718,16 @@ def render(
 
     # Validation/parsing layering (convention):
     #   CLI layer (here) owns user-facing parsing and friendly errors:
-    #     typer.BadParameter for --preset/--tracklet-offset, Typer min/max for
-    #     --min-confidence/--alpha, and splitting --track-ids / --tracklet-size.
-    #   Tool layer (render.py: _validate_render_args, _coerce_track_ids, and the
-    #     offset unpack in run_tracklets) re-validates defensively for
-    #     programmatic/notebook callers that bypass the CLI.
-    #   The overlap on preset/min_confidence is intentional (two audiences),
-    #   not redundancy: keep the friendly CLI message AND the library-safe guard.
+    #     typer.BadParameter for --preset/--tracklet-offset, Typer
+    #     min/max for --min-confidence/--alpha, and splitting
+    #     --track-ids / --tracklet-size.
+    #   Tool layer (render.py: _validate_render_args, _coerce_track_ids,
+    #     and the offset unpack in run_tracklets) re-validates
+    #     defensively for programmatic/notebook callers that bypass the
+    #     CLI.
+    #   The overlap on preset/min_confidence is intentional (two
+    #   audiences), not redundancy: keep the friendly CLI message AND
+    #   the library-safe guard.
     if preset not in PRESETS:
         raise typer.BadParameter(
             f"preset must be one of {list(PRESETS)}.", param_hint="'--preset'"
@@ -468,7 +736,8 @@ def render(
     encoder = encoder.lower()
     if encoder not in ("auto", "nvenc", "libx264"):
         raise typer.BadParameter(
-            "must be one of 'auto', 'nvenc', 'libx264'.", param_hint="'--encoder'"
+            "must be one of 'auto', 'nvenc', 'libx264'.",
+            param_hint="'--encoder'",
         )
     if no_nvenc:
         if encoder == "nvenc":
@@ -477,7 +746,8 @@ def render(
             )
         encoder = "libx264"
 
-    # Resolve mode-specific defaults: overlay → everything on; tracklets → nothing on
+    # Resolve mode-specific defaults: overlay -> everything on;
+    # tracklets -> nothing on
     if tracklets:
         resolved_masks = draw_masks if draw_masks is not None else False
         resolved_boxes = draw_boxes if draw_boxes is not None else False
@@ -489,24 +759,31 @@ def render(
 
     parsed_track_ids = (
         [int(x.strip()) for x in track_ids.split(",") if x.strip()]
-        if track_ids is not None else None
+        if track_ids is not None
+        else None
     )
 
-    parsed_tracklet_size = None if tracklet_size is None or tracklet_size.lower() == "auto" else int(tracklet_size)
+    parsed_tracklet_size = (
+        None
+        if tracklet_size is None or tracklet_size.lower() == "auto"
+        else int(tracklet_size)
+    )
 
     if tracklet_offset is None or not tracklet_offset.strip():
         parsed_tracklet_offset = (0, 0)
     else:
         try:
             parts = [int(x.strip()) for x in tracklet_offset.split(",")]
-        except ValueError:
+        except ValueError as e:
             raise typer.BadParameter(
-                f"--tracklet-offset must be 'DX,DY' integers (e.g. '20,-30'); got {tracklet_offset!r}.",
+                f"--tracklet-offset must be 'DX,DY' integers (e.g. "
+                f"'20,-30'); got {tracklet_offset!r}.",
                 param_hint="'--tracklet-offset'",
-            )
+            ) from e
         if len(parts) != 2:
             raise typer.BadParameter(
-                f"--tracklet-offset must be exactly two integers separated by a comma; got {tracklet_offset!r}.",
+                f"--tracklet-offset must be exactly two integers "
+                f"separated by a comma; got {tracklet_offset!r}.",
                 param_hint="'--tracklet-offset'",
             )
         parsed_tracklet_offset = (parts[0], parts[1])
@@ -542,41 +819,58 @@ def render(
 
 @app.command()
 def transcode(
-    videos: List[Path] = typer.Argument(
+    videos: list[Path] = typer.Argument(
         ...,
-        help="One or more video file paths, or a directory containing video files.",
+        help=(
+            "One or more video file paths, or a directory containing "
+            "video files."
+        ),
     ),
     output_path: Path = typer.Option(
         None,
         "--output",
         "-o",
-        help="Output directory. Defaults to mp4_transcoded/ next to the input(s).",
+        help=(
+            "Output directory. Defaults to mp4_transcoded/ next to "
+            "the input(s)."
+        ),
     ),
     crf: int = typer.Option(
         23,
         "--crf",
-        help="Constant Rate Factor (0–51). Lower = better quality. Default 23.",
+        help=(
+            "Constant Rate Factor (0–51). Lower = better quality. Default 23."
+        ),
     ),
     fps: float = typer.Option(
         None,
         "--fps",
-        help="Output framerate. Videos: reinterprets source frames at this fps "
-             "(changes playback speed). TIFF stacks: sets playback fps (default 20). "
-             "Omit to keep source fps for videos.",
+        help=(
+            "Output framerate. Videos: reinterprets source frames at "
+            "this fps (changes playback speed). TIFF stacks: sets "
+            "playback fps (default 20). Omit to keep source fps for "
+            "videos."
+        ),
     ),
     no_audio: bool = typer.Option(
-        False, "--no-audio", help="Drop the audio track instead of re-encoding it to AAC."
+        False,
+        "--no-audio",
+        help="Drop the audio track instead of re-encoding it to AAC.",
     ),
     overwrite: bool = typer.Option(
         False, "--overwrite", help="Overwrite existing output files."
     ),
 ):
-    """Transcode video files or multi-frame TIFF stacks to MP4 (H.264) using ffmpeg.
+    (
+        """Transcode video files or multi-frame TIFF stacks to MP4 """
+        """(H.264) using ffmpeg.
 
-    Accepts video files, multi-frame TIFF stacks, or a directory containing them.
-    Odd-dimension inputs are handled automatically (scaled to even dimensions);
-    audio is kept (re-encoded to AAC) by default for inputs that have it.
+    Accepts video files, multi-frame TIFF stacks, or a directory
+    containing them. Odd-dimension inputs are handled automatically
+    (scaled to even dimensions); audio is kept (re-encoded to AAC) by
+    default for inputs that have it.
     """
+    )
     from octron.tools.transcode import run_transcode
 
     run_transcode(
@@ -601,7 +895,9 @@ def gif():
 @app.command("download-yolo")
 def download_yolo(
     force: bool = typer.Option(
-        False, "--force", help="Re-download even if the weight files already exist."
+        False,
+        "--force",
+        help="Re-download even if the weight files already exist.",
     ),
 ):
     """Download YOLO base model weights into the model cache.
@@ -614,14 +910,20 @@ def download_yolo(
     from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
 
     yaml_path = _PKG_DIR / "yolo_octron" / "yolo_models.yaml"
-    check_yolo_models(YOLO_BASE_URL=None, models_yaml_path=yaml_path, force_download=force)
-    logger.info(f"YOLO weights are in: {config.get_yolo_models_dir().as_posix()}")
+    check_yolo_models(
+        YOLO_BASE_URL=None, models_yaml_path=yaml_path, force_download=force
+    )
+    logger.info(
+        f"YOLO weights are in: {config.get_yolo_models_dir().as_posix()}"
+    )
 
 
 @app.command("download-sam2")
 def download_sam2(
     force: bool = typer.Option(
-        False, "--force", help="Re-download even if the checkpoint files already exist."
+        False,
+        "--force",
+        help="Re-download even if the checkpoint files already exist.",
     ),
 ):
     """Download SAM2 checkpoints into the model cache.
@@ -634,31 +936,48 @@ def download_sam2(
     from octron.sam_octron.helpers.sam2_checks import check_sam2_models
 
     yaml_path = _PKG_DIR / "sam_octron" / "sam2_models.yaml"
-    check_sam2_models(SAM2p1_BASE_URL="", models_yaml_path=yaml_path, force_download=force)
-    logger.info(f"SAM checkpoints are in: {config.get_sam_checkpoints_dir().as_posix()}")
+    check_sam2_models(
+        SAM2p1_BASE_URL="", models_yaml_path=yaml_path, force_download=force
+    )
+    logger.info(
+        f"SAM checkpoints are in: "
+        f"{config.get_sam_checkpoints_dir().as_posix()}"
+    )
 
 
 @app.command("download-sam3")
 def download_sam3(
     force: bool = typer.Option(
-        False, "--force", help="Re-download even if the checkpoint files already exist."
+        False,
+        "--force",
+        help="Re-download even if the checkpoint files already exist.",
     ),
 ):
-    """Download the SAM3 checkpoint into the model cache (requires HuggingFace access).
+    (
+        """Download the SAM3 checkpoint into the model cache """
+        """(requires HuggingFace access).
 
-    Needs licence acceptance + `huggingface-cli login` (see the SAM3 model card).
-    Files are stored under config.get_sam_checkpoints_dir(). Missing files are
-    always fetched; pass --force to re-download ones that already exist.
+    Needs licence acceptance + `huggingface-cli login` (see the SAM3
+    model card). Files are stored under
+    config.get_sam_checkpoints_dir(). Missing files are always
+    fetched; pass --force to re-download ones that already exist.
     """
+    )
     from octron import config
     from octron.sam_octron.helpers.sam3_checks import check_sam3_models
 
     yaml_path = _PKG_DIR / "sam_octron" / "sam3_models.yaml"
-    result = check_sam3_models(models_yaml_path=yaml_path, force_download=force)
+    result = check_sam3_models(
+        models_yaml_path=yaml_path, force_download=force
+    )
     if not result:
         raise typer.Exit(code=1)
-    logger.info(f"SAM checkpoints are in: {config.get_sam_checkpoints_dir().as_posix()}")
+    logger.info(
+        f"SAM checkpoints are in: "
+        f"{config.get_sam_checkpoints_dir().as_posix()}"
+    )
 
 
 def main():
+    """Entry point for the ``octron`` console script."""
     app()
