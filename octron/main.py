@@ -2200,9 +2200,14 @@ class octron_widget(QWidget):
             # Reserved space for anchor point layer here ...
             pass
 
-        # Reset the dropdowns
-        self.label_list_combobox.setCurrentIndex(0)
-        self.layer_type_combobox.setCurrentIndex(0)
+        # Keep the label and layer-type dropdowns as-is after a manual
+        # creation so the user can quickly add follow-up layers of the same
+        # label/type (e.g. another object, just changing the suffix). Only
+        # reset them during a project reload (recreate=True), where layers
+        # are re-created programmatically and the dropdowns should end clean.
+        if recreate:
+            self.label_list_combobox.setCurrentIndex(0)
+            self.layer_type_combobox.setCurrentIndex(0)
 
         return annotation_layer, prediction_layer, organizer_entry
 
