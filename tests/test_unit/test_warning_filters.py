@@ -8,7 +8,6 @@ import os
 import subprocess
 import sys
 import warnings
-from pathlib import Path
 
 import octron
 
@@ -50,9 +49,7 @@ def test_warning_filter_does_not_hide_other_deprecations():
 
 def test_import_yolo_results_is_quiet_in_fresh_process():
     """`from octron import YOLO_results` must not emit dep warnings."""
-    repo_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(repo_root)
     env["PYTHONWARNINGS"] = "default"
 
     result = subprocess.run(

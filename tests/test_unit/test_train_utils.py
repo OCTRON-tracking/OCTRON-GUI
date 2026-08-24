@@ -15,14 +15,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from octron.yolo_octron import yolo_octron as yolo_octron_module
 from octron.yolo_octron.yolo_octron import YOLO_octron
 
-MODELS_YAML = (
-    Path(__file__).parent.parent
-    / "octron"
-    / "yolo_octron"
-    / "yolo_models.yaml"
-)
+MODELS_YAML = Path(yolo_octron_module.__file__).parent / "yolo_models.yaml"
 
 
 def _resolver():
