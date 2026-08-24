@@ -3,7 +3,6 @@
 import datetime
 import json
 from pathlib import Path
-from shutil import rmtree
 from typing import Any
 
 from loguru import logger
@@ -305,14 +304,15 @@ class ObjectOrganizer(BaseModel):
             "time_last_changed": datetime.datetime.now().isoformat(),
         }
         if not self.entries:
+            # SAFETY: an empty organizer must NOT delete anything on disk.
+            # Intentional deletion is handled explicitly elsewhere (the
+            # existing-data table's "Delete" action), so here we simply skip
+            # writing and leave any on-disk data untouched.
             logger.warning(
-                "⚠️ No entries to save. "
-                "Deleting object organizer file and zarr files."
+                "Object organizer has no entries; skipping save "
+                "(no files deleted). Existing data under "
+                f"{file_path.parent.as_posix()} left untouched."
             )
-            if file_path.exists():
-                file_path.unlink()
-            for zarr_file in file_path.parent.rglob("*.zarr"):
-                rmtree(zarr_file)
             return
 
         for obj_id, obj in self.entries.items():
