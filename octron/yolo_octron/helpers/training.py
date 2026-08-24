@@ -149,17 +149,16 @@ def pick_random_frames(frames, n=20):
         return random_frames
     else:
         return np.array([], dtype=frames.dtype)
-
-
-def collect_labels(
-    project_path,
-    subfolder=None,
-    prune_empty_labels=True,
-    min_num_frames=5,
-    verbose=False,
-):
-    """Extract info from project path.
-
+    
+def collect_labels(project_path, 
+                   subfolder=None,
+                   prune_empty_labels=True, 
+                   min_num_frames=5,
+                   verbose=False,
+                   verify_hash=False,
+                   ):
+    """
+    Extract info from project path.
     Find all the object organizer json files and load them.
     The object organizer json files contain the information about the
     annotations (the zarr arrays) as well as the associated video files.
@@ -233,12 +232,7 @@ def collect_labels(
 
     # Hiding some imports here to reduce initial loading time
     from napari_pyav._reader import FastVideoReader
-
-    from octron.sam_octron.helpers.sam_zarr import (
-        get_annotated_frames,
-        load_image_zarr,
-    )
-    from octron.sam_octron.helpers.video_loader import get_vfile_hash
+    from octron.sam_octron.helpers.sam_zarr import load_image_zarr, get_annotated_frames
 
     label_dict = {}
     # Create a (new) global mapping of label names to IDs for
@@ -369,22 +363,24 @@ def collect_labels(
                 / Path(entry["prediction_layer_metadata"]["video_file_path"])
             ).resolve()
             if video_file_path not in video_hash_dict:
-                assert video_file_path.exists(), (
-                    f'Video file not found at "{video_file_path.as_posix()}"'
-                )
-                actual_video_hash = get_vfile_hash(video_file_path)[
-                    -8:
-                ]  # By default this is shortened to 8 characters
-                video_hash_dict[video_file_path] = actual_video_hash
-            assert len(video_hash_dict) == 1, (
-                "Different video files found for one object organizer json."
-            )
-            assert (
-                expected_video_hash_zarr
-                == expected_video_hash_organizer
-                == video_hash_dict[video_file_path]
-            ), "Video hash mismatch"
-
+                assert video_file_path.exists(), f'Video file not found at "{video_file_path.as_posix()}"'
+                if verify_hash:
+                    # Full hash: reads the entire video file — slow for large files.
+                    # Only do this when explicitly requested (e.g. pre-training integrity check).
+                    from octron.sam_octron.helpers.video_loader import get_vfile_hash
+                    actual_video_hash = get_vfile_hash(video_file_path)[-8:]
+                    video_hash_dict[video_file_path] = actual_video_hash
+                    assert expected_video_hash_zarr == expected_video_hash_organizer == actual_video_hash, 'Video hash mismatch'
+                else:
+                    # Fast path: just cross-check zarr attrs vs organizer JSON.
+                    # Avoids reading the entire video file on every project load.
+                    video_hash_dict[video_file_path] = expected_video_hash_organizer
+                    assert expected_video_hash_zarr == expected_video_hash_organizer, (
+                        f'Hash mismatch between zarr ({expected_video_hash_zarr}) '
+                        f'and organizer ({expected_video_hash_organizer}) for {video_file_path.name}'
+                    )
+            assert len(video_hash_dict) == 1, 'Different video files found for one object organizer json.'
+            
         # An organizer with no entries leaves no video/labels — skip it instead
         # of failing later with an unbound video_file_path.
         if not video_hash_dict:
