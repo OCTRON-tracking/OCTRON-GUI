@@ -49,20 +49,37 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
   # NOT IMPLEMENTED YET
+  # check_tag:
+  #   name: Check if trigger is a tag to a commit in main
+  #   needs: [test]
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     tag_on_main: ${{ steps.check.outputs.tag_on_main }}
+  #   steps:
+  #     - uses: neuroinformatics-unit/actions/check_tag_on_main@v2
+  #       id: check
+
   # build_sdist_wheels:
   #   name: Build source distribution
-  #   needs: [test]
-  #   if: github.event_name == 'push' && github.ref_type == 'tag'
+  #   needs: [test, check_tag]
+  #   if: github.event_name == 'push' && needs.check_tag.outputs.tag_on_main == 'true'
   #   runs-on: ubuntu-latest
   #   steps:
-  #   - uses: neuroinformatics-unit/actions/build_sdist_wheels@v2
+  #   - uses: neuroinformatics-unit/actions/build_sdist_wheels@v3
 
   # NOT IMPLEMENTED YET
   # upload_all:
   #   name: Publish build distributions
-  #   needs: [build_sdist_wheels]
+  #   needs: [build_sdist_wheels, check_tag]
   #   runs-on: ubuntu-latest
+  #   environment: # use Trusted Publisher route
+  #     name: pypi
+  #     url: https://pypi.org/p/octron
+  #   permissions:
+  #     id-token: write # mandatory for trusted publishing
   #   steps:
-  #   - uses: neuroinformatics-unit/actions/upload_pypi@v2
+  #   - uses: actions/download-artifact@v8
   #     with:
-  #       secret-pypi-key: ${{ secrets.TWINE_API_KEY }}
+  #       name: artifact
+  #       path: dist
+  #   - uses: pypa/gh-action-pypi-publish@release/v1
