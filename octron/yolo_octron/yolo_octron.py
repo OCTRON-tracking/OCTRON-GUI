@@ -1481,18 +1481,23 @@ class YOLO_octron:
         if not hasattr(self, "training_path") or self.training_path is None:
             pass
         else:
-            # Only update keys that exist in the installed ultralytics version —
-            # some keys (e.g. 'hub') have been removed in recent releases.
-            _desired = {
-                'sync': False,
-                'tensorboard': True,
-                'runs_dir': self.training_path.as_posix(),
+            # Only update keys that exist in the installed ultralytics
+            # version — some keys (e.g. 'hub') have been removed in
+            # recent releases.
+            desired_settings = {
+                "sync": False,
+                "tensorboard": True,
+                "runs_dir": self.training_path.as_posix(),
             }
-            _valid = {k: v for k, v in _desired.items() if k in self.yolo_settings}
-            if _valid:
-                self.yolo_settings.update(_valid)
-        from ultralytics import YOLO   
-        
+            valid_settings = {
+                k: v
+                for k, v in desired_settings.items()
+                if k in self.yolo_settings
+            }
+            if valid_settings:
+                self.yolo_settings.update(valid_settings)
+        from ultralytics import YOLO
+
         # Load specified model
         try:
             assert Path(model_name_path).exists()
@@ -3142,10 +3147,11 @@ class YOLO_octron:
             video = video_dict["video"]
             tracking_df_dict = {}
             track_id_label_dict = {}
-            # Standard (multi-object) tracking maps each (boxmot track ID, label)
-            # pair to a stable OCTRON track ID (see the else-branch below), so a
-            # boxmot ID that is matched to different classes over time is split
-            # into separate, label-consistent tracklets instead of raising.
+            # Standard (multi-object) tracking maps each
+            # (boxmot track ID, label) pair to a stable OCTRON track ID
+            # (see the else-branch below), so a boxmot ID that is matched
+            # to different classes over time is split into separate,
+            # label-consistent tracklets instead of raising.
             split_track_ids = {}
             next_split_track_id = 1
             video_prediction_start = time.time()
@@ -3326,25 +3332,27 @@ class YOLO_octron:
                                 (max(current_ids) + 1) if current_ids else 1
                             )
                             track_id_label_dict[label] = track_id
-                    else: 
-                        # There can be multiple objects/track IDs per label.
-                        # A boxmot track ID can be matched to detections of
-                        # different classes over its lifetime: boxmot associates
-                        # class-agnostically and overwrites a track's class on
-                        # every match, only preserving class identity when
+                    else:
+                        # There can be multiple objects/track IDs per
+                        # label. A boxmot track ID can be matched to
+                        # detections of different classes over its
+                        # lifetime: boxmot associates class-agnostically
+                        # and overwrites a track's class on every match,
+                        # only preserving class identity when
                         # per_class=True (which several trackers, incl.
                         # BoostTrack, do not support). Map each
-                        # (boxmot track ID, label) pair to a stable OCTRON track
-                        # ID so a mid-track class change becomes a separate,
-                        # label-consistent tracklet instead of raising.
+                        # (boxmot track ID, label) pair to a stable
+                        # OCTRON track ID so a mid-track class change
+                        # becomes a separate, label-consistent tracklet
+                        # instead of raising.
                         pair_key = (track_id, label)
                         if pair_key not in split_track_ids:
                             split_track_ids[pair_key] = next_split_track_id
                             next_split_track_id += 1
                         track_id = split_track_ids[pair_key]
-                        
-                    # Take care of zarr array and tracking dataframe 
-                    if not track_id in all_ids:
+
+                    # Take care of zarr array and tracking dataframe
+                    if track_id not in all_ids:
                         # Initialize mask store (only for segmentation models)
                         if is_segment:
                             video_shape = (
