@@ -1050,10 +1050,15 @@ class octron_widget(QWidget):
             If True, delete the old entries from the combobox
 
         """
-        # Check this folder for existing project data
+        # The "Existing data" table is a whole-project overview: it lists
+        # every annotated video subfolder, independent of which video is
+        # currently loaded. Scan the whole project (subfolder=None).
+        # Scoping to self.current_video_hash would blank the table whenever a
+        # new / unannotated video is loaded (its hash subfolder is empty),
+        # even though other videos in the project are annotated.
         label_dict = collect_labels(
             self.project_path,
-            subfolder=self.current_video_hash,
+            subfolder=None,
             prune_empty_labels=False,
             min_num_frames=0,
         )
