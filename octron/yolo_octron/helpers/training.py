@@ -157,6 +157,7 @@ def collect_labels(
     prune_empty_labels=True,
     min_num_frames=5,
     verbose=False,
+    verify_hash=False,
 ):
     """Extract info from project path.
 
@@ -189,6 +190,9 @@ def collect_labels(
                            for training data generation.
     verbose : bool : Whether to print debug info.
         Default is False.
+    verify_hash : bool : Whether to recompute the video file hash and
+        check it against the stored one. This reads the whole video
+        file, so it is slow for large files. Default is False.
 
     Returns
     -------
@@ -238,7 +242,6 @@ def collect_labels(
         get_annotated_frames,
         load_image_zarr,
     )
-    from octron.sam_octron.helpers.video_loader import get_vfile_hash
 
     label_dict = {}
     # Create a (new) global mapping of label names to IDs for
@@ -372,18 +375,40 @@ def collect_labels(
                 assert video_file_path.exists(), (
                     f'Video file not found at "{video_file_path.as_posix()}"'
                 )
-                actual_video_hash = get_vfile_hash(video_file_path)[
-                    -8:
-                ]  # By default this is shortened to 8 characters
-                video_hash_dict[video_file_path] = actual_video_hash
+                if verify_hash:
+                    # Full hash: reads the entire video file — slow for
+                    # large files. Only do this when explicitly
+                    # requested (e.g. pre-training integrity check).
+                    from octron.sam_octron.helpers.video_loader import (
+                        get_vfile_hash,
+                    )
+
+                    actual_video_hash = get_vfile_hash(video_file_path)[-8:]
+                    video_hash_dict[video_file_path] = actual_video_hash
+                    assert (
+                        expected_video_hash_zarr
+                        == expected_video_hash_organizer
+                        == actual_video_hash
+                    ), "Video hash mismatch"
+                else:
+                    # Fast path: just cross-check zarr attrs vs organizer
+                    # JSON. Avoids reading the entire video file on every
+                    # project load.
+                    video_hash_dict[video_file_path] = (
+                        expected_video_hash_organizer
+                    )
+                    assert (
+                        expected_video_hash_zarr
+                        == expected_video_hash_organizer
+                    ), (
+                        "Hash mismatch between zarr "
+                        f"({expected_video_hash_zarr}) and organizer "
+                        f"({expected_video_hash_organizer}) for "
+                        f"{video_file_path.name}"
+                    )
             assert len(video_hash_dict) == 1, (
                 "Different video files found for one object organizer json."
             )
-            assert (
-                expected_video_hash_zarr
-                == expected_video_hash_organizer
-                == video_hash_dict[video_file_path]
-            ), "Video hash mismatch"
 
         # An organizer with no entries leaves no video/labels — skip it instead
         # of failing later with an unbound video_file_path.
