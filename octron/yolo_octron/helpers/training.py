@@ -722,13 +722,16 @@ def _cut_into_blocks(frames, block_size):
 
 
 def _stratified_labels(n_blocks, n_val, n_test, rng):
-    """Label blocks so val/test are spread across the timeline.
+    """Label blocks so val and test are spread across the timeline.
 
-    ``val`` and ``test`` each take one block per contiguous stratum
-    (evenly spaced over the block sequence), picked within the stratum by
-    ``rng`` -- so the split is reproducible yet seed-sensitive, and both
-    splits sample the whole timeline instead of clustering in one region.
-    Every other block is ``train``.
+    The combined val+test *holdout* is placed one block per evenly-spaced
+    stratum over the whole block sequence, then those holdout blocks are
+    divided into val/test (also stratified). Spreading the holdout as a
+    whole -- rather than choosing val, then test, independently -- keeps
+    both splits distributed even when only one block of each is available
+    (otherwise a lone val and a lone test block often clump together and
+    leave a long train-only stretch). Picks use ``rng`` so the split is
+    reproducible yet seed-sensitive. Every non-holdout block is ``train``.
     """
 
     def pick_spread(pool, k):
@@ -736,9 +739,12 @@ def _stratified_labels(n_blocks, n_val, n_test, rng):
 
     labels = np.array(["train"] * n_blocks, dtype="<U5")
     all_idx = np.arange(n_blocks)
-    labels[pick_spread(all_idx, n_val)] = "val"
-    remaining = all_idx[labels == "train"]
-    labels[pick_spread(remaining, n_test)] = "test"
+    holdout = np.array(sorted(pick_spread(all_idx, n_val + n_test)))
+    test_slots = pick_spread(np.arange(len(holdout)), n_test)
+    is_test = np.zeros(len(holdout), dtype=bool)
+    is_test[test_slots] = True
+    labels[holdout[is_test]] = "test"
+    labels[holdout[~is_test]] = "val"
     return labels.tolist()
 
 
