@@ -9,7 +9,14 @@ still fails before any model, label, or geometry work.
 import numpy as np
 import pytest
 
-from octron.tools.split import run_split
+from octron.tools.split import (
+    _build_frame_to_split,
+    _num_frames_for,
+    _print_split_timelines,
+    _timeline_bins,
+    run_split,
+)
+from octron.yolo_octron.helpers.training import train_test_val
 from octron.yolo_octron.yolo_octron import YOLO_octron
 
 # ---------------------------------------------------------------------------
@@ -108,7 +115,7 @@ def _split_with_seed(frames, seed):
 
 
 def test_prepare_split_is_reproducible_with_seed():
-    frames = list(range(30))
+    frames = list(range(300))
     assert _split_with_seed(frames, 123) == _split_with_seed(frames, 123)
 
 
@@ -116,5 +123,171 @@ def test_prepare_split_seed_changes_partition():
     """A different seed must change the split (regression: seed was
     ignored).
     """
-    frames = list(range(30))
+    frames = list(range(300))
     assert _split_with_seed(frames, 1) != _split_with_seed(frames, 2)
+
+
+# ---------------------------------------------------------------------------
+# train_test_val: contiguous-block split behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_ttv_partitions_disjoint_subset_nonempty():
+    frames = np.arange(500)
+    s = train_test_val(frames, 0.7, 0.15, random_seed=0)
+    train = {int(x) for x in s["train"]}
+    val = {int(x) for x in s["val"]}
+    test = {int(x) for x in s["test"]}
+    assert train and val and test
+    assert train.isdisjoint(val)
+    assert train.isdisjoint(test)
+    assert val.isdisjoint(test)
+    assert (train | val | test).issubset(set(frames.tolist()))
+
+
+def test_ttv_no_adjacent_train_val_leakage():
+    # With the default 1-frame buffer, no train frame may sit immediately
+    # next to a val frame (that would be a near-duplicate across the split).
+    frames = np.arange(500)
+    s = train_test_val(
+        frames, 0.7, 0.15, random_seed=0, block_size=20, buffer=1
+    )
+    train = {int(x) for x in s["train"]}
+    val = {int(x) for x in s["val"]}
+    for v in val:
+        assert (v - 1) not in train
+        assert (v + 1) not in train
+
+
+def test_ttv_keeps_runs_together():
+    # Contiguous-block assignment keeps adjacent frames on the same side:
+    # split crossings scale with the number of blocks, not with n (as a
+    # per-frame random split would).
+    frames = np.arange(600)
+    s = train_test_val(frames, 0.7, 0.15, random_seed=0, buffer=0)
+    label = {}
+    for name in ("train", "val", "test"):
+        for f in s[name]:
+            label[int(f)] = name
+    crossings = sum(
+        1
+        for f in range(599)
+        if f in label and (f + 1) in label and label[f] != label[f + 1]
+    )
+    assert crossings <= 40
+
+
+def test_ttv_reproducible_and_seed_sensitive():
+    frames = np.arange(500)
+    a = [x.tolist() for x in train_test_val(frames, 0.7, 0.15, 1).values()]
+    b = [x.tolist() for x in train_test_val(frames, 0.7, 0.15, 1).values()]
+    c = [x.tolist() for x in train_test_val(frames, 0.7, 0.15, 2).values()]
+    assert a == b
+    assert a != c
+
+
+def test_ttv_minimum_three_frames():
+    s = train_test_val(np.array([0, 1, 2]), 0.6, 0.2, random_seed=0)
+    assert len(s["train"]) == 1
+    assert len(s["val"]) == 1
+    assert len(s["test"]) == 1
+
+
+def test_ttv_episodes_are_balanced_across_splits():
+    # Two annotation bursts in one video separated by a large gap: each
+    # episode must appear in every split (not dominated by the denser one).
+    ep1 = np.arange(0, 100)
+    ep2 = np.arange(5000, 5040)
+    frames = np.concatenate([ep1, ep2])
+    s = train_test_val(frames, 0.7, 0.15, random_seed=0)
+    ep1_set = set(ep1.tolist())
+    ep2_set = set(ep2.tolist())
+    for split in ("train", "val", "test"):
+        present = {int(x) for x in s[split]}
+        assert present & ep1_set, f"episode 1 missing from {split}"
+        assert present & ep2_set, f"episode 2 missing from {split}"
+
+
+def test_ttv_tiny_episode_goes_to_train_only():
+    main = np.arange(0, 100)
+    tiny = np.array([9000, 9001])  # 2 frames: too small to split 3 ways
+    frames = np.concatenate([main, tiny])
+    s = train_test_val(frames, 0.7, 0.15, random_seed=0)
+    train = {int(x) for x in s["train"]}
+    val = {int(x) for x in s["val"]}
+    test = {int(x) for x in s["test"]}
+    assert {9000, 9001} <= train
+    assert not ({9000, 9001} & (val | test))
+
+
+# ---------------------------------------------------------------------------
+# Terminal split-timeline visualization helpers
+# ---------------------------------------------------------------------------
+
+
+class _FakeMask:
+    """Minimal stand-in for a zarr mask array (only ``.shape`` is used)."""
+
+    def __init__(self, num_frames):
+        self.shape = (num_frames, 4, 4)
+
+
+def _labels_with_split(num_frames=200):
+    """One-label subfolder dict shaped like collect_labels output."""
+    return {
+        "video": None,
+        "video_file_path": None,
+        0: {
+            "label": "a",
+            "masks": [_FakeMask(num_frames)],
+            "frames": np.arange(0, 60),
+            "frames_split": {
+                "train": np.arange(0, 40),
+                "val": np.arange(40, 50),
+                "test": np.arange(50, 60),
+            },
+        },
+    }
+
+
+def test_build_frame_to_split_aggregates_and_skips_meta():
+    mapping = _build_frame_to_split(_labels_with_split())
+    assert mapping[0] == "train"
+    assert mapping[45] == "val"
+    assert mapping[59] == "test"
+    # Meta keys must never appear as frames.
+    assert all(isinstance(k, int) for k in mapping)
+    assert len(mapping) == 60
+
+
+def test_num_frames_prefers_mask_shape():
+    labels = _labels_with_split(num_frames=321)
+    assert _num_frames_for(labels, _build_frame_to_split(labels)) == 321
+
+
+def test_num_frames_falls_back_to_max_index():
+    labels = {0: {"label": "a", "frames_split": {"train": [3, 7]}}}
+    assert _num_frames_for(labels, _build_frame_to_split(labels)) == 8
+
+
+def test_timeline_bins_dominant_and_empty():
+    # Frames only in the first half -> back half must be unannotated (None).
+    frame_to_split = {i: "train" for i in range(50)}
+    bins = _timeline_bins(frame_to_split, num_frames=100, width=10)
+    assert len(bins) == 10
+    assert bins[0] == "train"
+    assert bins[-1] is None
+
+
+def test_render_timeline_smoke(capsys):
+    _print_split_timelines({"proj/sub": _labels_with_split()})
+    out = capsys.readouterr().out
+    assert "Timeline: sub" in out
+    assert "200 frames, 60 annotated" in out
+    assert "train" in out and "val" in out and "test" in out
+    assert "unannotated" in out
+
+
+def test_render_timeline_noop_without_split():
+    # No frames_split -> nothing to render, and no exception.
+    _print_split_timelines({"proj/sub": {0: {"label": "a"}}})
