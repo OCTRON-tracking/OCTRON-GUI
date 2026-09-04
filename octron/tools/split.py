@@ -215,6 +215,23 @@ def _num_frames_for(labels, frame_to_split):
     return (max(frame_to_split) + 1) if frame_to_split else 0
 
 
+def _annotated_frame_count(labels):
+    """Count all annotated frames in a subfolder (union across labels).
+
+    This is the pre-split total (matching the summary's ``Total``). It can
+    exceed the number of frames assigned to train/val/test because
+    ``train_test_val`` drops ``buffer`` frames at block boundaries; those
+    dropped frames show as gaps in the timeline.
+    """
+    frames = set()
+    for entry, info in labels.items():
+        if entry in ("video", "video_file_path"):
+            continue
+        for frame in info.get("frames", []):
+            frames.add(int(frame))
+    return len(frames)
+
+
 def _timeline_bins(frame_to_split, num_frames, width):
     """Reduce a frame->split mapping into ``width`` columns.
 
@@ -314,9 +331,12 @@ def _render_split_timeline(labels, subfolder_name, width=_TIMELINE_BUDGET):
             parts.append(dim_ellipsis)  # gap after the last episode
         bar = "".join(parts)
 
+    n_assigned = len(frames)
+    n_buffered = max(0, _annotated_frame_count(labels) - n_assigned)
     click.echo(
         f"\nTimeline: {subfolder_name}  ({num_frames} frames, "
-        f"{len(frames)} annotated, {len(episodes)} episode(s))"
+        f"{n_assigned} assigned, {n_buffered} buffered, "
+        f"{len(episodes)} episode(s))"
     )
     click.echo(f"0 {bar} {num_frames}")
     legend = "  ".join(

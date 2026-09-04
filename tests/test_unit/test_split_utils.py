@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from octron.tools.split import (
+    _annotated_frame_count,
     _build_frame_to_split,
     _num_frames_for,
     _print_split_timelines,
@@ -317,7 +318,7 @@ def test_render_timeline_smoke(capsys):
     _print_split_timelines({"proj/sub": _labels_with_split()})
     out = capsys.readouterr().out
     assert "Timeline: sub" in out
-    assert "200 frames, 60 annotated, 1 episode(s)" in out
+    assert "200 frames, 60 assigned, 0 buffered, 1 episode(s)" in out
     assert "train" in out and "val" in out and "test" in out
     assert "unannotated" in out
 
@@ -329,6 +330,36 @@ def test_render_timeline_compresses_gaps(capsys):
     out = capsys.readouterr().out
     assert "2 episode(s)" in out
     assert "\u2026" in out  # elided gap marker
+
+
+def test_annotated_frame_count_unions_labels():
+    labels = {
+        "video": None,
+        0: {"label": "a", "frames": np.array([0, 1, 2])},
+        1: {"label": "b", "frames": np.array([2, 3])},
+    }
+    assert _annotated_frame_count(labels) == 4  # {0, 1, 2, 3}
+
+
+def test_render_timeline_reports_buffered(capsys):
+    # 10 annotated frames but only 9 assigned to a split -> 1 buffered.
+    labels = {
+        "video": None,
+        "video_file_path": None,
+        0: {
+            "label": "a",
+            "masks": [_FakeMask(50)],
+            "frames": np.arange(0, 10),
+            "frames_split": {
+                "train": np.array([0, 1, 2, 3, 4, 5]),
+                "val": np.array([6, 7]),
+                "test": np.array([8]),
+            },
+        },
+    }
+    _print_split_timelines({"proj/sub": labels})
+    out = capsys.readouterr().out
+    assert "9 assigned, 1 buffered" in out
 
 
 def test_render_timeline_noop_without_split():
