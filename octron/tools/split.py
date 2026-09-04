@@ -84,18 +84,12 @@ def run_split(
         if train_mode == "segment"
         else "Generating bounding boxes..."
     )
-    for (
-        no_entry,
-        total,
-        label,
-        frame_no,
-        total_frames,
-    ) in yolo.prepare_geometry():
-        print(
-            f"  [{no_entry}/{total}] {label}: frame {frame_no}/{total_frames}",
-            end="\r",
-        )
-    print()
+    # tqdm (inside prepare_geometry) renders the per-label progress bar on
+    # stderr. We only drive the generator here; printing our own
+    # carriage-return line to stdout in lockstep with tqdm makes the bar
+    # "staircase" onto new lines (most visibly on Windows).
+    for _ in yolo.prepare_geometry():
+        pass
 
     # --- Step 3: split ---
     print("Splitting data into train/val/test sets...")
@@ -115,20 +109,10 @@ def run_split(
 
     # --- Step 4: export to disk ---
     print("Exporting training data...")
-    for (
-        no_entry,
-        total,
-        label,
-        split,
-        frame_no,
-        total_frames,
-    ) in yolo.create_training_data():
-        print(
-            f"  [{no_entry}/{total}] {label} ({split}): "
-            f"frame {frame_no}/{total_frames}",
-            end="\r",
-        )
-    print()
+    # As above: tqdm owns the export progress bar; we just consume the
+    # generator so a competing stdout writer can't break the bar.
+    for _ in yolo.create_training_data():
+        pass
 
     yolo.write_yolo_config(train_mode=train_mode)
     print("Training data export complete.")

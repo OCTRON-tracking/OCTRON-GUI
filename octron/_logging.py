@@ -9,6 +9,7 @@ output.
 import sys
 
 from loguru import logger
+from tqdm import tqdm
 
 from octron._version import version as octron_version
 
@@ -22,6 +23,19 @@ _LOG_FORMAT_DEBUG = (
     "<dim>{name}:{line}</dim> | "
     "{message}"
 )
+
+
+def _tqdm_safe_sink(message) -> None:
+    """Write a log record without corrupting active tqdm progress bars.
+
+    ``tqdm`` renders its bars with a carriage return on ``sys.stderr``.
+    A plain write to the same stream (a log line, a ``print``) does not
+    clear the bar first, so on refresh the bar "staircases" onto new
+    lines. Routing loguru through :meth:`tqdm.tqdm.write` clears any live
+    bar, emits the already-formatted (colorized, newline-terminated)
+    record, then redraws the bar on the next tick.
+    """
+    tqdm.write(message, end="", file=sys.stderr)
 
 
 def setup_logging(debug: bool = False) -> None:
@@ -42,8 +56,11 @@ def setup_logging(debug: bool = False) -> None:
     level = "DEBUG" if debug else "INFO"
     fmt = _LOG_FORMAT_DEBUG if debug else _LOG_FORMAT_NORMAL
 
+    # Route logs through tqdm.write so log lines never fracture an active
+    # progress bar (the bar is cleared, the record is written, then the bar
+    # is redrawn). colorize=True is kept so colours still render.
     logger.add(
-        sys.stderr,
+        _tqdm_safe_sink,
         level=level,
         format=fmt,
         colorize=True,
