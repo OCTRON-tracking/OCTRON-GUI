@@ -18,7 +18,16 @@ _MODELS_YAML = (
 _SPLIT_COLORS = {"train": "green", "val": "cyan", "test": "yellow"}
 _UNANNOTATED_COLOR = "bright_black"
 _BLOCK = "\u2588"  # full block: annotated frames
-_EMPTY = "\u2591"  # light shade: unannotated frames
+_EMPTY = "\u2591"  # light shade: unannotated frames (within an episode)
+_ELLIPSIS = "\u2026"  # … : elided unannotated gap between episodes
+
+# The colored bar shares this many columns across all annotated episodes
+# (each episode gets a share proportional to its frame count). Long gaps
+# between episodes are collapsed to "…" instead of drawn to scale, so
+# sparsely annotated but very long videos stay compact and legible.
+_TIMELINE_BUDGET = 60
+_MIN_EPISODE_WIDTH = 1  # smallest visible episode bar
+_MAX_TIMELINE_EPISODES = 40  # above this, fall back to a plain linear bar
 
 
 def run_split(
@@ -220,12 +229,59 @@ def _timeline_bins(frame_to_split, num_frames, width):
     return [c.most_common(1)[0][0] if c else None for c in buckets]
 
 
-def _render_split_timeline(labels, subfolder_name, width=60):
-    """Print a colored whole-video timeline of the train/val/test split.
+def _segment_episodes(frames, gap):
+    """Group sorted frame indices into episodes, splitting at gaps > ``gap``.
 
-    The bar spans the entire video (frame 0..num_frames); contiguous
-    train/val/test blocks show as colored runs and unannotated regions
-    as a dim shade, so the episode structure of the split is visible.
+    An episode is a run of annotated frames whose internal gaps never
+    exceed ``gap`` frames; larger gaps are elided (``…``) in the bar.
+    """
+    episodes = [[frames[0]]]
+    for frame in frames[1:]:
+        if frame - episodes[-1][-1] > gap:
+            episodes.append([frame])
+        else:
+            episodes[-1].append(frame)
+    return episodes
+
+
+def _episode_bar(frames, frame_to_split, width, click):
+    """Render one episode's frame span as ``width`` colored blocks."""
+    start, end = frames[0], frames[-1]
+    span = max(1, end - start + 1)
+    buckets = [Counter() for _ in range(width)]
+    for frame in frames:
+        col = min(width - 1, int((frame - start) * width / span))
+        buckets[col][frame_to_split[frame]] += 1
+    cells = []
+    for counter in buckets:
+        if counter:
+            split = counter.most_common(1)[0][0]
+            cells.append(click.style(_BLOCK, fg=_SPLIT_COLORS[split]))
+        else:
+            cells.append(click.style(_EMPTY, fg=_UNANNOTATED_COLOR))
+    return "".join(cells)
+
+
+def _linear_bar(frame_to_split, num_frames, width, click):
+    """Render a plain, to-scale whole-video bar (no gap elision)."""
+    bins = _timeline_bins(frame_to_split, num_frames, min(width, num_frames))
+    return "".join(
+        click.style(_BLOCK, fg=_SPLIT_COLORS[b])
+        if b is not None
+        else click.style(_EMPTY, fg=_UNANNOTATED_COLOR)
+        for b in bins
+    )
+
+
+def _render_split_timeline(labels, subfolder_name, width=_TIMELINE_BUDGET):
+    """Print a colored timeline of the train/val/test split.
+
+    Annotated episodes are drawn as train/val/test runs sized in
+    proportion to their frame counts, and long unannotated gaps between
+    episodes are collapsed to ``…``. This keeps the annotated structure
+    legible even for sparsely annotated, very long videos (where a
+    to-scale bar would be almost all empty). If the annotations are too
+    fragmented to compress usefully, fall back to a plain linear bar.
     """
     import click
 
@@ -236,31 +292,46 @@ def _render_split_timeline(labels, subfolder_name, width=60):
     if num_frames <= 0:
         return
 
-    width = min(width, num_frames)
-    bins = _timeline_bins(frame_to_split, num_frames, width)
-    bar = "".join(
-        click.style(_BLOCK, fg=_SPLIT_COLORS[b])
-        if b is not None
-        else click.style(_EMPTY, fg=_UNANNOTATED_COLOR)
-        for b in bins
+    frames = sorted(frame_to_split)
+    # A gap wider than ~3% of the video is elided rather than drawn.
+    gap = max(10, num_frames // 33)
+    episodes = _segment_episodes(frames, gap)
+    dim_ellipsis = click.style(f" {_ELLIPSIS} ", fg=_UNANNOTATED_COLOR)
+
+    if len(episodes) > _MAX_TIMELINE_EPISODES:
+        bar = _linear_bar(frame_to_split, num_frames, width, click)
+    else:
+        total = len(frames)
+        parts = []
+        if frames[0] > gap:
+            parts.append(dim_ellipsis)  # gap before the first episode
+        for i, episode in enumerate(episodes):
+            ep_w = max(_MIN_EPISODE_WIDTH, round(width * len(episode) / total))
+            parts.append(_episode_bar(episode, frame_to_split, ep_w, click))
+            if i < len(episodes) - 1:
+                parts.append(dim_ellipsis)
+        if num_frames - 1 - frames[-1] > gap:
+            parts.append(dim_ellipsis)  # gap after the last episode
+        bar = "".join(parts)
+
+    click.echo(
+        f"\nTimeline: {subfolder_name}  ({num_frames} frames, "
+        f"{len(frames)} annotated, {len(episodes)} episode(s))"
     )
+    click.echo(f"0 {bar} {num_frames}")
     legend = "  ".join(
         (
             click.style(_BLOCK, fg=_SPLIT_COLORS["train"]) + " train",
             click.style(_BLOCK, fg=_SPLIT_COLORS["val"]) + " val",
             click.style(_BLOCK, fg=_SPLIT_COLORS["test"]) + " test",
             click.style(_EMPTY, fg=_UNANNOTATED_COLOR) + " unannotated",
+            f"{_ELLIPSIS} gap",
         )
     )
-    click.echo(
-        f"\nTimeline: {subfolder_name}  "
-        f"({num_frames} frames, {len(frame_to_split)} annotated)"
-    )
-    click.echo(f"0 {bar} {num_frames}")
     click.echo(f"Legend: {legend}")
 
 
-def _print_split_timelines(label_dict, width=60):
+def _print_split_timelines(label_dict, width=_TIMELINE_BUDGET):
     """Print a colored split timeline per subfolder (whole-video view)."""
     for subfolder, labels in label_dict.items():
         _render_split_timeline(labels, Path(subfolder).name, width=width)

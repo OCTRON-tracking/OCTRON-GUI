@@ -13,6 +13,7 @@ from octron.tools.split import (
     _build_frame_to_split,
     _num_frames_for,
     _print_split_timelines,
+    _segment_episodes,
     _timeline_bins,
     run_split,
 )
@@ -279,13 +280,55 @@ def test_timeline_bins_dominant_and_empty():
     assert bins[-1] is None
 
 
+def _labels_two_episodes(num_frames=10000):
+    """Two annotation bursts separated by a large unannotated gap."""
+    ep1 = np.arange(0, 100)
+    ep2 = np.arange(5000, 5050)
+    frames = np.concatenate([ep1, ep2])
+    n = len(frames)
+    return {
+        "video": None,
+        "video_file_path": None,
+        0: {
+            "label": "a",
+            "masks": [_FakeMask(num_frames)],
+            "frames": frames,
+            "frames_split": {
+                "train": frames[: int(n * 0.7)],
+                "val": frames[int(n * 0.7) : int(n * 0.85)],
+                "test": frames[int(n * 0.85) :],
+            },
+        },
+    }
+
+
+def test_segment_episodes_splits_on_large_gap():
+    assert _segment_episodes([0, 1, 2, 100, 101], gap=10) == [
+        [0, 1, 2],
+        [100, 101],
+    ]
+
+
+def test_segment_episodes_single_when_dense():
+    assert _segment_episodes([0, 3, 6, 9], gap=10) == [[0, 3, 6, 9]]
+
+
 def test_render_timeline_smoke(capsys):
     _print_split_timelines({"proj/sub": _labels_with_split()})
     out = capsys.readouterr().out
     assert "Timeline: sub" in out
-    assert "200 frames, 60 annotated" in out
+    assert "200 frames, 60 annotated, 1 episode(s)" in out
     assert "train" in out and "val" in out and "test" in out
     assert "unannotated" in out
+
+
+def test_render_timeline_compresses_gaps(capsys):
+    # Two far-apart episodes: the empty middle must collapse to an
+    # ellipsis and the header must report both episodes.
+    _print_split_timelines({"proj/sub": _labels_two_episodes()})
+    out = capsys.readouterr().out
+    assert "2 episode(s)" in out
+    assert "\u2026" in out  # elided gap marker
 
 
 def test_render_timeline_noop_without_split():
