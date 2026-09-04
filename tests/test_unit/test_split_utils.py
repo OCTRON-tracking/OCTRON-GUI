@@ -195,31 +195,46 @@ def test_ttv_minimum_three_frames():
     assert len(s["test"]) == 1
 
 
-def test_ttv_episodes_are_balanced_across_splits():
-    # Two annotation bursts in one video separated by a large gap: each
-    # episode must appear in every split (not dominated by the denser one).
-    ep1 = np.arange(0, 100)
-    ep2 = np.arange(5000, 5040)
-    frames = np.concatenate([ep1, ep2])
+def test_ttv_global_proportions_multi_episode():
+    # Several episodes must not inflate val/test: the realized split should
+    # track the requested 70/15/15 globally (regression: the old
+    # per-episode allocation forced >=1 val + >=1 test block per episode,
+    # skewing short/many-episode videos toward ~55/22/22 or worse).
+    eps = [np.arange(i * 10000, i * 10000 + 300) for i in range(4)]
+    frames = np.concatenate(eps)
     s = train_test_val(frames, 0.7, 0.15, random_seed=0)
-    ep1_set = set(ep1.tolist())
-    ep2_set = set(ep2.tolist())
-    for split in ("train", "val", "test"):
-        present = {int(x) for x in s[split]}
-        assert present & ep1_set, f"episode 1 missing from {split}"
-        assert present & ep2_set, f"episode 2 missing from {split}"
+    tot = sum(len(s[k]) for k in ("train", "val", "test"))
+    frac = {k: len(s[k]) / tot for k in ("train", "val", "test")}
+    assert abs(frac["train"] - 0.70) < 0.06, frac["train"]
+    assert abs(frac["val"] - 0.15) < 0.06, frac["val"]
+    assert abs(frac["test"] - 0.15) < 0.06, frac["test"]
 
 
-def test_ttv_tiny_episode_goes_to_train_only():
-    main = np.arange(0, 100)
-    tiny = np.array([9000, 9001])  # 2 frames: too small to split 3 ways
+def test_ttv_valtest_spread_across_timeline():
+    # Stratified selection keeps val and test spread across the whole
+    # timeline rather than clustered in one region.
+    frames = np.arange(2000)
+    s = train_test_val(frames, 0.7, 0.15, random_seed=0)
+    for name in ("val", "test"):
+        arr = np.sort(np.asarray(s[name], dtype=int))
+        assert arr[-1] - arr[0] > 0.6 * 2000, f"{name} span {arr[-1] - arr[0]}"
+
+
+def test_ttv_tiny_episode_stays_together():
+    # A tiny (near-duplicate) episode is one atomic block, so both its
+    # frames land in the SAME split -- never divided across train/val/test.
+    main = np.arange(0, 400)
+    tiny = np.array([9000, 9001])
     frames = np.concatenate([main, tiny])
     s = train_test_val(frames, 0.7, 0.15, random_seed=0)
-    train = {int(x) for x in s["train"]}
-    val = {int(x) for x in s["val"]}
-    test = {int(x) for x in s["test"]}
-    assert {9000, 9001} <= train
-    assert not ({9000, 9001} & (val | test))
+    holders = {
+        name
+        for name in ("train", "val", "test")
+        if {9000, 9001} & {int(x) for x in s[name]}
+    }
+    assert len(holders) == 1
+    only = holders.pop()
+    assert {9000, 9001} <= {int(x) for x in s[only]}
 
 
 # ---------------------------------------------------------------------------

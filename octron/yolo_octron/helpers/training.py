@@ -715,29 +715,67 @@ def _block_split(
     return out
 
 
-def _split_episodes(
+def _cut_into_blocks(frames, block_size):
+    """Cut one contiguous frame run into ~``block_size`` blocks."""
+    n_blocks = max(1, round(len(frames) / max(1, block_size)))
+    return np.array_split(frames, n_blocks)
+
+
+def _stratified_labels(n_blocks, n_val, n_test, rng):
+    """Label blocks so val/test are spread across the timeline.
+
+    ``val`` and ``test`` each take one block per contiguous stratum
+    (evenly spaced over the block sequence), picked within the stratum by
+    ``rng`` -- so the split is reproducible yet seed-sensitive, and both
+    splits sample the whole timeline instead of clustering in one region.
+    Every other block is ``train``.
+    """
+
+    def pick_spread(pool, k):
+        return [int(rng.choice(s)) for s in np.array_split(pool, k)]
+
+    labels = np.array(["train"] * n_blocks, dtype="<U5")
+    all_idx = np.arange(n_blocks)
+    labels[pick_spread(all_idx, n_val)] = "val"
+    remaining = all_idx[labels == "train"]
+    labels[pick_spread(remaining, n_test)] = "test"
+    return labels.tolist()
+
+
+def _global_block_split(
     episodes, training_fraction, validation_fraction, rng, block_size, buffer
 ):
-    """Block-split each episode independently; tiny episodes go to train.
+    """Split episodes against a single global block budget.
 
-    Episodes with fewer than 3 frames cannot yield one block per split, so
-    they are added wholesale to train (too short to validate on anyway).
+    Each episode is cut into ~``block_size`` contiguous blocks and all
+    blocks across episodes share one train/val/test budget, so the
+    realized proportions track the requested fractions regardless of how
+    many (or how small) the episodes are. val/test blocks are spread
+    across the timeline and the buffer is applied only within an episode
+    (never across the large gap between episodes). Returns ``None`` when
+    there are fewer than 3 blocks total so the caller can fall back to a
+    single-group split.
     """
+    episode_blocks = [_cut_into_blocks(ep, block_size) for ep in episodes]
+    n_blocks = sum(len(b) for b in episode_blocks)
+    if n_blocks < 3:
+        return None
+
+    test_fraction = 1.0 - training_fraction - validation_fraction
+    _, n_val, n_test = _allocate_split_blocks(
+        n_blocks, validation_fraction, test_fraction
+    )
+    labels = _stratified_labels(n_blocks, n_val, n_test, rng)
+
     buckets = {"train": [], "val": [], "test": []}
-    for episode in episodes:
-        if len(episode) >= 3:
-            part = _block_split(
-                episode,
-                training_fraction,
-                validation_fraction,
-                rng,
-                block_size,
-                buffer,
-            )
-            for name in buckets:
-                buckets[name].append(part[name])
-        else:
-            buckets["train"].append(episode)
+    pos = 0
+    for blocks in episode_blocks:
+        ep_labels = labels[pos : pos + len(blocks)]
+        pos += len(blocks)
+        eff_buffer = buffer if min(len(b) for b in blocks) > buffer else 0
+        ep_buckets = _blocks_to_splits(blocks, ep_labels, eff_buffer)
+        for name in buckets:
+            buckets[name].extend(ep_buckets[name])
     return buckets
 
 
@@ -762,13 +800,17 @@ def train_test_val(
     neighbour on opposite sides of train/val (optimistic metrics) and lets
     a denser episode dominate val/test.
 
-    This splits *within each episode by
-    contiguous blocks* instead: frames are first segmented into episodes at
-    large temporal gaps, then each episode is cut into small contiguous
-    blocks whose whole blocks are assigned to a split. So every episode is
-    represented in every split (balanced), temporally adjacent frames stay
-    on the same side, and a buffer of frames is dropped at block
-    boundaries to add a gap.
+    This splits by *contiguous blocks pooled across episodes* instead:
+    frames are first segmented into episodes at large temporal gaps, each
+    episode is cut into small contiguous blocks, and all blocks across
+    episodes share one train/val/test budget so the realized proportions
+    match the requested fractions no matter how many (or how small) the
+    episodes are. The val/test blocks are spread across the timeline
+    (stratified) so they stay representative, temporally adjacent frames
+    stay on the same side, and a buffer of frames is dropped at block
+    boundaries within an episode to add a gap. Small episodes may fall
+    entirely in one split (usually train); they are not force-split three
+    ways.
 
     Parameters
     ----------
@@ -822,7 +864,7 @@ def train_test_val(
     )
 
     rng = np.random.default_rng(random_seed)
-    buckets = _split_episodes(
+    buckets = _global_block_split(
         episodes,
         training_fraction,
         validation_fraction,
@@ -831,11 +873,18 @@ def train_test_val(
         buffer,
     )
     dtype = sorted_frames.dtype
-    split_dict = {k: _concat_blocks(v, dtype) for k, v in buckets.items()}
+    if buckets is not None:
+        split_dict = {k: _concat_blocks(v, dtype) for k, v in buckets.items()}
+    else:
+        split_dict = None
 
-    # Fallback: if per-episode splitting left val or test empty (e.g. every
-    # episode was too small), split the whole set as a single block group.
-    if len(split_dict["val"]) == 0 or len(split_dict["test"]) == 0:
+    # Fallback: too few blocks to spread three ways, or the buffer emptied
+    # val/test -- split the whole set as one contiguous block group.
+    if (
+        split_dict is None
+        or len(split_dict["val"]) == 0
+        or len(split_dict["test"]) == 0
+    ):
         split_dict = _block_split(
             sorted_frames,
             training_fraction,
