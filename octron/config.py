@@ -97,6 +97,28 @@ def _coerce_optional_dir(value):
     return text or None
 
 
+def _coerce_fraction(value):
+    """Coerce a split fraction to a float strictly inside ``(0, 1)``."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError("expected a number") from e
+    if not 0.0 < number < 1.0:
+        raise ValueError("must be between 0 and 1 (exclusive)")
+    return number
+
+
+def _coerce_nonneg_int(value):
+    """Coerce a value to a non-negative integer (e.g. a random seed)."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError("expected an integer") from e
+    if number < 0:
+        raise ValueError("must be >= 0")
+    return number
+
+
 # The settings schema.  Add new user settings here; everything else (loading,
 # validation, the CLI, and a settings dialog) picks them up automatically.
 SETTINGS: "tuple[SettingSpec, ...]" = (
@@ -123,6 +145,38 @@ SETTINGS: "tuple[SettingSpec, ...]" = (
             "installs."
         ),
         coerce=_coerce_optional_dir,
+    ),
+    SettingSpec(
+        key="split_train_fraction",
+        default=0.7,
+        kind="float",
+        description=(
+            "Fraction of annotated frames used for the training split "
+            "(train + val must be < 1; the remainder is the test split). "
+            "Used by 'octron split'/'train' when --train is omitted, and "
+            "by the GUI."
+        ),
+        coerce=_coerce_fraction,
+    ),
+    SettingSpec(
+        key="split_val_fraction",
+        default=0.15,
+        kind="float",
+        description=(
+            "Fraction of annotated frames used for the validation split. "
+            "Used when --val is omitted, and by the GUI."
+        ),
+        coerce=_coerce_fraction,
+    ),
+    SettingSpec(
+        key="split_seed",
+        default=88,
+        kind="int",
+        description=(
+            "Random seed for the reproducible train/val/test split. Used "
+            "when --seed is omitted, and by the GUI."
+        ),
+        coerce=_coerce_nonneg_int,
     ),
 )
 
@@ -316,3 +370,28 @@ def get_reid_weights_dir() -> Path:
     d = get_model_cache_dir() / "reid"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def get_split_fractions() -> "tuple[float, float]":
+    """Return ``(train_fraction, val_fraction)`` for the data split.
+
+    Falls back to the built-in defaults (with a warning) if the stored
+    pair leaves no room for a test split (``train + val >= 1``).
+    """
+    train = get_value("split_train_fraction")
+    val = get_value("split_val_fraction")
+    if train + val >= 1.0:
+        d_train = _SPECS["split_train_fraction"].default
+        d_val = _SPECS["split_val_fraction"].default
+        logger.warning(
+            f"config split fractions train={train} + val={val} >= 1 "
+            f"(no room for a test split); using defaults "
+            f"{d_train}/{d_val}."
+        )
+        return d_train, d_val
+    return train, val
+
+
+def get_split_seed() -> int:
+    """Return the random seed for the train/val/test split."""
+    return get_value("split_seed")

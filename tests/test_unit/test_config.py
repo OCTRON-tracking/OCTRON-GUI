@@ -158,3 +158,56 @@ def test_specs_includes_model_cache_dir(cfg_path):
     assert "model_cache_dir" in by_key
     assert by_key["model_cache_dir"].kind == "dir"
     assert by_key["model_cache_dir"].default is None
+
+
+# ---------------------------------------------------------------------------
+# Split fractions + seed (shared by CLI defaults and the GUI)
+# ---------------------------------------------------------------------------
+
+
+def test_split_defaults(cfg_path):
+    assert config.get_split_fractions() == (0.7, 0.15)
+    assert config.get_split_seed() == 88
+
+
+def test_split_fractions_and_seed_roundtrip(cfg_path):
+    config.set_value("split_train_fraction", 0.6)
+    config.set_value("split_val_fraction", 0.2)
+    config.set_value("split_seed", 7)
+    assert config.get_split_fractions() == (0.6, 0.2)
+    assert config.get_split_seed() == 7
+
+
+def test_split_fraction_out_of_range_falls_back(cfg_path):
+    # A fraction outside (0, 1) fails validation on load and reverts to
+    # the default (a malformed file never breaks OCTRON).
+    cfg_path.write_text("split_train_fraction: 1.5\n")
+    assert config.get_value("split_train_fraction") == 0.7
+
+
+def test_split_set_value_rejects_bad_fraction(cfg_path):
+    with pytest.raises(ValueError):
+        config.set_value("split_val_fraction", 0)
+    with pytest.raises(ValueError):
+        config.set_value("split_val_fraction", 1.0)
+
+
+def test_split_set_value_rejects_negative_seed(cfg_path):
+    with pytest.raises(ValueError):
+        config.set_value("split_seed", -1)
+
+
+def test_split_fractions_no_test_room_falls_back(cfg_path):
+    # train + val >= 1 leaves no room for a test split -> defaults.
+    config.set_value("split_train_fraction", 0.7)
+    config.set_value("split_val_fraction", 0.4)
+    assert config.get_split_fractions() == (0.7, 0.15)
+
+
+def test_specs_includes_split_settings(cfg_path):
+    keys = {s.key for s in config.specs()}
+    assert {
+        "split_train_fraction",
+        "split_val_fraction",
+        "split_seed",
+    } <= keys

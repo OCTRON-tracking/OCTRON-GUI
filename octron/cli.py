@@ -259,19 +259,23 @@ def split(
     train_mode: TrainMode = typer.Option(
         TrainMode.segment, "--mode", help="Training mode."
     ),
-    train_fraction: float = typer.Option(
-        0.7, "--train", help="Fraction of frames for training."
+    train_fraction: float | None = typer.Option(
+        None,
+        "--train",
+        help="Fraction of frames for training (default: config.yaml).",
     ),
-    val_fraction: float = typer.Option(
-        0.15,
+    val_fraction: float | None = typer.Option(
+        None,
         "--val",
         help=(
-            "Fraction of frames for validation. The remainder becomes "
-            "the test split."
+            "Fraction of frames for validation; the remainder becomes "
+            "the test split (default: config.yaml)."
         ),
     ),
-    seed: int = typer.Option(
-        88, "--seed", help="Random seed for reproducibility."
+    seed: int | None = typer.Option(
+        None,
+        "--seed",
+        help="Random seed for reproducibility (default: config.yaml).",
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Print split sizes without writing files."
@@ -326,20 +330,29 @@ def train(
             "already been run."
         ),
     ),
-    train_fraction: float = typer.Option(
-        0.7,
+    train_fraction: float | None = typer.Option(
+        None,
         "--train",
-        help="Fraction of frames for training (ignored with --no-split).",
+        help=(
+            "Fraction of frames for training (default: config.yaml; "
+            "ignored with --no-split)."
+        ),
     ),
-    val_fraction: float = typer.Option(
-        0.15,
+    val_fraction: float | None = typer.Option(
+        None,
         "--val",
-        help="Fraction of frames for validation (ignored with --no-split).",
+        help=(
+            "Fraction of frames for validation (default: config.yaml; "
+            "ignored with --no-split)."
+        ),
     ),
-    seed: int = typer.Option(
-        88,
+    seed: int | None = typer.Option(
+        None,
         "--seed",
-        help="Random seed for the split (ignored with --no-split).",
+        help=(
+            "Random seed for the split (default: config.yaml; ignored "
+            "with --no-split)."
+        ),
     ),
 ):
     (

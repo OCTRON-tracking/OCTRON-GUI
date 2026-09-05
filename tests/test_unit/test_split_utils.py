@@ -9,14 +9,15 @@ still fails before any model, label, or geometry work.
 import numpy as np
 import pytest
 
-from octron.tools.split import (
+from octron.tools.split import run_split
+from octron.yolo_octron.helpers.split_report import (
     _annotated_frame_count,
     _build_frame_to_split,
     _num_frames_for,
-    _print_split_timelines,
     _segment_episodes,
     _timeline_bins,
-    run_split,
+    build_split_report,
+    render_split_report,
 )
 from octron.yolo_octron.helpers.training import train_test_val
 from octron.yolo_octron.yolo_octron import YOLO_octron
@@ -330,7 +331,9 @@ def test_segment_episodes_single_when_dense():
 
 
 def test_render_timeline_smoke(capsys):
-    _print_split_timelines({"proj/sub": _labels_with_split()})
+    render_split_report(
+        build_split_report({"proj/sub": _labels_with_split()}), 88
+    )
     out = capsys.readouterr().out
     assert "Timeline: sub" in out
     assert "200 frames, 60 assigned, 0 buffered, 1 episode(s)" in out
@@ -341,7 +344,9 @@ def test_render_timeline_smoke(capsys):
 def test_render_timeline_compresses_gaps(capsys):
     # Two far-apart episodes: the empty middle must collapse to an
     # ellipsis and the header must report both episodes.
-    _print_split_timelines({"proj/sub": _labels_two_episodes()})
+    render_split_report(
+        build_split_report({"proj/sub": _labels_two_episodes()}), 88
+    )
     out = capsys.readouterr().out
     assert "2 episode(s)" in out
     assert "\u2026" in out  # elided gap marker
@@ -372,11 +377,35 @@ def test_render_timeline_reports_buffered(capsys):
             },
         },
     }
-    _print_split_timelines({"proj/sub": labels})
+    render_split_report(build_split_report({"proj/sub": labels}), 88)
     out = capsys.readouterr().out
     assert "9 assigned, 1 buffered" in out
 
 
 def test_render_timeline_noop_without_split():
-    # No frames_split -> nothing to render, and no exception.
-    _print_split_timelines({"proj/sub": {0: {"label": "a"}}})
+    # No frames_split -> no timeline rendered, and no exception.
+    render_split_report(
+        build_split_report({"proj/sub": {0: {"label": "a"}}}), 88
+    )
+
+
+def test_build_split_report_structure():
+    report = build_split_report({"proj/sub": _labels_with_split()})
+    assert len(report) == 1
+    sub = report[0]
+    assert sub["name"] == "sub"
+    assert sub["rows"] == [("a", 40, 10, 10, 60)]
+    tl = sub["timeline"]
+    assert tl["num_frames"] == 200
+    assert tl["assigned"] == 60
+    assert tl["buffered"] == 0
+    assert tl["n_episodes"] == 1
+
+
+def test_summarize_split_via_core_matches_build():
+    # YOLO_octron.summarize_split() is a thin wrapper over build_split_report.
+    obj = YOLO_octron.__new__(YOLO_octron)
+    obj.label_dict = {"proj/sub": _labels_with_split()}
+    report = obj.summarize_split()
+    assert report[0]["rows"] == [("a", 40, 10, 10, 60)]
+    assert report[0]["timeline"]["assigned"] == 60

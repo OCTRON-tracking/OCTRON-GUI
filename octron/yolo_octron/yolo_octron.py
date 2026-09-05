@@ -936,6 +936,24 @@ class YOLO_octron:
 
                 labels[entry]["frames_split"] = split_dict
 
+    def summarize_split(self):
+        """Return structured train/val/test split report data.
+
+        See
+        :func:`octron.yolo_octron.helpers.split_report.build_split_report`
+        for the structure. Call after :meth:`prepare_split` and before
+        export (the report reads mask lengths, which export pops).
+        """
+        from octron.yolo_octron.helpers.split_report import (
+            build_split_report,
+        )
+
+        if self.label_dict is None:
+            raise ValueError(
+                "No labels found. Please run prepare_labels() first."
+            )
+        return build_split_report(self.label_dict)
+
     def create_training_data_segment(
         self,
         verbose=False,

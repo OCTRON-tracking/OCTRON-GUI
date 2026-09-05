@@ -23,9 +23,9 @@ def run_training(
     overwrite=False,
     resume=False,
     skip_split=False,
-    train_fraction=0.7,
-    val_fraction=0.15,
-    seed=88,
+    train_fraction=None,
+    val_fraction=None,
+    seed=None,
 ):
     """Run the OCTRON/YOLO training pipeline.
 
@@ -58,12 +58,15 @@ def run_training(
     skip_split : bool
         Skip data preparation. Use when ``octron split`` has already been run
         and the training data is up to date.
-    train_fraction : float
-        Fraction of frames for training (ignored when ``skip_split=True``).
-    val_fraction : float
-        Fraction of frames for validation (ignored when ``skip_split=True``).
-    seed : int
-        Random seed for the split (ignored when ``skip_split=True``).
+    train_fraction : float or None
+        Fraction of frames for training. ``None`` reads ``config.yaml``
+        (ignored when ``skip_split=True``).
+    val_fraction : float or None
+        Fraction of frames for validation. ``None`` reads ``config.yaml``
+        (ignored when ``skip_split=True``).
+    seed : int or None
+        Random seed for the split. ``None`` reads ``config.yaml``
+        (ignored when ``skip_split=True``).
 
     """
     from octron.test_gpu import auto_device

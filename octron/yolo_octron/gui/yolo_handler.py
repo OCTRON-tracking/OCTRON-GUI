@@ -525,7 +525,7 @@ class YoloHandler(QObject):
         # training data export worker right after ...
         if self.bbox_or_polygon_generated and not self.training_data_generated:
             # split train/val/test then kick off data export
-            self.yolo.prepare_split()
+            self._split_and_report()
             self._training_data_export()
         else:
             pass
@@ -615,10 +615,32 @@ class YoloHandler(QObject):
             self.bbox_or_polygon_generated = True
 
         if self.bbox_or_polygon_generated and not self.training_data_generated:
-            self.yolo.prepare_split()
+            self._split_and_report()
             self._training_data_export()
         else:
             pass
+
+    def _split_and_report(self):
+        """Split train/val/test from config and print the shared report.
+
+        Reads the split fractions/seed from ``config.yaml`` (the same
+        source the CLI defaults to) and prints the shared summary table +
+        colored timeline to the terminal that launched napari, so the GUI
+        and CLI show an identical split report.
+        """
+        from octron import config
+        from octron.yolo_octron.helpers.split_report import (
+            render_split_report,
+        )
+
+        train_frac, val_frac = config.get_split_fractions()
+        seed = config.get_split_seed()
+        self.yolo.prepare_split(
+            training_fraction=train_frac,
+            validation_fraction=val_frac,
+            random_seed=seed,
+        )
+        render_split_report(self.yolo.summarize_split(), seed)
 
     def _training_data_export(self):
         """Manage the training_data_worker() thread worker."""
