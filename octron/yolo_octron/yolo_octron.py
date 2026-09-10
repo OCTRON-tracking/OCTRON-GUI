@@ -2286,6 +2286,18 @@ class YOLO_octron:
                     # deterministic=False for RT-DETR to avoid errors and
                     # throughput loss.
                     train_kwargs["deterministic"] = False
+                    # RT-DETR + AMP (float16) is numerically fragile: its
+                    # transformer attention can emit inf/NaN that stalls or
+                    # breaks the bipartite (Hungarian) matcher on the very
+                    # first backward, which presents as a hang at 0/N even
+                    # with workers=0 (ultralytics#7594/#21105/#3439). Train
+                    # RT-DETR in full precision; it is a small model and
+                    # OCTRON users typically have ample VRAM.
+                    train_kwargs["amp"] = False
+                    logger.info(
+                        "RT-DETR: disabling AMP (full-precision training) "
+                        "for numerical stability."
+                    )
 
                 self.model.train(**train_kwargs)
             except Exception as e:
