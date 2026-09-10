@@ -165,6 +165,13 @@ def test_train_help():
     assert "--no-watershed" in out
 
 
+def test_train_help_lists_rtdetr_model():
+    """The --model choices are built from the catalog and include RT-DETR."""
+    result = runner.invoke(app, ["train", "--help"])
+    assert result.exit_code == 0
+    assert "rtdetr" in _plain(result.output).lower()
+
+
 # ---------------------------------------------------------------------------
 # config
 # ---------------------------------------------------------------------------

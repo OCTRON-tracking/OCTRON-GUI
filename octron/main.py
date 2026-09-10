@@ -218,10 +218,10 @@ class octron_widget(QWidget):
                     idx, model["tooltip"], Qt.ToolTipRole
                 )
 
-        # Populate YOLO dropdown list with available models
-        for model_id, model in self.yolomodels_dict.items():
-            logger.info(f"Adding YOLO model {model_id}")
-            self.yolomodel_list.addItem(model["name"])
+        # Populate YOLO dropdown list with models available for the
+        # current train mode (segmentation by default). The menu is
+        # re-filtered whenever the detect/segment radio changes.
+        self.populate_yolo_model_list()
 
         # Populate Tracker dropdown list with available boxmot trackers
         for tracker in self.trackers_dict:
@@ -368,6 +368,42 @@ class octron_widget(QWidget):
             self.train_train_groupbox.setTitle("Train (Mode: Detection)")
             self._update_train_mode_indicators(TASK_COLORS["detect"])
         logger.info(f"Train mode set to: {self.train_mode}")
+        # Re-filter the model menu for the newly selected task.
+        self.populate_yolo_model_list()
+
+    def populate_yolo_model_list(self):
+        """Fill the YOLO model dropdown for the current train mode.
+
+        Only models that support the active task are shown: a model is
+        listed when its variant for the current mode is non-empty
+        (``model_path_seg`` for segmentation, ``model_path_detect`` for
+        detection). This is what lets detection-only models (e.g.
+        RT-DETR) appear under Detection but not Segmentation. Called at
+        startup and whenever the detect/segment radio changes.
+        """
+        variant_key = (
+            "model_path_detect"
+            if self.train_mode == "detect"
+            else "model_path_seg"
+        )
+        # Remember the current selection so it can be restored if it is
+        # still available in the new mode.
+        previous = self.yolomodel_list.currentText()
+        self.yolomodel_list.blockSignals(True)
+        self.yolomodel_list.clear()
+        # Index 0 is the placeholder/header item (see gui_elements).
+        self.yolomodel_list.addItem("")
+        for model_id, model in self.yolomodels_dict.items():
+            if not model.get(variant_key):
+                # Task unsupported by this model — hide it in this mode.
+                continue
+            logger.info(f"Adding YOLO model {model_id} ({self.train_mode})")
+            self.yolomodel_list.addItem(model["name"])
+        # Restore the previous selection when still present; otherwise
+        # fall back to the header (index 0).
+        idx = self.yolomodel_list.findText(previous) if previous else -1
+        self.yolomodel_list.setCurrentIndex(idx if idx > 0 else 0)
+        self.yolomodel_list.blockSignals(False)
 
     def on_toolbox_tab_changed(self, index):
         """Handle selection of a different tab in the toolBox.

@@ -111,16 +111,28 @@ def check_yolo_models(
         assert "name" in models_dict[model], (
             f"Name not found for model {model} in yaml file"
         )
-        assert "model_path_seg" in models_dict[model], (
-            f"Segmentation model path not found for model {model} in yaml file"
-        )
-        assert "model_path_detect" in models_dict[model], (
-            f"Detection model path not found for model {model} in yaml file"
-        )
 
-        # Download both segmentation and detection model variants
-        for path_key in ("model_path_seg", "model_path_detect"):
-            model_path = yolo_model_path / models_dict[model][path_key]
+        # A model must support at least one task. Capability is derived
+        # from which variants are non-empty: a model may ship only a
+        # segmentation variant, only a detection variant (e.g. RT-DETR),
+        # or both. Empty/missing variants mark an unsupported task and
+        # are skipped rather than downloaded.
+        variants = {
+            path_key: models_dict[model].get(path_key)
+            for path_key in ("model_path_seg", "model_path_detect")
+        }
+        if not any(variants.values()):
+            raise AssertionError(
+                f"Model {model} has neither a segmentation nor a "
+                f"detection variant in the yaml file"
+            )
+
+        # Download each available (non-empty) model variant.
+        for path_key, variant in variants.items():
+            if not variant:
+                # Unsupported task for this model — nothing to download.
+                continue
+            model_path = yolo_model_path / variant
             # Check if the model file exists. If not, download it.
             if model_path.exists() and not force_download:
                 logger.info(

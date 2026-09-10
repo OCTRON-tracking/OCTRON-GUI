@@ -14,3 +14,14 @@ YOLO26l:
   name: "YOLO26l"
   model_path_seg: "yolo26l-seg.pt"
   model_path_detect: "yolo26l.pt"
+# RT-DETR is a detection-only model class (no segmentation variant).
+# An empty model_path_seg marks the segmentation task as unsupported;
+# OCTRON derives per-task capability from which variants are non-empty.
+RTDETR-l:
+  name: "RT-DETR-l"
+  model_path_seg: ""
+  model_path_detect: "rtdetr-l.pt"
+RTDETR-x:
+  name: "RT-DETR-x"
+  model_path_seg: ""
+  model_path_detect: "rtdetr-x.pt"

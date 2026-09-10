@@ -76,6 +76,71 @@ def test_resolve_accepts_enum_like_object():
     assert obj.resolve_model_name(FakeEnum()) == "YOLO26l"
 
 
+def test_resolve_rtdetr_keys():
+    """RT-DETR catalog keys resolve case-insensitively like YOLO ones."""
+    obj, _ = _resolver()
+    assert obj.resolve_model_name("rtdetr-l") == "RTDETR-l"
+    assert obj.resolve_model_name("RTDETR-X") == "RTDETR-x"
+
+
+# ---------------------------------------------------------------------------
+# supports_task / load_model capability guard
+#
+# Capability is derived from which catalog variants are non-empty; a
+# detection-only model (e.g. RT-DETR, empty model_path_seg) must not be
+# usable for segmentation. __init__ is bypassed via __new__ so no weights
+# are downloaded or loaded.
+# ---------------------------------------------------------------------------
+
+
+def _catalog():
+    """YOLO_octron (no __init__) with a mixed-capability catalog."""
+    obj = YOLO_octron.__new__(YOLO_octron)
+    obj.models_dict = {
+        "YOLO26m": {
+            "name": "YOLO26m",
+            "model_path_seg": "yolo26m-seg.pt",
+            "model_path_detect": "yolo26m.pt",
+        },
+        "RTDETR-l": {
+            "name": "RT-DETR-l",
+            "model_path_seg": "",
+            "model_path_detect": "rtdetr-l.pt",
+        },
+    }
+    return obj
+
+
+def test_supports_task_detect_only_model():
+    obj = _catalog()
+    assert obj.supports_task("rtdetr-l", "detect") is True
+    assert obj.supports_task("rtdetr-l", "segment") is False
+
+
+def test_supports_task_dual_capability_model():
+    obj = _catalog()
+    assert obj.supports_task("yolo26m", "detect") is True
+    assert obj.supports_task("yolo26m", "segment") is True
+
+
+def test_supports_task_unknown_name_defers_true():
+    """Non-catalog names (e.g. a file path) defer to the loader."""
+    obj = _catalog()
+    assert obj.supports_task("/some/trained/best.pt", "segment") is True
+
+
+def test_load_model_rejects_unsupported_task():
+    """Segmentation on a detect-only catalog model raises ValueError.
+
+    The guard fires before any ultralytics/torch import, so this stays a
+    light unit test.
+    """
+    obj = _catalog()
+    obj.training_path = None  # skip the yolo_settings block
+    with pytest.raises(ValueError, match="does not support segmentation"):
+        obj.load_model("rtdetr-l", train_mode="segment")
+
+
 # ---------------------------------------------------------------------------
 # Training-state helpers:
 # config_path / _resolve_batch_size / resolve_resume_state

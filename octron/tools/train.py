@@ -118,6 +118,24 @@ def run_training(
         return
     print(state["message"])
 
+    # Fail fast if the chosen base model does not support the requested
+    # task (e.g. an RT-DETR model with --mode segment). This mirrors the
+    # GUI, which hides unsupported models from the menu. Only relevant
+    # for a fresh run; resume/continue reload the existing checkpoint.
+    if action not in ("resume", "init_from_checkpoint") and (
+        not yolo.supports_task(model, train_mode)
+    ):
+        resolved = yolo.resolve_model_name(model)
+        task_label = "detection" if train_mode == "detect" else "segmentation"
+        other_label = "segmentation" if train_mode == "detect" else "detection"
+        display = yolo.models_dict[resolved].get("name", resolved)
+        print(
+            f"Model '{display}' does not support {task_label}. "
+            f"Use --mode {other_label} or choose a "
+            f"{task_label}-capable model."
+        )
+        return
+
     # --- Steps 1–4: prepare and export training data ---
     if not skip_split:
         run_split(

@@ -1422,23 +1422,69 @@ class YOLO_octron:
             (k for k in self.models_dict if k.lower() == model_lower), None
         )
 
-    def load_model(self, model_name_path, train_mode="segment"):
-        """Load the YOLO model.
+    def supports_task(self, model_name, train_mode):
+        """Return whether a catalog model supports the requested task.
+
+        Capability is read from the catalog variant for that task: a
+        non-empty ``model_path_detect`` (for ``'detect'``) or
+        ``model_path_seg`` (for ``'segment'``) means the task is
+        supported. Names that do not resolve to a catalog entry return
+        ``True`` — the check is a capability filter, not a name
+        validator, so unknown/file-path inputs defer to the loader.
+        """
+        resolved = self.resolve_model_name(model_name)
+        if resolved is None:
+            return True
+        variant_key = (
+            "model_path_detect" if train_mode == "detect" else "model_path_seg"
+        )
+        return bool(self.models_dict[resolved].get(variant_key))
+
+    @staticmethod
+    def _loader_for_model_type(model_type):
+        """Return the ultralytics model class for a normalized model_type.
+
+        Maps a normalized ``model_type`` (from :meth:`get_model_info`) to
+        its ultralytics loader class. Unknown/absent types fall back to
+        ``YOLO``. Add an entry here (plus a catalog entry) to support a
+        new model class.
+        """
+        from ultralytics import RTDETR, YOLO
+
+        loaders = {"rtdetr": RTDETR, "yolo": YOLO}
+        return loaders.get(model_type or "yolo", YOLO)
+
+    def load_model(
+        self, model_name_path, train_mode="segment", model_info=None
+    ):
+        """Load a prediction model, selecting the right ultralytics class.
+
+        The loader class (``YOLO`` vs ``RTDETR``) is inferred from the
+        weights themselves (via :meth:`get_model_info`), never the
+        filename, so it works for catalog base weights and trained
+        checkpoints alike.
 
         Parameters
         ----------
         model_name_path : str or Path
             Path to the model to load, or name of the model to load
-            (e.g. 'YOLO11m'). When loading from models_dict, the correct
-            variant (seg or detect) is selected based on train_mode.
+            (e.g. 'YOLO11m'). When loading from the catalog, the correct
+            variant (seg or detect) is selected based on train_mode; a
+            model that does not support the requested task (empty
+            variant) raises a ValueError.
         train_mode : str
-            'segment' or 'detect'. Determines which model variant to load
-            from models_dict (model_path_seg vs model_path_detect).
+            'segment' or 'detect'. Determines which catalog variant to
+            load (model_path_seg vs model_path_detect).
+        model_info : dict, optional
+            A precomputed :meth:`get_model_info` result for a checkpoint
+            on disk, used to avoid re-reading it (e.g. by predict_batch
+            across many videos). When None it is computed from the
+            resolved weights. Used only to pick the loader class.
 
         Returns
         -------
-        model : YOLO
-            Loaded YOLO model
+        model : YOLO or RTDETR
+            The loaded ultralytics model (class chosen from the weights).
 
         """
         # Configure YOLO settings
@@ -1460,30 +1506,54 @@ class YOLO_octron:
             }
             if valid_settings:
                 self.yolo_settings.update(valid_settings)
-        from ultralytics import YOLO
-
-        # Load specified model
+        # Resolve the weights path and the model_info used to pick the
+        # loader class. A path that exists on disk is a checkpoint
+        # (trained model, resume, or predict); otherwise the name is
+        # resolved against the catalog.
         try:
-            assert Path(model_name_path).exists()
-            # If this path exists, load this model, otherwise
-            # assume that this models is part of the models_dict
-        except AssertionError as e:
-            # Not a file on disk — resolve the catalog name case-insensitively
-            # (e.g. 'yolo11m' -> 'YOLO11m') so callers need not match
-            # YAML casing.
+            is_file = Path(model_name_path).exists()
+        except (TypeError, OSError):
+            is_file = False
+
+        if is_file:
+            # Infer the loader from the checkpoint itself unless the
+            # caller already computed it (e.g. predict_batch).
+            if model_info is None:
+                model_info = self.get_model_info(model_name_path)
+        else:
+            # Not a file on disk — resolve the catalog name
+            # case-insensitively (e.g. 'yolo11m' -> 'YOLO11m') so callers
+            # need not match YAML casing.
             resolved = self.resolve_model_name(model_name_path)
             if resolved is None:
                 raise ValueError(
                     f"Unknown model '{model_name_path}': not an "
                     f"existing file and not in the model catalog. "
                     f"Available: {sorted(self.models_dict)}"
-                ) from e
+                )
             model_key = (
                 "model_path_detect"
                 if train_mode == "detect"
                 else "model_path_seg"
             )
-            model_filename = self.models_dict[resolved][model_key]
+            model_filename = self.models_dict[resolved].get(model_key)
+            if not model_filename:
+                # The requested task is unsupported by this model
+                # (empty variant in the catalog).
+                task_label = (
+                    "detection" if train_mode == "detect" else "segmentation"
+                )
+                other_label = (
+                    "segmentation" if train_mode == "detect" else "detection"
+                )
+                model_display = self.models_dict[resolved].get(
+                    "name", resolved
+                )
+                raise ValueError(
+                    f"Model '{model_display}' does not support "
+                    f"{task_label}; use {other_label} mode or pick a "
+                    f"{task_label}-capable model."
+                )
             # Weights are loaded from the per-user cache (see
             # config.get_yolo_models_dir), where check_yolo_models
             # downloads them.
@@ -1492,11 +1562,15 @@ class YOLO_octron:
             model_name_path = (
                 _octron_config.get_yolo_models_dir() / model_filename
             )
+            # Pick the loader from the resolved weight file itself.
+            model_info = self.get_model_info(model_name_path)
 
-        model = YOLO(model_name_path)
+        model_type = (model_info or {}).get("model_type") or "yolo"
+        loader_cls = self._loader_for_model_type(model_type)
+        model = loader_cls(model_name_path)
         logger.info(
-            f"Model loaded from '{model_name_path.as_posix()}' "
-            f"(mode: {train_mode})"
+            f"Model loaded from '{Path(model_name_path).as_posix()}' "
+            f"(mode: {train_mode}, loader: {loader_cls.__name__})"
         )
         self.model = model
         return model
@@ -1961,6 +2035,17 @@ class YOLO_octron:
                 'The loaded model does not have a "train()" method.'
             )
 
+        # RT-DETR is detection-only; refuse a segmentation run. The GUI
+        # menu and CLI already guard this, but keep a core safety net.
+        from ultralytics import RTDETR
+
+        if train_mode == "segment" and isinstance(self.model, RTDETR):
+            raise ValueError(
+                "The loaded model is RT-DETR, which is detection-only "
+                "and cannot be trained in segmentation mode. Switch to "
+                "detection mode or choose a segmentation-capable model."
+            )
+
         # Clear any existing callbacks
         if hasattr(self.model, "callbacks"):
             for callback_name in [
@@ -2423,9 +2508,10 @@ class YOLO_octron:
         Returns
         -------
         dict
-            Dictionary with keys: task, architecture, imgsz, epochs,
-            num_classes, class_names, trained_on.  Values are None when
-            the information could not be determined.
+            Dictionary with keys: task, model_type, architecture, imgsz,
+            epochs, num_classes, class_names, trained_on.  ``model_type``
+            is a normalized loader family ('yolo' or 'rtdetr'); the other
+            values are None when the information could not be determined.
 
         """
         import os
@@ -2436,6 +2522,7 @@ class YOLO_octron:
 
         info = dict(
             task=None,
+            model_type="yolo",
             architecture=None,
             imgsz=None,
             epochs=None,
@@ -2457,14 +2544,28 @@ class YOLO_octron:
         if not isinstance(train_args, dict):
             train_args = {}
 
+        # Model class name from the stored model object, used for both
+        # the task fallback and loader selection.
+        model_cls_name = (
+            type(ckpt["model"]).__name__
+            if ckpt.get("model") is not None
+            else ""
+        )
+
         # Task
         info["task"] = train_args.get("task")
-        if info["task"] is None and "model" in ckpt:
-            cls_name = type(ckpt["model"]).__name__
-            if "Segment" in cls_name:
+        if info["task"] is None and model_cls_name:
+            if "Segment" in model_cls_name:
                 info["task"] = "segment"
-            elif "Detect" in cls_name:
+            elif "Detect" in model_cls_name:
                 info["task"] = "detect"
+
+        # Normalized model family used to pick the ultralytics loader
+        # class (see _loader_for_model_type). Derived from the stored
+        # model class so it works for both base weights and trained
+        # checkpoints; task alone cannot distinguish RT-DETR (its task
+        # is also 'detect').
+        info["model_type"] = "rtdetr" if "RTDETR" in model_cls_name else "yolo"
 
         # Architecture / base model (store just the filename, not
         # the full path)
@@ -2913,8 +3014,12 @@ class YOLO_octron:
         model_path = Path(model_path)
         assert model_path.exists(), f"Model path {model_path} does not exist."
 
-        # Determine model task (detect vs segment)
-        model_task = self.get_model_info(model_path).get("task") or "segment"
+        # Determine model task (detect vs segment). Read the checkpoint
+        # metadata once and reuse it for the per-video model load below,
+        # so the loader class (YOLO vs RTDETR) is chosen without
+        # re-reading the checkpoint each iteration.
+        model_meta = self.get_model_info(model_path)
+        model_task = model_meta.get("task") or "segment"
         is_segment = model_task == "segment"
         logger.info(
             f"Model task: {model_task} "
@@ -3056,7 +3161,9 @@ class YOLO_octron:
 
             # Load model anew for every video since the tracker persists
             try:
-                model = self.load_model(model_name_path=model_path)
+                model = self.load_model(
+                    model_name_path=model_path, model_info=model_meta
+                )
                 if not model:
                     logger.error(f"Failed to load model from {model_path}")
                     return
