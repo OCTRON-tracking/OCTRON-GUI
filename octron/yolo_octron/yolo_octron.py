@@ -2259,6 +2259,34 @@ class YOLO_octron:
                     train_kwargs["mask_ratio"] = 1
                     train_kwargs["overlap_mask"] = True
 
+                # RT-DETR-specific parameters
+                if isinstance(self.model, RTDETR):
+                    # ultralytics' RTDETRDataset.build_transforms builds a
+                    # local lambda that cannot be pickled to DataLoader
+                    # worker processes. On 'spawn' start methods (Windows,
+                    # macOS) that makes training hang/err at the very first
+                    # batch, so force single-process loading there. 'fork'
+                    # (Linux) does not pickle the dataset, so the default
+                    # workers stay and remain fast. Training images are
+                    # disk-cached, so workers=0 is a minor cost.
+                    # See ultralytics#22816 (fixed only on recent main).
+                    import multiprocessing
+
+                    if (
+                        multiprocessing.get_start_method(allow_none=False)
+                        != "fork"
+                    ):
+                        train_kwargs["workers"] = 0
+                        logger.info(
+                            "RT-DETR on a non-fork start method: setting "
+                            "workers=0 to avoid a dataloader deadlock."
+                        )
+                    # RT-DETR's deformable attention (F.grid_sample) has no
+                    # deterministic CUDA backward; ultralytics recommends
+                    # deterministic=False for RT-DETR to avoid errors and
+                    # throughput loss.
+                    train_kwargs["deterministic"] = False
+
                 self.model.train(**train_kwargs)
             except Exception as e:
                 training_error = e
