@@ -13,11 +13,11 @@ import random
 import shutil
 import signal
 import struct
-import subprocess  # Used to launch tensorboard
+import subprocess  # Used to launch the training logger UI (MLflow)
 import sys
 import threading  # For training to run in a separate thread
 import time
-import webbrowser  # Used to launch tensorboard
+import webbrowser  # Used to launch the training logger UI (MLflow)
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
@@ -1541,12 +1541,17 @@ class YOLO_octron:
         if not hasattr(self, "training_path") or self.training_path is None:
             pass
         else:
-            # Only update keys that exist in the installed ultralytics
-            # version — some keys (e.g. 'hub') have been removed in
-            # recent releases.
+            # OCTRON logs training with MLflow (local, no account),
+            # replacing the previous TensorBoard integration. Enable the
+            # ultralytics MLflow callback and disable TensorBoard (whose
+            # model-graph trace also crashes RT-DETR; see
+            # _patch_ultralytics_tb_graph). Only update keys that exist in
+            # the installed ultralytics version — some keys (e.g. 'hub')
+            # have been removed in recent releases.
             desired_settings = {
                 "sync": False,
-                "tensorboard": True,
+                "mlflow": True,
+                "tensorboard": False,
                 "runs_dir": self.training_path.as_posix(),
             }
             valid_settings = {
@@ -1556,6 +1561,12 @@ class YOLO_octron:
             }
             if valid_settings:
                 self.yolo_settings.update(valid_settings)
+            # Point the ultralytics MLflow callback at a per-project,
+            # local file store so training runs are logged there and
+            # launch_training_logger() can serve the same location.
+            os.environ["MLFLOW_TRACKING_URI"] = str(
+                self.training_path / "mlflow"
+            )
         # Resolve the weights path and the model_info used to pick the
         # loader class. A path that exists on disk is a checkpoint
         # (trained model, resume, or predict); otherwise the name is
@@ -2348,18 +2359,17 @@ class YOLO_octron:
                         "RT-DETR: disabling AMP (full-precision training) "
                         "for numerical stability."
                     )
-                    # ultralytics' TensorBoard integration traces the real
-                    # model under torch.inference_mode() at train start
-                    # (_log_tensorboard_graph is @smart_inference_mode);
-                    # for RT-DETR that traced forward caches the decoder's
-                    # anchors/valid_mask as inference tensors, so the first
-                    # training backward raises "Inference tensors cannot be
-                    # saved for backward" (ultralytics#23359). In the GUI
-                    # the worker thread swallows it and it looks like a
-                    # hang at 0/N. Toggling SETTINGS["tensorboard"] at
-                    # runtime does not help (the callback is frozen at
-                    # import), so neutralize just the graph trace for
-                    # RT-DETR; scalar logging still works.
+                    # Defensive guard: OCTRON logs with MLflow and disables
+                    # TensorBoard, but the TensorBoard callback's enabled
+                    # state is frozen at import, so it may still be active
+                    # from an earlier import. Its model-graph trace
+                    # (_log_tensorboard_graph, @smart_inference_mode) runs
+                    # the real model under torch.inference_mode() at train
+                    # start and caches the RT-DETR decoder's
+                    # anchors/valid_mask as inference tensors, crashing the
+                    # first backward ("Inference tensors cannot be saved
+                    # for backward", ultralytics#23359). Neutralize that
+                    # trace for RT-DETR regardless of TensorBoard state.
                     self._patch_ultralytics_tb_graph()
 
                 self.model.train(**train_kwargs)
@@ -2392,35 +2402,35 @@ class YOLO_octron:
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
 
-    def launch_tensorboard(self):
-        """Launch TensorBoard with the training directory in a web browser.
+    def launch_training_logger(self):
+        """Launch the MLflow tracking UI for the training run in a browser.
 
-        Checks if TensorBoard is installed, launches it with the
-        training directory, and opens a web browser to view the
-        TensorBoard interface. Chooses a random port every time to
-        avoid port collisions. If TensorBoard is not installed, it
-        will attempt to install it using pip.
+        Starts a local ``mlflow ui`` server pointing at OCTRON's
+        per-project MLflow file store (set via ``MLFLOW_TRACKING_URI`` in
+        :meth:`load_model`) and opens a web browser. MLflow is installed
+        via pip if missing. A random port is chosen every time to avoid
+        collisions. Runs fully locally — no account or network required.
 
         Returns
         -------
         bool
-            True if TensorBoard was successfully launched, False otherwise
+            True if the MLflow UI was successfully launched, else False.
 
         """
         import random
 
-        # Check if tensorboard is installed
-        if importlib.util.find_spec("tensorboard") is None:
-            logger.info("TensorBoard is not installed. Installing now...")
+        # Check if mlflow is installed
+        if importlib.util.find_spec("mlflow") is None:
+            logger.info("MLflow is not installed. Installing now...")
             try:
                 subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install", "tensorboard"]
+                    [sys.executable, "-m", "pip", "install", "mlflow"]
                 )
-                logger.info("TensorBoard installed successfully!")
+                logger.info("MLflow installed successfully!")
             except subprocess.CalledProcessError:
                 logger.error(
-                    "Failed to install TensorBoard. Please install "
-                    "it manually with: pip install tensorboard"
+                    "Failed to install MLflow. Please install "
+                    "it manually with: pip install mlflow"
                 )
                 return False
 
@@ -2434,18 +2444,21 @@ class YOLO_octron:
             )
             return False
 
-        # Launch tensorboard in a separate process
-        log_dir = self.training_path / "training"
+        # Serve the same local file store the ultralytics MLflow callback
+        # logs to (MLFLOW_TRACKING_URI, set in load_model).
+        tracking_dir = self.training_path / "mlflow"
+        tracking_dir.mkdir(parents=True, exist_ok=True)
         try:
             port = random.randint(6000, 7000)
-            logger.info(f"Starting TensorBoard on port {port}...")
-            tensorboard_process = subprocess.Popen(
+            logger.info(f"Starting MLflow UI on port {port}...")
+            mlflow_process = subprocess.Popen(
                 [
                     sys.executable,
                     "-m",
-                    "tensorboard.main",
-                    "--logdir",
-                    log_dir.as_posix(),
+                    "mlflow",
+                    "ui",
+                    "--backend-store-uri",
+                    str(tracking_dir),
                     "--port",
                     str(port),
                 ],
@@ -2458,29 +2471,27 @@ class YOLO_octron:
             time.sleep(3)
 
             # Check if process is still running
-            if tensorboard_process.poll() is not None:
+            if mlflow_process.poll() is not None:
                 # Process terminated - get error message
-                _, stderr = tensorboard_process.communicate()
-                logger.error(f"Failed to start TensorBoard: {stderr}")
+                _, stderr = mlflow_process.communicate()
+                logger.error(f"Failed to start MLflow UI: {stderr}")
                 return False
 
             # Open web browser
-            tensorboard_url = f"http://localhost:{port}/"
-            logger.info(f"Opening TensorBoard in browser: {tensorboard_url}")
-            webbrowser.open(
-                tensorboard_url, new=1
-            )  # to open in new browser window (fingers crossed this works...)
+            mlflow_url = f"http://localhost:{port}/"
+            logger.info(f"Opening MLflow UI in browser: {mlflow_url}")
+            webbrowser.open(mlflow_url, new=1)  # open in a new window
 
-            logger.info("TensorBoard is running.")
+            logger.info("MLflow UI is running.")
             return True
 
         except Exception as e:
-            logger.error(f"Error launching TensorBoard: {e}")
+            logger.error(f"Error launching MLflow UI: {e}")
             return False
 
-    def _quit_tensorboard_posix(self):
-        """Terminate TensorBoard on Unix-like systems."""
-        # Find processes with tensorboard in the command
+    def _quit_training_logger_posix(self):
+        """Terminate MLflow UI/server processes on Unix-like systems."""
+        # Find processes with mlflow in the command
         result = subprocess.run(
             ["ps", "-ef"], capture_output=True, text=True, check=True
         )
@@ -2488,27 +2499,27 @@ class YOLO_octron:
         found_processes = False
 
         for line in lines:
-            if "tensorboard.main" in line or "tensorboard " in line:
+            if "mlflow" in line.lower():
                 # Extract PID and kill
                 parts = line.split()
                 if len(parts) >= 2:
                     try:
                         pid = int(parts[1])
                         logger.info(
-                            f"Terminating TensorBoard process with PID {pid}"
+                            f"Terminating MLflow process with PID {pid}"
                         )
                         os.kill(pid, signal.SIGTERM)
                         found_processes = True
                     except (ValueError, ProcessLookupError) as e:
                         logger.error(
-                            f"Failed to terminate TensorBoard process: {e}"
+                            f"Failed to terminate MLflow process: {e}"
                         )
 
         if not found_processes:
-            logger.info("No TensorBoard processes found")
+            logger.info("No MLflow processes found")
 
-    def _quit_tensorboard_windows(self):
-        """Terminate TensorBoard on Windows."""
+    def _quit_training_logger_windows(self):
+        """Terminate MLflow UI/server processes on Windows."""
         # Use tasklist and taskkill on Windows
         result = subprocess.run(
             [
@@ -2524,41 +2535,39 @@ class YOLO_octron:
         found_processes = False
 
         for line in result.stdout.split("\n"):
-            if "tensorboard" in line.lower():
+            if "mlflow" in line.lower():
                 try:
                     parts = line.strip('"').split('","')
                     if len(parts) >= 2:
                         pid = int(parts[1])
                         logger.info(
-                            f"Terminating TensorBoard process with PID {pid}"
+                            f"Terminating MLflow process with PID {pid}"
                         )
                         subprocess.run(["taskkill", "/F", "/PID", str(pid)])
                         found_processes = True
                 except (ValueError, IndexError) as e:
-                    logger.error(
-                        f"Failed to terminate TensorBoard process: {e}"
-                    )
+                    logger.error(f"Failed to terminate MLflow process: {e}")
 
         if not found_processes:
-            logger.info("No TensorBoard processes found")
+            logger.info("No MLflow processes found")
 
-    def quit_tensorboard(self):
-        """Find and quit all TensorBoard processes.
+    def quit_training_logger(self):
+        """Find and quit all MLflow UI/server processes.
 
         Covers both Unix-like systems and Windows platforms.
         """
-        logger.info("Stopping any running TensorBoard processes...")
+        logger.info("Stopping any running MLflow processes...")
 
         try:
             # Check platform-specific approach
             if os.name == "posix":  # Unix-like systems (macOS, Linux)
-                self._quit_tensorboard_posix()
+                self._quit_training_logger_posix()
             elif os.name == "nt":  # Windows
-                self._quit_tensorboard_windows()
+                self._quit_training_logger_windows()
             else:
                 logger.warning(f"Unsupported platform: {os.name}")
         except Exception as e:
-            logger.error(f"Error when terminating TensorBoard processes: {e}")
+            logger.error(f"Error when terminating MLflow processes: {e}")
 
     def validate(self, data=None, device="auto", plots=True):
         """Validate the model.

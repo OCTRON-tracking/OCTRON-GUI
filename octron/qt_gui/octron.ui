@@ -1283,7 +1283,7 @@ This will delete the masks on the current frame but no other (already annotated)
           <x>0</x>
           <y>0</y>
           <width>402</width>
-          <height>461</height>
+          <height>451</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="train_vertical_layout" stretch="0,0,0">
@@ -1611,6 +1611,9 @@ that yield bboxes, but NO masks.</string>
             </property>
             <layout class="QVBoxLayout" name="train_checkboxes_verticalLayout">
              <property name="spacing">
+              <number>10</number>
+             </property>
+             <property name="bottomMargin">
               <number>10</number>
              </property>
              <item>
@@ -1957,7 +1960,7 @@ Recommended are at least ~50.</string>
               <number>10</number>
              </property>
              <property name="bottomMargin">
-              <number>0</number>
+              <number>10</number>
              </property>
              <item alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop">
               <widget class="QCheckBox" name="train_resume_checkBox">
@@ -2007,7 +2010,7 @@ Recommended are at least ~50.</string>
               </widget>
              </item>
              <item>
-              <widget class="QCheckBox" name="launch_tensorboard_checkBox">
+              <widget class="QCheckBox" name="launch_training_logger_checkBox">
                <property name="enabled">
                 <bool>false</bool>
                </property>
@@ -2023,11 +2026,14 @@ Recommended are at least ~50.</string>
                  <height>25</height>
                 </size>
                </property>
+               <property name="acceptDrops">
+                <bool>false</bool>
+               </property>
                <property name="toolTip">
-                <string>Start tensorboard (open browser window)</string>
+                <string>Start MLFlow training logger (open browser window)</string>
                </property>
                <property name="text">
-                <string>Tensorbrd</string>
+                <string>MLflow</string>
                </property>
                <property name="checked">
                 <bool>true</bool>
