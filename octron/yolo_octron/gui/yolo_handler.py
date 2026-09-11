@@ -928,6 +928,13 @@ class YoloHandler(QObject):
         self.yolo_trainer_worker.yielded.connect(
             self._update_training_progress
         )
+        # Refresh the trained-model list only once the worker has fully
+        # finished (see _on_yolo_training_finished): reading best.pt on
+        # the final progress update races with ultralytics' end-of-
+        # training checkpoint rewrite.
+        self.yolo_trainer_worker.finished.connect(
+            self._on_yolo_training_finished
+        )
         self.w.train_epochs_progressbar.setEnabled(True)
         self.w.train_finishtime_label.setEnabled(True)
         self.w.train_finishtime_label.setText("↬ ... wait one epoch")
@@ -992,8 +999,10 @@ class YoloHandler(QObject):
             self.w.start_stop_training_btn.setText("✓ Done.")
             self.w.train_epochs_progressbar.setEnabled(False)
             self.w.train_finishtime_label.setEnabled(False)
-            # Refresh the trained model list and enable the prediction tab
-            self.refresh_trained_model_list()
+            # The trained-model list is refreshed in
+            # _on_yolo_training_finished (the worker's finished signal),
+            # after best.pt is fully written; reading it here would race
+            # with ultralytics' end-of-training checkpoint rewrite.
             # Re-enable annotation tab (was disabled during training)
             self.w.main_toolbox.widget(1).setEnabled(True)
             # Re-enable training data generation section
@@ -1020,6 +1029,19 @@ class YoloHandler(QObject):
             self.bbox_or_polygon_generated = False
             self.training_data_generated = False
             self.training_finished = False
+
+    def _on_yolo_training_finished(self):
+        """Refresh the trained-model list once the worker has finished.
+
+        Runs on the training worker's ``finished`` signal, i.e. after
+        ``model.train()`` has fully returned. By then ultralytics has
+        finished its end-of-training checkpoint rewrite (strip_optimizer
+        on best.pt/last.pt) and validation, so reading best.pt here is
+        safe. Doing this on the final progress update instead raced with
+        that rewrite and produced a spurious "Could not read checkpoint"
+        warning (partial-file/zip error).
+        """
+        self.refresh_trained_model_list()
 
     #######################################################################################################
     # YOLO PREDICTION PIPELINE
