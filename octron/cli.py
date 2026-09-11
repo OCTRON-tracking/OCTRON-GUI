@@ -662,6 +662,18 @@ def render(
             "only; never drawn on tracklets)."
         ),
     ),
+    tracking_frames: str = typer.Option(
+        "0",
+        "--tracking-frames",
+        help=(
+            "Overlay each track's recent trajectory as a thin fading "
+            "trail (overlay mode only; ignored for --tracklets). Value "
+            "is how many past frames of history to show; opacity fades "
+            "from 100% at the current frame to ~10% at the oldest end. "
+            "0 = off (default). Use 'inf' to show the full track "
+            "history without fading."
+        ),
+    ),
     # --- Tracklet options ---
     tracklets: bool = typer.Option(
         False,
@@ -861,6 +873,23 @@ def render(
             )
         parsed_tracklet_offset = (parts[0], parts[1])
 
+    _tf_text = tracking_frames.strip().lower()
+    if _tf_text in ("inf", "infinity"):
+        parsed_tracking_frames = float("inf")
+    else:
+        try:
+            parsed_tracking_frames = int(_tf_text)
+        except ValueError as e:
+            raise typer.BadParameter(
+                "must be a non-negative integer or 'inf'.",
+                param_hint="'--tracking-frames'",
+            ) from e
+        if parsed_tracking_frames < 0:
+            raise typer.BadParameter(
+                "must be >= 0 (0 disables the trail).",
+                param_hint="'--tracking-frames'",
+            )
+
     run_render(
         predictions_path=predictions_path,
         video_path=video_path,
@@ -872,6 +901,7 @@ def render(
         draw_masks=resolved_masks,
         draw_boxes=resolved_boxes,
         draw_labels=resolved_labels,
+        tracking_frames=parsed_tracking_frames,
         tracklets=tracklets,
         also_overlay=resolved_masks or resolved_boxes,
         tracklet_size=parsed_tracklet_size,

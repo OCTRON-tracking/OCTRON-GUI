@@ -79,6 +79,45 @@ def _coerce_track_ids(track_ids):
         ) from e
 
 
+def _coerce_tracking_frames(tracking_frames):
+    """Coerce tracking_frames to 0 (off), a positive int, or float('inf').
+
+    Accepts None (-> 0), 0, a positive int/float, or the case-insensitive
+    string ``'inf'``/``'infinity'`` for an unlimited, non-fading trail. This
+    defensively re-validates for programmatic/notebook callers that bypass
+    the CLI's own ``'inf'``/int parsing (see ``octron render``'s
+    ``--tracking-frames``).
+    """
+    if tracking_frames is None:
+        return 0
+    if isinstance(tracking_frames, str):
+        text = tracking_frames.strip().lower()
+        if text in ("inf", "infinity"):
+            return float("inf")
+        try:
+            tracking_frames = int(text)
+        except ValueError as e:
+            raise ValueError(
+                f"tracking_frames must be a non-negative int, float('inf'), "
+                f"or 'inf'; got {tracking_frames!r}"
+            ) from e
+    if isinstance(tracking_frames, float) and tracking_frames == float("inf"):
+        return float("inf")
+    try:
+        tracking_frames = int(tracking_frames)
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"tracking_frames must be a non-negative int, float('inf'), "
+            f"or 'inf'; got {tracking_frames!r}"
+        ) from e
+    if tracking_frames < 0:
+        raise ValueError(
+            f"tracking_frames must be >= 0 (0 disables the trail); "
+            f"got {tracking_frames!r}"
+        )
+    return tracking_frames
+
+
 def _select_render_frames(per_track_frames, frame_start, frame_end):
     """Sorted union of per-track frame indices in ``[frame_start, frame_end)``.
 
@@ -1012,6 +1051,7 @@ def run_render(
     draw_masks=True,
     draw_boxes=True,
     draw_labels=True,
+    tracking_frames=0,
     start=None,
     end=None,
     encoder="auto",
@@ -1086,6 +1126,18 @@ def run_render(
     draw_labels : bool
         Render label text above bounding boxes (overlay only; never on
         tracklets).  Default True.
+    tracking_frames : int, float, or str, optional
+        Overlay mode only (ignored, with a log message, when
+        ``tracklets=True``). Draws each track's recent trajectory as a
+        thin fading trail: a line connecting its last ``tracking_frames``
+        positions plus a small dot at the current position, in the
+        track's colour. Opacity fades from 100% at the current frame to
+        ~10% at the oldest end of the trail. ``0`` disables the trail
+        (default). ``float('inf')`` (or the string ``'inf'``) shows the
+        *entire* track history so far without any fading. Positions
+        persist across brief gaps (e.g. from ``--min-confidence``
+        filtering), so the trail connects across missed detections
+        rather than resetting.
     skip_empty : bool, optional
         If True, render only frames that have at least one detection at/above
         ``min_confidence`` (drops the empty frames left by ``predict
@@ -1103,10 +1155,18 @@ def run_render(
         Enable DEBUG-level logging.  Default False.
 
     """
+    from loguru import logger
+
     _validate_render_args(preset, min_confidence, alpha)
     track_ids = _coerce_track_ids(track_ids)
+    tracking_frames = _coerce_tracking_frames(tracking_frames)
 
     if tracklets:
+        if tracking_frames:
+            logger.info(
+                "--tracking-frames is ignored when rendering tracklets "
+                "(the trail overlay is overlay-mode only)."
+            )
         run_tracklets(
             predictions_path=predictions_path,
             video_path=video_path,
@@ -1140,7 +1200,6 @@ def run_render(
 
     import cv2
     import numpy as np
-    from loguru import logger
 
     from octron._logging import setup_logging as _setup_logging
 
@@ -1180,9 +1239,13 @@ def run_render(
     )
 
     bbox_lookup = {}
+    pos_lookup = {}
     for tid, td in tracking_data.items():
         bbox_lookup[tid] = {
             int(r["frame_idx"]): r for _, r in td["features"].iterrows()
+        }
+        pos_lookup[tid] = {
+            int(r["frame_idx"]): r for _, r in td["data"].iterrows()
         }
 
     # Only render tracks that have at least one detection in
@@ -1228,6 +1291,37 @@ def run_render(
         rgba, _ = results.get_color_for_track_id(tid)
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
         track_colors[tid] = (r, g, b)  # RGB to match FastVideoReader frames
+
+    # --tracking-frames: fading trail of each track's recent positions.
+    # Implemented as a persistent (out_h, out_w) alpha buffer that decays
+    # by a constant per-frame factor -- rather than redrawing the last N
+    # segments every frame -- so the cost is O(tracks) per frame
+    # regardless of how large tracking_frames is. `trail_decay ** N == 0.1`
+    # gives the requested ~10% opacity at the oldest end of the trail;
+    # `tracking_frames == inf` uses decay=1.0 (never fades). A newly drawn
+    # segment/dot always starts at full opacity (1.0), so only pixels the
+    # trail has actually visited fade -- untouched areas stay at 0.
+    _draw_trail = bool(tracking_frames)  # False for 0/None
+    if _draw_trail:
+        trail_decay = (
+            1.0
+            if tracking_frames == float("inf")
+            else 0.1 ** (1.0 / tracking_frames)
+        )
+        trail_alpha = np.zeros((out_h, out_w), dtype=np.float32)
+        trail_color = np.zeros((out_h, out_w, 3), dtype=np.uint8)
+        _trail_seg_mask = np.zeros((out_h, out_w), dtype=np.uint8)
+        _last_trail_pos = {}  # track_id -> (x, y) in output-resolution px
+        _trail_lw = max(1, int(1 * scale + 0.5))
+        _trail_dot_r = max(1, int(2 * scale + 0.5))
+        logger.info(
+            "Track history trail: "
+            + (
+                "full history, no fade (--tracking-frames inf)"
+                if tracking_frames == float("inf")
+                else f"last {tracking_frames} frames, fading to ~10%"
+            )
+        )
 
     # --skip-empty: render only frames where at least one track has a
     # detection at/above min_confidence (drops the empty frames left by
@@ -1438,6 +1532,55 @@ def run_render(
                 out_frame = frame_small.copy()
         else:
             out_frame = frame_small.copy()
+
+        # --tracking-frames: decay the persistent trail buffer, draw each
+        # track's newest segment (from its last drawn position to its
+        # current one, plus a small dot marking the current position) at
+        # full opacity, then alpha-composite the trail under the
+        # boxes/labels drawn below. Gaps (e.g. from --min-confidence) are
+        # bridged: the connecting line is drawn from the last position
+        # actually seen, however many frames ago that was.
+        if _draw_trail:
+            trail_alpha *= trail_decay
+            for tid in render_tids:
+                conf_row = bbox_lookup.get(tid, {}).get(frame_idx)
+                pos_row = pos_lookup.get(tid, {}).get(frame_idx)
+                if (
+                    pos_row is None
+                    or conf_row is None
+                    or conf_row.get("confidence", 1.0) < min_confidence
+                ):
+                    continue
+                cx = int(float(pos_row["pos_x"]) * scale)
+                cy = int(float(pos_row["pos_y"]) * scale)
+                _trail_seg_mask[:] = 0
+                _prev_pos = _last_trail_pos.get(tid)
+                if _prev_pos is not None:
+                    cv2.line(
+                        _trail_seg_mask,
+                        _prev_pos,
+                        (cx, cy),
+                        255,
+                        _trail_lw,
+                        cv2.LINE_AA,
+                    )
+                cv2.circle(
+                    _trail_seg_mask,
+                    (cx, cy),
+                    _trail_dot_r,
+                    255,
+                    -1,
+                    cv2.LINE_AA,
+                )
+                _new_seg = _trail_seg_mask > 0
+                trail_alpha[_new_seg] = 1.0
+                trail_color[_new_seg] = track_colors[tid]
+                _last_trail_pos[tid] = (cx, cy)
+            _trail_a = trail_alpha[:, :, None]
+            out_frame = (
+                out_frame.astype(np.float32) * (1.0 - _trail_a)
+                + trail_color.astype(np.float32) * _trail_a
+            ).astype(np.uint8)
 
         for tid in render_tids:
             color_rgb = track_colors[tid]
