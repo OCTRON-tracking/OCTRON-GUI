@@ -106,3 +106,21 @@ def test_empty_results_dir_does_not_raise(tmp_path):
     assert obj.track_ids == []
     assert obj.labels == []
     assert obj.track_id_label == {}
+
+
+# ---------------------------------------------------------------------------
+# get_mask_data() with no zarr archive (detection-mode predictions)
+#
+# Regression: detection predictions have no zarr archive by design (no
+# masks), so get_mask_data() used to unconditionally raise ValueError,
+# crashing any caller (e.g. notebooks) that requested mask data without
+# first checking `has_masks`. This must now be a valid, empty result.
+# ---------------------------------------------------------------------------
+
+
+def test_get_mask_data_no_zarr_returns_empty_dict(tmp_path):
+    results_dir = tmp_path / "clipE_ByteTrack"
+    results_dir.mkdir()
+    obj = AnalysisResults(results_dir, verbose=False)
+    assert obj.zarr_root is None
+    assert obj.get_mask_data() == {}

@@ -1076,7 +1076,16 @@ class AnalysisResults:
 
         """
         if self.zarr_root is None:
-            raise ValueError("No zarr root found, cannot extract mask data.")
+            # No zarr archive at all is a valid outcome (e.g. detection-mode
+            # predictions, which have no masks by design).
+            # Callers that unconditionally request mask data (e.g. notebooks)
+            # get an empty result rather than crash.
+            if self.verbose:
+                logger.info(
+                    "No zarr archive found, cannot extract mask data "
+                    "(detection predictions?). Returning empty mask data."
+                )
+            return {}
         mask_data = {}
         for track_id in self.track_ids:
             label = self.get_label_for_track_id(track_id)
@@ -1239,6 +1248,11 @@ class AnalysisResults:
             )
 
         all_mask_data = self.get_mask_data(close_holes=close_holes)
+        if not all_mask_data and not self.has_masks:
+            raise ValueError(
+                f"No mask data available in '{self.results_dir.name}' "
+                f"(detection predictions have no masks)."
+            )
         if track_id_to_use not in all_mask_data:
             raise ValueError(
                 f"Track ID '{track_id_to_use}' (for label '{label}') "
