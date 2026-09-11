@@ -9,11 +9,22 @@ import subprocess
 import sys
 import warnings
 
+from pydantic import PydanticDeprecatedSince20
+
 import octron
 
 
-def test_pydantic_json_encoders_warning_is_suppressed():
-    """The known dependency warning should not be shown to OCTRON users."""
+def test_pydantic_deprecation_warnings_are_suppressed():
+    """Known PydanticDeprecationWarning variants should not reach users.
+
+    napari/npe2/psygnal trigger several distinct deprecated-pydantic-API
+    warnings (``json_encoders``, extra ``Field`` kwargs, ``allow_mutation``,
+    etc.), each with different message text but all raised as
+    ``PydanticDeprecatedSince20`` (a ``PydanticDeprecationWarning``
+    subclass). The filter suppresses the whole category rather than
+    matching individual message strings, so exercise more than one
+    message here to guard against regressing to a message-specific filter.
+    """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         # Re-install after simplefilter("always") so the OCTRON-specific ignore
@@ -23,10 +34,19 @@ def test_pydantic_json_encoders_warning_is_suppressed():
             "`json_encoders` is deprecated. See "
             "https://docs.pydantic.dev/2.12/concepts/serialization/"
             "#custom-serializers for alternatives.",
-            DeprecationWarning,
+            PydanticDeprecatedSince20,
             filename="pydantic/_internal/_generate_schema.py",
             lineno=319,
             module="pydantic._internal._generate_schema",
+        )
+        warnings.warn_explicit(
+            "Using extra keyword arguments on `Field` is deprecated and "
+            "will be removed. Use `json_schema_extra` instead. "
+            "(Extra keys: 'min_ver').",
+            PydanticDeprecatedSince20,
+            filename="npe2/manifest/_package_metadata.py",
+            lineno=45,
+            module="npe2.manifest._package_metadata",
         )
     assert caught == []
 

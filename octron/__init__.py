@@ -2,6 +2,8 @@ import importlib.metadata
 import warnings
 from importlib.metadata import version
 
+from pydantic import PydanticDeprecationWarning
+
 from octron._logging import setup_logging
 
 # Configure loguru with OCTRON's compact log format as soon as the package is
@@ -16,16 +18,19 @@ setup_logging()
 def _install_warning_filters():
     """Suppress known dependency deprecations that OCTRON cannot fix directly.
 
-    napari/psygnal currently define Pydantic v2 models that still use
-    ``json_encoders``. Pydantic emits the warning from inside its own schema
-    generation code when those dependency models are created. Keep the filter
-    narrow by matching the exact warning text so unrelated deprecations remain
-    visible.
+    napari/npe2/psygnal currently define Pydantic v2 models that still use
+    deprecated APIs (``json_encoders``, extra ``Field`` kwargs such as
+    ``min_ver``/``hide_docs``, ``allow_mutation``, etc.). These are raised
+    from pydantic's own internals (not from a stable, filterable module
+    path) with wording that varies per deprecated API, so filter on the
+    ``PydanticDeprecationWarning`` category itself rather than matching
+    individual message strings — OCTRON's own pydantic models (see
+    sam_octron/object_organizer.py) already use current, non-deprecated
+    APIs, so this cannot mask an actionable warning from OCTRON's own code.
     """
     warnings.filterwarnings(
         "ignore",
-        message=r".*`json_encoders` is deprecated.*",
-        category=DeprecationWarning,
+        category=PydanticDeprecationWarning,
     )
 
 

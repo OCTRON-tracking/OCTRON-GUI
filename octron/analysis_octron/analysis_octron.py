@@ -4164,7 +4164,10 @@ class AnalysisOctron:
         mask_data = analysis_results.get_mask_data() if has_masks else {}
 
         if open_viewer:
-            viewer = napari.Viewer()
+            from octron import _suppress_known_dependency_warnings
+
+            with _suppress_known_dependency_warnings():
+                viewer = napari.Viewer()
             if (
                 analysis_results.video is not None
                 and analysis_results.video_dict is not None

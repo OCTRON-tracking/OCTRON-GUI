@@ -2403,7 +2403,10 @@ def octron_gui():
 
     # On Windows, create the viewer hidden so the window icon.
     _win = os.name == "nt" and not getattr(sys, "frozen", False)
-    viewer = napari.Viewer(show=not _win)
+    from octron import _suppress_known_dependency_warnings
+
+    with _suppress_known_dependency_warnings():
+        viewer = napari.Viewer(show=not _win)
 
     # If there's already a QApplication instance (as may be the case
     # when running as a napari plugin), then set its style explicitly:
@@ -2441,7 +2444,10 @@ if __name__ == "__main__":
     _set_windows_app_id()
     _ensure_windows_qapp()
     _win = os.name == "nt" and not getattr(sys, "frozen", False)
-    viewer = napari.Viewer(show=not _win)
+    from octron import _suppress_known_dependency_warnings
+
+    with _suppress_known_dependency_warnings():
+        viewer = napari.Viewer(show=not _win)
     viewer.window.add_dock_widget(octron_widget(viewer))
     if _win:
         _apply_windows_taskbar_icon(viewer)
