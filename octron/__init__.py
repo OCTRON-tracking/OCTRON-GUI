@@ -2,6 +2,12 @@ import importlib.metadata
 import warnings
 from importlib.metadata import version
 
+from octron._logging import setup_logging
+
+# Configure loguru with OCTRON's compact log format as soon as the package is
+# imported
+setup_logging()
+
 
 def _install_warning_filters():
     """Suppress known dependency deprecations that OCTRON cannot fix directly.
@@ -32,6 +38,7 @@ class _suppress_known_dependency_warnings:
 
     def __exit__(self, exc_type, exc, tb):
         return self._catch.__exit__(exc_type, exc, tb)
+
 
 try:
     __version__ = version("octron")
@@ -68,7 +75,9 @@ def __getattr__(name):
         return AnalysisOctron
     if name == "AnalysisResults":
         with _suppress_known_dependency_warnings():
-            from .analysis_octron.helpers.analysis_results import AnalysisResults
+            from .analysis_octron.helpers.analysis_results import (
+                AnalysisResults,
+            )
         return AnalysisResults
     if name == "ANNOT_results":
         with _suppress_known_dependency_warnings():
