@@ -1,16 +1,17 @@
 """Tests for train/val split-fraction validation.
 
-The fraction guard now lives in core ``YOLO_octron._validate_split_fractions``
-(the single source of truth, also enforced by ``prepare_split`` for the GUI and
-programmatic callers).  ``run_split`` calls the same guard up front, so the CLI
-still fails before any model, label, or geometry work.
+The fraction guard now lives in core
+``AnalysisOctron._validate_split_fractions``
+(the single source of truth, also enforced by ``prepare_split`` for the GUI
+and programmatic callers).  ``run_split`` calls the same guard up front, so
+the CLI still fails before any model, label, or geometry work.
 """
 
 import numpy as np
 import pytest
 
-from octron.tools.split import run_split
-from octron.yolo_octron.helpers.split_report import (
+from octron.analysis_octron.analysis_octron import AnalysisOctron
+from octron.analysis_octron.helpers.split_report import (
     _annotated_frame_count,
     _build_frame_to_split,
     _num_frames_for,
@@ -19,53 +20,53 @@ from octron.yolo_octron.helpers.split_report import (
     build_split_report,
     render_split_report,
 )
-from octron.yolo_octron.helpers.training import train_test_val
-from octron.yolo_octron.yolo_octron import YOLO_octron
+from octron.analysis_octron.helpers.training import train_test_val
+from octron.tools.split import run_split
 
 # ---------------------------------------------------------------------------
-# Core guard: YOLO_octron._validate_split_fractions
+# Core guard: AnalysisOctron._validate_split_fractions
 # ---------------------------------------------------------------------------
 
 
 def test_validate_rejects_zero_train_fraction():
     with pytest.raises(ValueError, match="training_fraction"):
-        YOLO_octron._validate_split_fractions(0.0, 0.15)
+        AnalysisOctron._validate_split_fractions(0.0, 0.15)
 
 
 def test_validate_rejects_negative_train_fraction():
     with pytest.raises(ValueError, match="training_fraction"):
-        YOLO_octron._validate_split_fractions(-0.1, 0.15)
+        AnalysisOctron._validate_split_fractions(-0.1, 0.15)
 
 
 def test_validate_rejects_train_fraction_one():
     with pytest.raises(ValueError, match="training_fraction"):
-        YOLO_octron._validate_split_fractions(1.0, 0.0)
+        AnalysisOctron._validate_split_fractions(1.0, 0.0)
 
 
 def test_validate_rejects_negative_val_fraction():
     with pytest.raises(ValueError, match="validation_fraction"):
-        YOLO_octron._validate_split_fractions(0.7, -0.05)
+        AnalysisOctron._validate_split_fractions(0.7, -0.05)
 
 
 def test_validate_rejects_val_fraction_one():
     with pytest.raises(ValueError, match="validation_fraction"):
-        YOLO_octron._validate_split_fractions(0.5, 1.0)
+        AnalysisOctron._validate_split_fractions(0.5, 1.0)
 
 
 def test_validate_rejects_sum_equal_to_one():
     """Train + val == 1 leaves no test split, which is invalid."""
     with pytest.raises(ValueError, match="must be < 1"):
-        YOLO_octron._validate_split_fractions(0.7, 0.3)
+        AnalysisOctron._validate_split_fractions(0.7, 0.3)
 
 
 def test_validate_rejects_sum_greater_than_one():
     with pytest.raises(ValueError, match="must be < 1"):
-        YOLO_octron._validate_split_fractions(0.7, 0.4)
+        AnalysisOctron._validate_split_fractions(0.7, 0.4)
 
 
 def test_validate_accepts_valid_fractions():
     """Valid fractions return None (no exception)."""
-    assert YOLO_octron._validate_split_fractions(0.7, 0.15) is None
+    assert AnalysisOctron._validate_split_fractions(0.7, 0.15) is None
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +130,7 @@ def test_run_split_threads_prune_and_watershed(monkeypatch):
             return []
 
     monkeypatch.setattr(
-        "octron.yolo_octron.yolo_octron.YOLO_octron", _FakeYolo
+        "octron.analysis_octron.analysis_octron.AnalysisOctron", _FakeYolo
     )
     run_split(
         project_path="/nope_for_test",
@@ -151,7 +152,7 @@ def test_run_split_threads_prune_and_watershed(monkeypatch):
 
 def _split_with_seed(frames, seed):
     """Run prepare_split on a one-label fixture and return the split."""
-    obj = YOLO_octron.__new__(YOLO_octron)
+    obj = AnalysisOctron.__new__(AnalysisOctron)
     obj.label_dict = {
         "sub": {
             "video": None,
@@ -181,7 +182,7 @@ def test_prepare_split_seed_changes_partition():
 
 def _assigned_count_with_buffer(frames, buffer):
     """Run prepare_split on a one-label fixture; count assigned frames."""
-    obj = YOLO_octron.__new__(YOLO_octron)
+    obj = AnalysisOctron.__new__(AnalysisOctron)
     obj.label_dict = {
         "sub": {
             "video": None,
@@ -485,8 +486,9 @@ def test_build_split_report_structure():
 
 
 def test_summarize_split_via_core_matches_build():
-    # YOLO_octron.summarize_split() is a thin wrapper over build_split_report.
-    obj = YOLO_octron.__new__(YOLO_octron)
+    # AnalysisOctron.summarize_split() is a thin wrapper over
+    # build_split_report.
+    obj = AnalysisOctron.__new__(AnalysisOctron)
     obj.label_dict = {"proj/sub": _labels_with_split()}
     report = obj.summarize_split()
     assert report[0]["rows"] == [("a", 40, 10, 10, 60)]

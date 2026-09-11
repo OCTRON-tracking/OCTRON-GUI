@@ -19,11 +19,11 @@ which frames are in the pool.
 import numpy as np
 import pytest
 
-from octron.yolo_octron.helpers.training import (
+from octron.analysis_octron.analysis_octron import AnalysisOctron
+from octron.analysis_octron.helpers.training import (
     find_common_frames,
     prune_frames_by_geometry,
 )
-from octron.yolo_octron.yolo_octron import YOLO_octron
 
 # Any non-empty geometry value marks a frame as "valid" (a polygon/bbox
 # was produced); an empty list marks it invalid and prunable.
@@ -118,7 +118,7 @@ def test_prune_by_geometry_noop_when_all_valid():
 
 def _split_labels(label_dict):
     """Run prepare_split on a prebuilt label_dict and return it."""
-    obj = YOLO_octron.__new__(YOLO_octron)
+    obj = AnalysisOctron.__new__(AnalysisOctron)
     obj.label_dict = label_dict
     obj.prepare_split(
         training_fraction=0.7, validation_fraction=0.15, random_seed=0

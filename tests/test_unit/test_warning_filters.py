@@ -47,8 +47,8 @@ def test_warning_filter_does_not_hide_other_deprecations():
     assert "some other dependency deprecation" in str(caught[0].message)
 
 
-def test_import_yolo_results_is_quiet_in_fresh_process():
-    """`from octron import YOLO_results` must not emit dep warnings."""
+def test_import_analysis_results_is_quiet_in_fresh_process():
+    """`from octron import AnalysisResults` must not emit dep warnings."""
     env = os.environ.copy()
     env["PYTHONWARNINGS"] = "default"
 
@@ -56,13 +56,14 @@ def test_import_yolo_results_is_quiet_in_fresh_process():
         [
             sys.executable,
             "-c",
-            "from octron import YOLO_results; print(YOLO_results.__name__)",
+            "from octron import AnalysisResults; "
+            "print(AnalysisResults.__name__)",
         ],
         capture_output=True,
         text=True,
         env=env,
         check=True,
     )
-    assert result.stdout.strip() == "YOLO_results"
+    assert result.stdout.strip() == "AnalysisResults"
     assert "json_encoders" not in result.stderr
     assert result.stderr == ""

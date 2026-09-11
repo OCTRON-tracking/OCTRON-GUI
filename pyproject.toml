@@ -23,7 +23,7 @@ dependencies = [
     "cmasher>=1.9.2",
     "imantics",
     "ultralytics>=8.4.46",
-    "tensorboard>=2.19.0",
+    "mlflow>=2.19.0",
     "lap>=0.5.12",
     "opencv-python>=4.11.0",
     "natsort>=8.4.0",
@@ -137,6 +137,7 @@ exclude = [
     "build",
     ".eggs",
     # Qt-Designer-generated files (regenerated from octron.ui; edits are lost)
+    "octron/gui_elements.py",
     "octron/qt_gui/octron.py",
     "octron/qt_gui/octron_corrected.py",
 ]
@@ -174,7 +175,7 @@ select = [
 # Deliberate late imports (env vars / warning filters / Qt setup first)
 "octron/main.py" = ["E402"]
 "octron/reader.py" = ["E402"]
-"octron/yolo_octron/yolo_octron.py" = ["E402"]
+"octron/analysis_octron/analysis_octron.py" = ["E402"]
 "octron/sam_octron/helpers/sam_zarr.py" = ["E402"]
 "*.ipynb" = ["E402"] # imports naturally spread across notebook cells
 

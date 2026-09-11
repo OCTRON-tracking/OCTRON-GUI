@@ -1,18 +1,18 @@
-"""Tests for the cheap CSV row-count helper on YOLO_results.
+"""Tests for the cheap CSV row-count helper on AnalysisResults.
 
 ``_csv_observation_count`` is the single place that encodes the tracking-CSV
 header offset (fixed metadata header lines + one column-header row);
 it backs the
 ``min_observations`` pre-filter in ``get_tracking_data``. The heavy
-``YOLO_results.__init__`` is bypassed via ``__new__`` so no prediction data is
-needed.
+``AnalysisResults.__init__`` is bypassed via ``__new__`` so no prediction
+data is needed.
 """
 
-from octron.yolo_octron.helpers.yolo_results import YOLO_results
+from octron.analysis_octron.helpers.analysis_results import AnalysisResults
 
 
 def _make_results(header_lines=7):
-    obj = YOLO_results.__new__(YOLO_results)
+    obj = AnalysisResults.__new__(AnalysisResults)
     obj.csv_header_lines = header_lines
     return obj
 
@@ -66,7 +66,7 @@ def test_csv_observation_count_respects_header_lines(tmp_path):
 def test_candidate_video_path_finds_sibling(tmp_path, touch_file):
     (tmp_path / "clipA_ByteTrack").mkdir()
     video = touch_file("clipA.mp4")
-    obj = YOLO_results.__new__(YOLO_results)
+    obj = AnalysisResults.__new__(AnalysisResults)
     obj.results_dir = tmp_path / "clipA_ByteTrack"
     assert obj._candidate_video_path() == video
 
@@ -75,13 +75,34 @@ def test_candidate_video_path_finds_nested(tmp_path, touch_file):
     folder = tmp_path / "octron_predictions" / "clipB_ByteTrack"
     folder.mkdir(parents=True)
     video = touch_file("clipB.mp4")
-    obj = YOLO_results.__new__(YOLO_results)
+    obj = AnalysisResults.__new__(AnalysisResults)
     obj.results_dir = folder
     assert obj._candidate_video_path() == video
 
 
 def test_candidate_video_path_none_when_missing(tmp_path):
     (tmp_path / "clipC_ByteTrack").mkdir()
-    obj = YOLO_results.__new__(YOLO_results)
+    obj = AnalysisResults.__new__(AnalysisResults)
     obj.results_dir = tmp_path / "clipC_ByteTrack"
     assert obj._candidate_video_path() is None
+
+
+# ---------------------------------------------------------------------------
+# Empty results directory (zero detections/tracks for a video)
+#
+# Regression: instantiating AnalysisResults on a prediction folder with no
+# tracking CSVs (and no zarr) used to raise ValueError from
+# get_track_ids_labels(), crashing callers like
+# AnalysisOctron.load_predictions() when "View results" was ticked for a
+# video with zero detections. This must now be a valid, empty result.
+# ---------------------------------------------------------------------------
+
+
+def test_empty_results_dir_does_not_raise(tmp_path):
+    results_dir = tmp_path / "clipD_ByteTrack"
+    results_dir.mkdir()
+    obj = AnalysisResults(results_dir, verbose=False)
+    assert obj.csvs is None
+    assert obj.track_ids == []
+    assert obj.labels == []
+    assert obj.track_id_label == {}

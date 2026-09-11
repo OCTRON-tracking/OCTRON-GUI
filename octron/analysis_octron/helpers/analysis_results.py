@@ -1,4 +1,4 @@
-"""Helpers for loading and querying YOLO/OCTRON prediction results."""
+"""Helpers for loading and querying OCTRON prediction results."""
 
 import ast
 import json
@@ -17,8 +17,8 @@ from skimage.morphology import binary_closing, disk, remove_small_holes
 from tqdm import tqdm
 
 
-class YOLO_results:
-    """Load and query YOLO/OCTRON prediction results (video, CSVs, zarr)."""
+class AnalysisResults:
+    """Load and query OCTRON prediction results (video, CSVs, zarr)."""
 
     def __init__(self, results_dir, verbose=True, **kwargs):
         """Initialize by locating and loading the prediction results.
@@ -203,10 +203,15 @@ class YOLO_results:
         """Locate the tracking CSV files in the results directory."""
         results_dir = self.results_dir
         csvs = natsorted(results_dir.rglob("*track_*.csv"))
-        if not csvs and self.verbose:
-            logger.warning(
-                f"No tracking CSV files found in '{results_dir.name}'"
-            )
+        if not csvs:
+            # No tracking CSVs at all is a valid outcome (e.g. zero
+            # detections/tracks). Always record it as None regardless
+            # of verbosity — verbose only controls whether this is
+            # logged, not what state is recorded.
+            if self.verbose:
+                logger.warning(
+                    f"No tracking CSV files found in '{results_dir.name}'"
+                )
             self.csvs = None
         else:
             self.csvs = csvs
@@ -409,6 +414,26 @@ class YOLO_results:
             _track_ids_labels_csv(self.csv_header_lines)
         )
 
+        if self.csvs is None:
+            # No tracking CSVs at all — a valid outcome (e.g. zero
+            # detections/tracks for the whole video), not an error.
+            # Leave the track/label collections empty so callers (e.g.
+            # AnalysisOctron.load_predictions) can detect "no results"
+            # and bail out gracefully instead of this constructor
+            # raising on an otherwise perfectly valid, if empty,
+            # results directory.
+            if self.verbose:
+                logger.warning(
+                    f"No tracking results found in "
+                    f"'{self.results_dir.name}' (zero detections?). "
+                    f"Track ID / label lookups will be empty."
+                )
+            self.track_ids = []
+            self.labels = []
+            self.track_id_label = {}
+            self._csv_frame_indices = {}
+            return
+
         if not csv_ids:
             raise ValueError("No track IDs found in CSV files.")
         if not csv_labels:
@@ -605,7 +630,7 @@ class YOLO_results:
         # Import napari colormap support lazily. Importing napari.utils
         # at module import time triggers Pydantic json_encoders
         # deprecation warnings from a dependency even when users only
-        # do `from octron import YOLO_results`.
+        # do `from octron import AnalysisResults`.
         from octron import _suppress_known_dependency_warnings
 
         with _suppress_known_dependency_warnings():
@@ -1292,11 +1317,11 @@ class YOLO_results:
             and self.height is not None
         ):
             return (
-                f"YOLO_results\n{self.results_dir}\n{self.num_frames} "
+                f"AnalysisResults\n{self.results_dir}\n{self.num_frames} "
                 f"frames, {self.width}x{self.height}"
             )
         else:
-            return f"YOLO_results\n{self.results_dir}"
+            return f"AnalysisResults\n{self.results_dir}"
 
     def __str__(self) -> str:
         """Return a concise summary of the results directory and video info."""
@@ -1306,11 +1331,11 @@ class YOLO_results:
             and self.height is not None
         ):
             return (
-                f"YOLO_results\n{self.results_dir}\n{self.num_frames} "
+                f"AnalysisResults\n{self.results_dir}\n{self.num_frames} "
                 f"frames, {self.width}x{self.height}"
             )
         else:
-            return f"YOLO_results\n{self.results_dir}"
+            return f"AnalysisResults\n{self.results_dir}"
 
     #### OTHER HELPERS ########################################################
 

@@ -654,7 +654,7 @@ QTableCornerButton::section {
                 </size>
                </property>
                <property name="toolTip">
-                <string>SAM models</string>
+                <string>Annotation models</string>
                </property>
                <property name="currentText">
                 <string>Model</string>
@@ -1606,11 +1606,17 @@ that yield bboxes, but NO masks.</string>
               <x>300</x>
               <y>30</y>
               <width>90</width>
-              <height>81</height>
+              <height>87</height>
              </rect>
             </property>
             <layout class="QVBoxLayout" name="train_checkboxes_verticalLayout">
              <property name="spacing">
+              <number>10</number>
+             </property>
+             <property name="sizeConstraint">
+              <enum>QLayout::SizeConstraint::SetDefaultConstraint</enum>
+             </property>
+             <property name="bottomMargin">
               <number>10</number>
              </property>
              <item>
@@ -1688,6 +1694,9 @@ but should be separate entities in the training data.</string>
                  <width>90</width>
                  <height>25</height>
                 </size>
+               </property>
+               <property name="toolTip">
+                <string>Overwrite previous training data?</string>
                </property>
                <property name="text">
                 <string>Overwrite</string>
@@ -1949,7 +1958,7 @@ Recommended are at least ~50.</string>
               <x>300</x>
               <y>30</y>
               <width>90</width>
-              <height>81</height>
+              <height>87</height>
              </rect>
             </property>
             <layout class="QVBoxLayout" name="train_verticalLayout">
@@ -1957,7 +1966,7 @@ Recommended are at least ~50.</string>
               <number>10</number>
              </property>
              <property name="bottomMargin">
-              <number>0</number>
+              <number>10</number>
              </property>
              <item alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop">
               <widget class="QCheckBox" name="train_resume_checkBox">
@@ -2007,7 +2016,7 @@ Recommended are at least ~50.</string>
               </widget>
              </item>
              <item>
-              <widget class="QCheckBox" name="launch_tensorboard_checkBox">
+              <widget class="QCheckBox" name="launch_training_logger_checkBox">
                <property name="enabled">
                 <bool>false</bool>
                </property>
@@ -2023,11 +2032,14 @@ Recommended are at least ~50.</string>
                  <height>25</height>
                 </size>
                </property>
+               <property name="acceptDrops">
+                <bool>false</bool>
+               </property>
                <property name="toolTip">
-                <string>Start tensorboard (open browser window)</string>
+                <string>Start MLFlow training logger (open browser window)</string>
                </property>
                <property name="text">
-                <string>Tensorbrd</string>
+                <string>MLflow</string>
                </property>
                <property name="checked">
                 <bool>true</bool>
@@ -2047,7 +2059,7 @@ Recommended are at least ~50.</string>
             </property>
             <layout class="QHBoxLayout" name="model_choose_horizontalLayout">
              <item alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QComboBox" name="yolomodel_list">
+              <widget class="QComboBox" name="training_model_list">
                <property name="minimumSize">
                 <size>
                  <width>150</width>
@@ -2061,7 +2073,7 @@ Recommended are at least ~50.</string>
                 </size>
                </property>
                <property name="toolTip">
-                <string>YOLO models</string>
+                <string>Choose your preferred model to train</string>
                </property>
                <item>
                 <property name="text">
@@ -2071,7 +2083,7 @@ Recommended are at least ~50.</string>
               </widget>
              </item>
              <item alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QComboBox" name="yoloimagesize_list">
+              <widget class="QComboBox" name="training_imgz_list">
                <property name="minimumSize">
                 <size>
                  <width>100</width>
@@ -2085,7 +2097,7 @@ Recommended are at least ~50.</string>
                 </size>
                </property>
                <property name="toolTip">
-                <string>Image size used for training within YOLO</string>
+                <string>Image size used for training</string>
                </property>
                <property name="editable">
                 <bool>true</bool>
@@ -2833,7 +2845,7 @@ This slows down analysis, but gives you much more info per tracked region.</stri
               </widget>
              </item>
              <item row="0" column="1" alignment="Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QComboBox" name="yolomodel_tracker_list">
+              <widget class="QComboBox" name="tracker_list">
                <property name="minimumSize">
                 <size>
                  <width>110</width>
@@ -2973,7 +2985,7 @@ Click on &quot;Remove&quot; in dropdown to remove videos from list.</string>
               </widget>
              </item>
              <item row="0" column="0" alignment="Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter">
-              <widget class="QComboBox" name="yolomodel_trained_list">
+              <widget class="QComboBox" name="trained_model_list">
                <property name="enabled">
                 <bool>true</bool>
                </property>

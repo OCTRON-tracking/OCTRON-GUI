@@ -26,7 +26,8 @@ render      --help: --video, --output, --preset, --start, --end, --alpha,
                     --min-confidence, --bbox-sizes
 transcode   --help: --output, --crf, --fps, --no-audio, --overwrite
 gif         --help (GUI launcher; body not invoked by --help)
-download-yolo / download-sam2 / download-sam3   --help: --force
+download-models / download-sam2 / download-sam3   --help: --force
+            (download-yolo is a hidden alias for download-models)
             (download bodies are not invoked by --help)
 
 auto_device returns 'cuda', 'mps', or 'cpu' (skipped if torch unavailable)
@@ -163,6 +164,13 @@ def test_train_help():
     assert "--no-prune" in out
     assert "--watershed" in out
     assert "--no-watershed" in out
+
+
+def test_train_help_lists_rtdetr_model():
+    """The --model choices are built from the catalog and include RT-DETR."""
+    result = runner.invoke(app, ["train", "--help"])
+    assert result.exit_code == 0
+    assert "rtdetr" in _plain(result.output).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -418,12 +426,12 @@ def test_gif_help():
 
 
 # ---------------------------------------------------------------------------
-# download-yolo / download-sam2 / download-sam3
+# download-models / download-sam2 / download-sam3
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "cmd", ["download-yolo", "download-sam2", "download-sam3"]
+    "cmd", ["download-models", "download-sam2", "download-sam3"]
 )
 def test_download_help(cmd):
     # --help must not trigger any download
@@ -431,6 +439,20 @@ def test_download_help(cmd):
     result = runner.invoke(app, [cmd, "--help"])
     assert result.exit_code == 0
     assert "--force" in _plain(result.output)
+
+
+def test_download_yolo_alias_help():
+    # download-yolo is a hidden alias for download-models (backward compat).
+    result = runner.invoke(app, ["download-yolo", "--help"])
+    assert result.exit_code == 0
+    assert "--force" in _plain(result.output)
+
+
+def test_download_yolo_alias_hidden_from_root_help():
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "download-models" in result.output
+    assert "download-yolo" not in result.output
 
 
 # ---------------------------------------------------------------------------

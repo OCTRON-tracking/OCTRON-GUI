@@ -1,6 +1,7 @@
-"""Main YOLO Octron class.
+"""Main OCTRON analysis/training class.
 
-We are using YOLO11 as the base class for YOLO Octron.
+Wraps ultralytics models (YOLO and RT-DETR) as the training/inference
+backend for OCTRON.
 See also: https://docs.ultralytics.com/models/yolo11
 """
 
@@ -13,11 +14,11 @@ import random
 import shutil
 import signal
 import struct
-import subprocess  # Used to launch tensorboard
+import subprocess  # Used to launch the training logger UI (MLflow)
 import sys
 import threading  # For training to run in a separate thread
 import time
-import webbrowser  # Used to launch tensorboard
+import webbrowser  # Used to launch the training logger UI (MLflow)
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
@@ -41,31 +42,33 @@ import contextlib
 
 from loguru import logger
 
+from octron.analysis_octron.helpers.analysis_checks import (
+    check_analysis_models,
+)
+from octron.analysis_octron.helpers.analysis_zarr import (
+    create_prediction_store,
+    create_prediction_zarr,
+)
+from octron.analysis_octron.helpers.polygons import (
+    find_objects_in_mask,
+    get_polygons,
+    postprocess_mask,
+    watershed_mask,
+)
+from octron.analysis_octron.helpers.training import (
+    collect_labels,
+    pick_random_frames,
+    prune_frames_by_geometry,
+    train_test_val,
+)
 from octron.sam_octron.helpers.sam_zarr import mark_frames_annotated
 from octron.tracking.helpers.tracker_checks import (
     load_boxmot_tracker_config,
     load_boxmot_trackers,
     resolve_tracker,
 )
-from octron.yolo_octron.helpers.polygons import (
-    find_objects_in_mask,
-    get_polygons,
-    postprocess_mask,
-    watershed_mask,
-)
-from octron.yolo_octron.helpers.training import (
-    collect_labels,
-    pick_random_frames,
-    prune_frames_by_geometry,
-    train_test_val,
-)
-from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
-from octron.yolo_octron.helpers.yolo_zarr import (
-    create_prediction_store,
-    create_prediction_zarr,
-)
 
-from .helpers.yolo_results import YOLO_results
+from .helpers.analysis_results import AnalysisResults
 
 MIN_SIZE_RATIO_OBJECT_FRAME = (
     0.00001  # Minimum size ratio of an object to the whole image
@@ -76,12 +79,12 @@ MIN_SIZE_RATIO_OBJECT_MAX = (
 )
 
 
-class YOLO_octron:
-    """YOLO11 segmentation model class for training with OCTRON data.
+class AnalysisOctron:
+    """Ultralytics-based (YOLO / RT-DETR) model class for OCTRON data.
 
     This class encapsulates the full pipeline for preparing annotation
     data from OCTRON, generating training datasets, and training
-    YOLO11 models for segmentation tasks. It also contains
+    segmentation or detection models. It also contains
     visualization methods for (custom / trained) models.
 
     """
@@ -89,12 +92,12 @@ class YOLO_octron:
     def __init__(
         self, models_yaml_path=None, project_path=None, clean_training_dir=True
     ):
-        """Initialize YOLO_octron with project and model paths.
+        """Initialize AnalysisOctron with project and model paths.
 
         Parameters
         ----------
         models_yaml_path : str or Path
-            Path to list of available (standard, pre-trained) YOLO models.
+            Path to list of available (standard, pre-trained) models.
         project_path : str or Path, optional
             Path to the OCTRON project directory.
         clean_training_dir : bool
@@ -106,9 +109,11 @@ class YOLO_octron:
         try:
             from ultralytics import settings
 
-            self.yolo_settings = settings
+            self.analysis_settings = settings
         except ImportError as e:
-            raise ImportError("YOLOv11 is required to run this class.") from e
+            raise ImportError(
+                "ultralytics is required to run this class."
+            ) from e
 
         # Set up internal variables
         self._project_path = None  # Use private variable for property
@@ -130,8 +135,8 @@ class YOLO_octron:
                     f"Model YAML file not found: {self.models_yaml_path}"
                 )
 
-            # Check YOLO models, download if needed
-            self.models_dict = check_yolo_models(
+            # Check base models, download if needed
+            self.models_dict = check_analysis_models(
                 YOLO_BASE_URL=None,
                 models_yaml_path=self.models_yaml_path,
                 force_download=False,
@@ -149,8 +154,8 @@ class YOLO_octron:
             self._setup_training_directories(self.clean_training_dir)
 
     def __repr__(self):
-        """Return a string representation of the YOLO_octron object."""
-        pr = f"YOLO_octron(project_path={self.project_path})"
+        """Return a string representation of the AnalysisOctron object."""
+        pr = f"AnalysisOctron(project_path={self.project_path})"
         models = [
             f"{k}: seg={v['model_path_seg']}, detect={v['model_path_detect']}"
             for k, v in self.models_dict.items()
@@ -211,19 +216,19 @@ class YOLO_octron:
 
     @property
     def config_path(self):
-        """Path to the YOLO training config (``yolo_config.yaml``).
+        """Path to the training config (``ultralytics_config.yaml``).
 
         Derived from ``data_path`` when not explicitly set, so callers (CLI,
         GUI, programmatic) do not need to assign it manually after a split:
         as long as ``project_path`` is set it resolves to
-        ``<project>/model/training_data/yolo_config.yaml``.
-        ``write_yolo_config`` still assigns it explicitly. Returns
+        ``<project>/model/training_data/ultralytics_config.yaml``.
+        ``write_analysis_config`` still assigns it explicitly. Returns
         ``None`` only when ``data_path`` is also unset.
         """
         if self._config_path is not None:
             return self._config_path
         if self.data_path is not None:
-            return self.data_path / "yolo_config.yaml"
+            return self.data_path / "ultralytics_config.yaml"
         return None
 
     @config_path.setter
@@ -270,7 +275,9 @@ class YOLO_octron:
                 # Only remove the model checkpoint directory if the
                 # mode has changed
                 if self.train_mode is not None:
-                    existing_config_path = self.data_path / "yolo_config.yaml"
+                    existing_config_path = (
+                        self.data_path / "ultralytics_config.yaml"
+                    )
                     if existing_config_path.exists():
                         with open(existing_config_path) as f:
                             existing_config = yaml.safe_load(f)
@@ -888,11 +895,11 @@ class YOLO_octron:
         """Return structured train/val/test split report data.
 
         See
-        :func:`octron.yolo_octron.helpers.split_report.build_split_report`
+        :func:`octron.analysis_octron.helpers.split_report.build_split_report`
         for the structure. Call after :meth:`prepare_split` and before
         export (the report reads mask lengths, which export pops).
         """
-        from octron.yolo_octron.helpers.split_report import (
+        from octron.analysis_octron.helpers.split_report import (
             build_split_report,
         )
 
@@ -906,7 +913,7 @@ class YOLO_octron:
         self,
         verbose=False,
     ):
-        """Create training data for YOLO segmentation.
+        """Create training data for segmentation.
 
         Exports the training data to the data_path folder. The
         training data consists of images and corresponding label text
@@ -1111,10 +1118,10 @@ class YOLO_octron:
         self,
         verbose=False,
     ):
-        """Create training data for YOLO detection (bbox-only).
+        """Create training data for detection (bbox-only).
 
         Same image export as create_training_data_segment(), but
-        writes label files in the YOLO detection format:
+        writes label files in the ultralytics detection format:
         `class x_center y_center width height`
         (all values normalized to [0, 1]).
 
@@ -1262,7 +1269,7 @@ class YOLO_octron:
                                 optimize=True,
                             )
 
-                        # Write label file in YOLO detection format:
+                        # Write label file in ultralytics detection format:
                         # class x_center y_center width height (all normalized)
                         with open(
                             self.data_path
@@ -1306,14 +1313,14 @@ class YOLO_octron:
         else:
             yield from self.create_training_data_segment(verbose=verbose)
 
-    def write_yolo_config(
+    def write_analysis_config(
         self,
         train_path="train",
         val_path="val",
         test_path="test",
         train_mode="segment",
     ):
-        """Write the YOLO configuration file for training.
+        """Write the training configuration file.
 
         Parameters
         ----------
@@ -1375,7 +1382,7 @@ class YOLO_octron:
                     label_id_label_dict[entry] = labels[entry]["label"]
 
         ######## Write the YAML config
-        self.config_path = dataset_path / "yolo_config.yaml"
+        self.config_path = dataset_path / "ultralytics_config.yaml"
 
         # Create the config dictionary
         config = {
@@ -1395,7 +1402,9 @@ class YOLO_octron:
             f.write(header)
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-        logger.info(f"YOLO config saved to '{self.config_path.as_posix()}'")
+        logger.info(
+            f"Training config saved to '{self.config_path.as_posix()}'"
+        )
 
     ##### TRAINING AND INFERENCE #######################################
     def resolve_model_name(self, model_name):
@@ -1422,81 +1431,274 @@ class YOLO_octron:
             (k for k in self.models_dict if k.lower() == model_lower), None
         )
 
-    def load_model(self, model_name_path, train_mode="segment"):
-        """Load the YOLO model.
+    def supports_task(self, model_name, train_mode):
+        """Return whether a catalog model supports the requested task.
+
+        Capability is read from the catalog variant for that task: a
+        non-empty ``model_path_detect`` (for ``'detect'``) or
+        ``model_path_seg`` (for ``'segment'``) means the task is
+        supported. Names that do not resolve to a catalog entry return
+        ``True`` — the check is a capability filter, not a name
+        validator, so unknown/file-path inputs defer to the loader.
+        """
+        resolved = self.resolve_model_name(model_name)
+        if resolved is None:
+            return True
+        variant_key = (
+            "model_path_detect" if train_mode == "detect" else "model_path_seg"
+        )
+        return bool(self.models_dict[resolved].get(variant_key))
+
+    @staticmethod
+    def _loader_for_model_type(model_type):
+        """Return the ultralytics model class for a normalized model_type.
+
+        Maps a normalized ``model_type`` (from :meth:`get_model_info`) to
+        its ultralytics loader class. Unknown/absent types fall back to
+        ``YOLO``. Add an entry here (plus a catalog entry) to support a
+        new model class.
+        """
+        from ultralytics import RTDETR, YOLO
+
+        loaders = {"rtdetr": RTDETR, "analysis": YOLO}
+        return loaders.get(model_type or "analysis", YOLO)
+
+    @staticmethod
+    def _patch_ultralytics_tb_graph():
+        """Skip ultralytics' TensorBoard model-graph trace for RT-DETR.
+
+        ultralytics logs the model graph once at train start via
+        ``_log_tensorboard_graph``, which is decorated with
+        ``@smart_inference_mode`` and traces the real model under
+        ``torch.inference_mode()``. For RT-DETR that traced forward
+        caches the decoder's ``anchors``/``valid_mask`` as inference
+        tensors, so the first training backward raises "Inference
+        tensors cannot be saved for backward" (ultralytics#23359).
+
+        Toggling ``SETTINGS['tensorboard']`` at runtime cannot fix this
+        (the callback's enabled-state is frozen when the module is first
+        imported). Instead we wrap ``_log_tensorboard_graph`` so it is a
+        no-op for RT-DETR models, leaving YOLO graph logging and all
+        scalar logging untouched. Installed once (idempotent); the
+        wrapper is resolved by name at call time so it applies
+        regardless of import order.
+        """
+        try:
+            from ultralytics.utils.callbacks import tensorboard as _tb
+        except Exception:
+            return
+        if getattr(_tb, "_octron_rtdetr_graph_patch", False):
+            return
+        original = getattr(_tb, "_log_tensorboard_graph", None)
+        if original is None:
+            return
+
+        def _skip_graph_for_rtdetr(trainer, _original=original):
+            try:
+                is_rtdetr = any(
+                    type(m).__name__ == "RTDETRDecoder"
+                    for m in trainer.model.modules()
+                )
+            except Exception:
+                is_rtdetr = False
+            if is_rtdetr:
+                logger.info(
+                    "RT-DETR: skipping ultralytics TensorBoard "
+                    "model-graph trace (its inference-mode forward "
+                    "would poison the decoder and crash training)."
+                )
+                return None
+            return _original(trainer)
+
+        _tb._log_tensorboard_graph = _skip_graph_for_rtdetr
+        _tb._octron_rtdetr_graph_patch = True
+
+    @staticmethod
+    def _patch_ultralytics_mlflow_artifacts():
+        """Stop the ultralytics MLflow callback from duplicating outputs.
+
+        ultralytics' MLflow ``on_train_end`` copies the whole ``weights``
+        directory (best/last/epoch checkpoints) *and* every result plot,
+        CSV and YAML from ``save_dir`` into the MLflow artifact store —
+        duplicating files that ultralytics already wrote to OCTRON's
+        training folder (RT-DETR checkpoints alone are ~63 MB each). Only
+        the logged *metrics* (loss/mAP/lr curves) are needed in MLflow
+        for the dashboard, and those are logged separately per epoch.
+
+        Replace ``on_train_end`` with one that just closes the run (no
+        artifact copy), leaving per-epoch metric logging untouched. The
+        module's ``callbacks`` dict is patched in place so the trainer
+        picks up the replacement at init (see
+        ``add_integration_callbacks``); installed once (idempotent).
+        """
+        try:
+            from ultralytics.utils.callbacks import mlflow as _mlf
+        except Exception:
+            return
+        if getattr(_mlf, "_octron_no_artifact_patch", False):
+            return
+        cbs = getattr(_mlf, "callbacks", None)
+        # Empty when the MLflow integration is disabled/unavailable; then
+        # there is nothing (and no duplication) to patch.
+        if not isinstance(cbs, dict) or "on_train_end" not in cbs:
+            return
+
+        def _end_run_without_artifacts(trainer):
+            """Close the MLflow run without copying training outputs."""
+            try:
+                import mlflow as _mlflow
+            except Exception:
+                return
+            keep_active = (
+                os.environ.get("MLFLOW_KEEP_RUN_ACTIVE", "False").lower()
+                == "true"
+            )
+            if not keep_active and _mlflow.active_run() is not None:
+                _mlflow.end_run()
+
+        _mlf.on_train_end = _end_run_without_artifacts
+        cbs["on_train_end"] = _end_run_without_artifacts
+        _mlf._octron_no_artifact_patch = True
+        logger.info(
+            "MLflow: not duplicating weights/plots into the artifact "
+            "store (they remain in the training folder); logging "
+            "metrics/curves only."
+        )
+
+    def load_model(
+        self, model_name_path, train_mode="segment", model_info=None
+    ):
+        """Load a prediction model, selecting the right ultralytics class.
+
+        The loader class (``YOLO`` vs ``RTDETR``) is inferred from the
+        weights themselves (via :meth:`get_model_info`), never the
+        filename, so it works for catalog base weights and trained
+        checkpoints alike.
 
         Parameters
         ----------
         model_name_path : str or Path
             Path to the model to load, or name of the model to load
-            (e.g. 'YOLO11m'). When loading from models_dict, the correct
-            variant (seg or detect) is selected based on train_mode.
+            (e.g. 'YOLO11m'). When loading from the catalog, the correct
+            variant (seg or detect) is selected based on train_mode; a
+            model that does not support the requested task (empty
+            variant) raises a ValueError.
         train_mode : str
-            'segment' or 'detect'. Determines which model variant to load
-            from models_dict (model_path_seg vs model_path_detect).
+            'segment' or 'detect'. Determines which catalog variant to
+            load (model_path_seg vs model_path_detect).
+        model_info : dict, optional
+            A precomputed :meth:`get_model_info` result for a checkpoint
+            on disk, used to avoid re-reading it (e.g. by predict_batch
+            across many videos). When None it is computed from the
+            resolved weights. Used only to pick the loader class.
 
         Returns
         -------
-        model : YOLO
-            Loaded YOLO model
+        model : YOLO or RTDETR
+            The loaded ultralytics model (class chosen from the weights).
 
         """
-        # Configure YOLO settings
+        # Configure ultralytics settings
         if not hasattr(self, "training_path") or self.training_path is None:
             pass
         else:
-            # Only update keys that exist in the installed ultralytics
-            # version — some keys (e.g. 'hub') have been removed in
-            # recent releases.
+            # OCTRON logs training with MLflow (local, no account),
+            # replacing the previous TensorBoard integration. Enable the
+            # ultralytics MLflow callback and disable TensorBoard (whose
+            # model-graph trace also crashes RT-DETR; see
+            # _patch_ultralytics_tb_graph). Only update keys that exist in
+            # the installed ultralytics version — some keys (e.g. 'hub')
+            # have been removed in recent releases.
             desired_settings = {
                 "sync": False,
-                "tensorboard": True,
+                "mlflow": True,
+                "tensorboard": False,
                 "runs_dir": self.training_path.as_posix(),
             }
             valid_settings = {
                 k: v
                 for k, v in desired_settings.items()
-                if k in self.yolo_settings
+                if k in self.analysis_settings
             }
             if valid_settings:
-                self.yolo_settings.update(valid_settings)
-        from ultralytics import YOLO
-
-        # Load specified model
+                self.analysis_settings.update(valid_settings)
+            # Point the ultralytics MLflow callback at a per-project,
+            # local file store so training runs are logged there and
+            # launch_training_logger() can serve the same location.
+            os.environ["MLFLOW_TRACKING_URI"] = str(
+                self.training_path / "mlflow"
+            )
+            # MLflow >=3 puts the plain filesystem store in "maintenance
+            # mode" and raises unless this opt-in is set. OCTRON uses a
+            # local per-project file store on purpose (single folder, no
+            # database/account), so opt in. The MLflow UI subprocess
+            # launched later inherits this env var.
+            os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
+        # Resolve the weights path and the model_info used to pick the
+        # loader class. A path that exists on disk is a checkpoint
+        # (trained model, resume, or predict); otherwise the name is
+        # resolved against the catalog.
         try:
-            assert Path(model_name_path).exists()
-            # If this path exists, load this model, otherwise
-            # assume that this models is part of the models_dict
-        except AssertionError as e:
-            # Not a file on disk — resolve the catalog name case-insensitively
-            # (e.g. 'yolo11m' -> 'YOLO11m') so callers need not match
-            # YAML casing.
+            is_file = Path(model_name_path).exists()
+        except (TypeError, OSError):
+            is_file = False
+
+        if is_file:
+            # Infer the loader from the checkpoint itself unless the
+            # caller already computed it (e.g. predict_batch).
+            if model_info is None:
+                model_info = self.get_model_info(model_name_path)
+        else:
+            # Not a file on disk — resolve the catalog name
+            # case-insensitively (e.g. 'yolo11m' -> 'YOLO11m') so callers
+            # need not match YAML casing.
             resolved = self.resolve_model_name(model_name_path)
             if resolved is None:
                 raise ValueError(
                     f"Unknown model '{model_name_path}': not an "
                     f"existing file and not in the model catalog. "
                     f"Available: {sorted(self.models_dict)}"
-                ) from e
+                )
             model_key = (
                 "model_path_detect"
                 if train_mode == "detect"
                 else "model_path_seg"
             )
-            model_filename = self.models_dict[resolved][model_key]
+            model_filename = self.models_dict[resolved].get(model_key)
+            if not model_filename:
+                # The requested task is unsupported by this model
+                # (empty variant in the catalog).
+                task_label = (
+                    "detection" if train_mode == "detect" else "segmentation"
+                )
+                other_label = (
+                    "segmentation" if train_mode == "detect" else "detection"
+                )
+                model_display = self.models_dict[resolved].get(
+                    "name", resolved
+                )
+                raise ValueError(
+                    f"Model '{model_display}' does not support "
+                    f"{task_label}; use {other_label} mode or pick a "
+                    f"{task_label}-capable model."
+                )
             # Weights are loaded from the per-user cache (see
-            # config.get_yolo_models_dir), where check_yolo_models
+            # config.get_analysis_models_dir), where check_analysis_models
             # downloads them.
             from octron import config as _octron_config
 
             model_name_path = (
-                _octron_config.get_yolo_models_dir() / model_filename
+                _octron_config.get_analysis_models_dir() / model_filename
             )
+            # Pick the loader from the resolved weight file itself.
+            model_info = self.get_model_info(model_name_path)
 
-        model = YOLO(model_name_path)
+        model_type = (model_info or {}).get("model_type") or "analysis"
+        loader_cls = self._loader_for_model_type(model_type)
+        model = loader_cls(model_name_path)
         logger.info(
-            f"Model loaded from '{model_name_path.as_posix()}' "
-            f"(mode: {train_mode})"
+            f"Model loaded from '{Path(model_name_path).as_posix()}' "
+            f"(mode: {train_mode}, loader: {loader_cls.__name__})"
         )
         self.model = model
         return model
@@ -1808,7 +2010,7 @@ class YOLO_octron:
         return batch
 
     def load_model_args(self, model_name_path):
-        """Load the YOLO model args.yaml (model training settings).
+        """Load the model args.yaml (model training settings).
 
         This file is supposed to be one level up of the "weights"
         folder for custom trained models.
@@ -1847,7 +2049,7 @@ class YOLO_octron:
         """Find whether rectangular or square training images are used.
 
         This determines the rect parameter and the correct imgsz for
-        YOLO training.
+        training.
 
         Samples up to *max_samples* images across all subdirectories so that
         the decision is robust even when multiple datasets contribute images
@@ -1921,7 +2123,7 @@ class YOLO_octron:
         resume=False,
         batch=-1,
     ):
-        """Train the YOLO model with epoch progress updates.
+        """Train the model with epoch progress updates.
 
         Parameters
         ----------
@@ -1956,9 +2158,21 @@ class YOLO_octron:
         if self.model is None:
             raise RuntimeError("😵 No model loaded!")
         if not hasattr(self.model, "train") or self.model.train is None:
-            # This happens if a non YOLO compliant model is loaded somehow
+            # This happens if a non-ultralytics-compliant model is loaded
+            # somehow
             raise AttributeError(
                 'The loaded model does not have a "train()" method.'
+            )
+
+        # RT-DETR is detection-only; refuse a segmentation run. The GUI
+        # menu and CLI already guard this, but keep a core safety net.
+        from ultralytics import RTDETR
+
+        if train_mode == "segment" and isinstance(self.model, RTDETR):
+            raise ValueError(
+                "The loaded model is RT-DETR, which is detection-only "
+                "and cannot be trained in segmentation mode. Switch to "
+                "detection mode or choose a segmentation-capable model."
             )
 
         # Clear any existing callbacks
@@ -2064,7 +2278,7 @@ class YOLO_octron:
             )
 
         assert imagesz > 0 and imagesz % 32 == 0, (
-            "YOLO image size must be a positive multiple of 32"
+            "Training image size must be a positive multiple of 32"
         )
 
         # Resolve a cached AutoBatch size for CUDA when the caller
@@ -2174,6 +2388,64 @@ class YOLO_octron:
                     train_kwargs["mask_ratio"] = 1
                     train_kwargs["overlap_mask"] = True
 
+                # RT-DETR-specific parameters
+                if isinstance(self.model, RTDETR):
+                    # ultralytics' RTDETRDataset.build_transforms builds a
+                    # local lambda that cannot be pickled to DataLoader
+                    # worker processes. On 'spawn' start methods (Windows,
+                    # macOS) that makes training hang/err at the very first
+                    # batch, so force single-process loading there. 'fork'
+                    # (Linux) does not pickle the dataset, so the default
+                    # workers stay and remain fast. Training images are
+                    # disk-cached, so workers=0 is a minor cost.
+                    # See ultralytics#22816 (fixed only on recent main).
+                    import multiprocessing
+
+                    if (
+                        multiprocessing.get_start_method(allow_none=False)
+                        != "fork"
+                    ):
+                        train_kwargs["workers"] = 0
+                        logger.info(
+                            "RT-DETR on a non-fork start method: setting "
+                            "workers=0 to avoid a dataloader deadlock."
+                        )
+                    # RT-DETR's deformable attention (F.grid_sample) has no
+                    # deterministic CUDA backward; ultralytics recommends
+                    # deterministic=False for RT-DETR to avoid errors and
+                    # throughput loss.
+                    train_kwargs["deterministic"] = False
+                    # RT-DETR + AMP (float16) is numerically fragile: its
+                    # transformer attention can emit inf/NaN that stalls or
+                    # breaks the bipartite (Hungarian) matcher on the very
+                    # first backward, which presents as a hang at 0/N even
+                    # with workers=0 (ultralytics#7594/#21105/#3439). Train
+                    # RT-DETR in full precision; it is a small model and
+                    # OCTRON users typically have ample VRAM.
+                    train_kwargs["amp"] = False
+                    logger.info(
+                        "RT-DETR: disabling AMP (full-precision training) "
+                        "for numerical stability."
+                    )
+                    # Defensive guard: OCTRON logs with MLflow and disables
+                    # TensorBoard, but the TensorBoard callback's enabled
+                    # state is frozen at import, so it may still be active
+                    # from an earlier import. Its model-graph trace
+                    # (_log_tensorboard_graph, @smart_inference_mode) runs
+                    # the real model under torch.inference_mode() at train
+                    # start and caches the RT-DETR decoder's
+                    # anchors/valid_mask as inference tensors, crashing the
+                    # first backward ("Inference tensors cannot be saved
+                    # for backward", ultralytics#23359). Neutralize that
+                    # trace for RT-DETR regardless of TensorBoard state.
+                    self._patch_ultralytics_tb_graph()
+
+                # Stop the ultralytics MLflow callback from duplicating
+                # training outputs (weights dir + result plots/CSVs) into
+                # its artifact store — they already live in the training
+                # folder. Per-epoch metrics/curves are still logged.
+                self._patch_ultralytics_mlflow_artifacts()
+
                 self.model.train(**train_kwargs)
             except Exception as e:
                 training_error = e
@@ -2204,35 +2476,35 @@ class YOLO_octron:
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
 
-    def launch_tensorboard(self):
-        """Launch TensorBoard with the training directory in a web browser.
+    def launch_training_logger(self):
+        """Launch the MLflow tracking UI for the training run in a browser.
 
-        Checks if TensorBoard is installed, launches it with the
-        training directory, and opens a web browser to view the
-        TensorBoard interface. Chooses a random port every time to
-        avoid port collisions. If TensorBoard is not installed, it
-        will attempt to install it using pip.
+        Starts a local ``mlflow ui`` server pointing at OCTRON's
+        per-project MLflow file store (set via ``MLFLOW_TRACKING_URI`` in
+        :meth:`load_model`) and opens a web browser. MLflow is installed
+        via pip if missing. A random port is chosen every time to avoid
+        collisions. Runs fully locally — no account or network required.
 
         Returns
         -------
         bool
-            True if TensorBoard was successfully launched, False otherwise
+            True if the MLflow UI was successfully launched, else False.
 
         """
         import random
 
-        # Check if tensorboard is installed
-        if importlib.util.find_spec("tensorboard") is None:
-            logger.info("TensorBoard is not installed. Installing now...")
+        # Check if mlflow is installed
+        if importlib.util.find_spec("mlflow") is None:
+            logger.info("MLflow is not installed. Installing now...")
             try:
                 subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install", "tensorboard"]
+                    [sys.executable, "-m", "pip", "install", "mlflow"]
                 )
-                logger.info("TensorBoard installed successfully!")
+                logger.info("MLflow installed successfully!")
             except subprocess.CalledProcessError:
                 logger.error(
-                    "Failed to install TensorBoard. Please install "
-                    "it manually with: pip install tensorboard"
+                    "Failed to install MLflow. Please install "
+                    "it manually with: pip install mlflow"
                 )
                 return False
 
@@ -2246,18 +2518,26 @@ class YOLO_octron:
             )
             return False
 
-        # Launch tensorboard in a separate process
-        log_dir = self.training_path / "training"
+        # MLflow >=3 gates the filesystem store behind this opt-in, and
+        # the UI server opens that store too. The training process sets
+        # it in load_model; set it here as well so a standalone launch
+        # (and the inherited subprocess env) also works.
+        os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
+        # Serve the same local file store the ultralytics MLflow callback
+        # logs to (MLFLOW_TRACKING_URI, set in load_model).
+        tracking_dir = self.training_path / "mlflow"
+        tracking_dir.mkdir(parents=True, exist_ok=True)
         try:
             port = random.randint(6000, 7000)
-            logger.info(f"Starting TensorBoard on port {port}...")
-            tensorboard_process = subprocess.Popen(
+            logger.info(f"Starting MLflow UI on port {port}...")
+            mlflow_process = subprocess.Popen(
                 [
                     sys.executable,
                     "-m",
-                    "tensorboard.main",
-                    "--logdir",
-                    log_dir.as_posix(),
+                    "mlflow",
+                    "ui",
+                    "--backend-store-uri",
+                    str(tracking_dir),
                     "--port",
                     str(port),
                 ],
@@ -2266,33 +2546,32 @@ class YOLO_octron:
                 text=True,
             )
 
-            # Give it a moment to start up
-            time.sleep(3)
+            # Give it a moment to start up (the MLflow server can take a
+            # few seconds to come online).
+            time.sleep(5)
 
             # Check if process is still running
-            if tensorboard_process.poll() is not None:
+            if mlflow_process.poll() is not None:
                 # Process terminated - get error message
-                _, stderr = tensorboard_process.communicate()
-                logger.error(f"Failed to start TensorBoard: {stderr}")
+                _, stderr = mlflow_process.communicate()
+                logger.error(f"Failed to start MLflow UI: {stderr}")
                 return False
 
             # Open web browser
-            tensorboard_url = f"http://localhost:{port}/"
-            logger.info(f"Opening TensorBoard in browser: {tensorboard_url}")
-            webbrowser.open(
-                tensorboard_url, new=1
-            )  # to open in new browser window (fingers crossed this works...)
+            mlflow_url = f"http://localhost:{port}/"
+            logger.info(f"Opening MLflow UI in browser: {mlflow_url}")
+            webbrowser.open(mlflow_url, new=1)  # open in a new window
 
-            logger.info("TensorBoard is running.")
+            logger.info("MLflow UI is running.")
             return True
 
         except Exception as e:
-            logger.error(f"Error launching TensorBoard: {e}")
+            logger.error(f"Error launching MLflow UI: {e}")
             return False
 
-    def _quit_tensorboard_posix(self):
-        """Terminate TensorBoard on Unix-like systems."""
-        # Find processes with tensorboard in the command
+    def _quit_training_logger_posix(self):
+        """Terminate MLflow UI/server processes on Unix-like systems."""
+        # Find processes with mlflow in the command
         result = subprocess.run(
             ["ps", "-ef"], capture_output=True, text=True, check=True
         )
@@ -2300,27 +2579,27 @@ class YOLO_octron:
         found_processes = False
 
         for line in lines:
-            if "tensorboard.main" in line or "tensorboard " in line:
+            if "mlflow" in line.lower():
                 # Extract PID and kill
                 parts = line.split()
                 if len(parts) >= 2:
                     try:
                         pid = int(parts[1])
                         logger.info(
-                            f"Terminating TensorBoard process with PID {pid}"
+                            f"Terminating MLflow process with PID {pid}"
                         )
                         os.kill(pid, signal.SIGTERM)
                         found_processes = True
                     except (ValueError, ProcessLookupError) as e:
                         logger.error(
-                            f"Failed to terminate TensorBoard process: {e}"
+                            f"Failed to terminate MLflow process: {e}"
                         )
 
         if not found_processes:
-            logger.info("No TensorBoard processes found")
+            logger.info("No MLflow processes found")
 
-    def _quit_tensorboard_windows(self):
-        """Terminate TensorBoard on Windows."""
+    def _quit_training_logger_windows(self):
+        """Terminate MLflow UI/server processes on Windows."""
         # Use tasklist and taskkill on Windows
         result = subprocess.run(
             [
@@ -2336,41 +2615,39 @@ class YOLO_octron:
         found_processes = False
 
         for line in result.stdout.split("\n"):
-            if "tensorboard" in line.lower():
+            if "mlflow" in line.lower():
                 try:
                     parts = line.strip('"').split('","')
                     if len(parts) >= 2:
                         pid = int(parts[1])
                         logger.info(
-                            f"Terminating TensorBoard process with PID {pid}"
+                            f"Terminating MLflow process with PID {pid}"
                         )
                         subprocess.run(["taskkill", "/F", "/PID", str(pid)])
                         found_processes = True
                 except (ValueError, IndexError) as e:
-                    logger.error(
-                        f"Failed to terminate TensorBoard process: {e}"
-                    )
+                    logger.error(f"Failed to terminate MLflow process: {e}")
 
         if not found_processes:
-            logger.info("No TensorBoard processes found")
+            logger.info("No MLflow processes found")
 
-    def quit_tensorboard(self):
-        """Find and quit all TensorBoard processes.
+    def quit_training_logger(self):
+        """Find and quit all MLflow UI/server processes.
 
         Covers both Unix-like systems and Windows platforms.
         """
-        logger.info("Stopping any running TensorBoard processes...")
+        logger.info("Stopping any running MLflow processes...")
 
         try:
             # Check platform-specific approach
             if os.name == "posix":  # Unix-like systems (macOS, Linux)
-                self._quit_tensorboard_posix()
+                self._quit_training_logger_posix()
             elif os.name == "nt":  # Windows
-                self._quit_tensorboard_windows()
+                self._quit_training_logger_windows()
             else:
                 logger.warning(f"Unsupported platform: {os.name}")
         except Exception as e:
-            logger.error(f"Error when terminating TensorBoard processes: {e}")
+            logger.error(f"Error when terminating MLflow processes: {e}")
 
     def validate(self, data=None, device="auto", plots=True):
         """Validate the model.
@@ -2411,7 +2688,7 @@ class YOLO_octron:
 
     @staticmethod
     def get_model_info(model_path):
-        """Extract metadata from a trained YOLO model checkpoint.
+        """Extract metadata from a trained model checkpoint.
 
         Used to build the contents of a display tooltip.
 
@@ -2423,9 +2700,10 @@ class YOLO_octron:
         Returns
         -------
         dict
-            Dictionary with keys: task, architecture, imgsz, epochs,
-            num_classes, class_names, trained_on.  Values are None when
-            the information could not be determined.
+            Dictionary with keys: task, model_type, architecture, imgsz,
+            epochs, num_classes, class_names, trained_on.  ``model_type``
+            is a normalized loader family ('analysis' or 'rtdetr'); the other
+            values are None when the information could not be determined.
 
         """
         import os
@@ -2436,6 +2714,7 @@ class YOLO_octron:
 
         info = dict(
             task=None,
+            model_type="analysis",
             architecture=None,
             imgsz=None,
             epochs=None,
@@ -2457,14 +2736,30 @@ class YOLO_octron:
         if not isinstance(train_args, dict):
             train_args = {}
 
+        # Model class name from the stored model object, used for both
+        # the task fallback and loader selection.
+        model_cls_name = (
+            type(ckpt["model"]).__name__
+            if ckpt.get("model") is not None
+            else ""
+        )
+
         # Task
         info["task"] = train_args.get("task")
-        if info["task"] is None and "model" in ckpt:
-            cls_name = type(ckpt["model"]).__name__
-            if "Segment" in cls_name:
+        if info["task"] is None and model_cls_name:
+            if "Segment" in model_cls_name:
                 info["task"] = "segment"
-            elif "Detect" in cls_name:
+            elif "Detect" in model_cls_name:
                 info["task"] = "detect"
+
+        # Normalized model family used to pick the ultralytics loader
+        # class (see _loader_for_model_type). Derived from the stored
+        # model class so it works for both base weights and trained
+        # checkpoints; task alone cannot distinguish RT-DETR (its task
+        # is also 'detect').
+        info["model_type"] = (
+            "rtdetr" if "RTDETR" in model_cls_name else "analysis"
+        )
 
         # Architecture / base model (store just the filename, not
         # the full path)
@@ -2736,7 +3031,7 @@ class YOLO_octron:
             - list: List of video file paths (str or Path)
             When passing paths, video metadata will be automatically probed.
         model_path : str or Path
-            Path to the YOLO model to use for prediction.
+            Path to the model to use for prediction.
         device : str
             Device to run prediction on ('cpu', 'cuda', etc.)
         tracker_name : str, optional
@@ -2909,12 +3204,16 @@ class YOLO_octron:
                         f"Available: {list(config_parameters.keys())}"
                     )
 
-        # Check YOLO configuration
+        # Validate the model path
         model_path = Path(model_path)
         assert model_path.exists(), f"Model path {model_path} does not exist."
 
-        # Determine model task (detect vs segment)
-        model_task = self.get_model_info(model_path).get("task") or "segment"
+        # Determine model task (detect vs segment). Read the checkpoint
+        # metadata once and reuse it for the per-video model load below,
+        # so the loader class (YOLO vs RTDETR) is chosen without
+        # re-reading the checkpoint each iteration.
+        model_meta = self.get_model_info(model_path)
+        model_task = model_meta.get("task") or "segment"
         is_segment = model_task == "segment"
         logger.info(
             f"Model task: {model_task} "
@@ -2976,7 +3275,7 @@ class YOLO_octron:
         import atexit
 
         from octron import config as _octron_config
-        from octron.yolo_octron.helpers.cache_io import (
+        from octron.analysis_octron.helpers.cache_io import (
             is_network_path,
             move_prediction_folder,
         )
@@ -3056,7 +3355,9 @@ class YOLO_octron:
 
             # Load model anew for every video since the tracker persists
             try:
-                model = self.load_model(model_name_path=model_path)
+                model = self.load_model(
+                    model_name_path=model_path, model_info=model_meta
+                )
                 if not model:
                     logger.error(f"Failed to load model from {model_path}")
                     return
@@ -3803,7 +4104,7 @@ class YOLO_octron:
         sigma_tracking_pos=2,
         open_viewer=True,
     ):
-        """Load the predictions in a OCTRON (YOLO) output directory.
+        """Load the predictions in an OCTRON output directory.
 
         Optionally displays them in a new napari viewer.
 
@@ -3836,40 +4137,54 @@ class YOLO_octron:
 
 
         """
-        yolo_results = YOLO_results(save_dir)
-        track_id_label = yolo_results.track_id_label
+        save_dir = Path(save_dir)
+        analysis_results = AnalysisResults(save_dir)
+        track_id_label = analysis_results.track_id_label
         assert track_id_label is not None, (
             "No track ID - label mapping found in the results"
         )
-        has_masks = yolo_results.has_masks
-        tracking_data = yolo_results.get_tracking_data(
+        if not track_id_label:
+            # No prediction results for this video (e.g. zero
+            # detections/tracks). Nothing to load — warn and bail out
+            # before touching any further per-track files (tracking
+            # CSVs, mask zarr), which would otherwise raise.
+            logger.warning(
+                f"No prediction results found in '{save_dir.name}' — "
+                f"nothing to load (were any objects detected/tracked "
+                f"in this video?)."
+            )
+            return
+        has_masks = analysis_results.has_masks
+        tracking_data = analysis_results.get_tracking_data(
             interpolate=True,
             interpolate_method="linear",
             interpolate_limit=None,
             sigma=sigma_tracking_pos,
         )
-        mask_data = yolo_results.get_mask_data() if has_masks else {}
+        mask_data = analysis_results.get_mask_data() if has_masks else {}
 
         if open_viewer:
             viewer = napari.Viewer()
             if (
-                yolo_results.video is not None
-                and yolo_results.video_dict is not None
+                analysis_results.video is not None
+                and analysis_results.video_dict is not None
             ):
                 add_layer = viewer.add_image
                 layer_dict = {
-                    "name": yolo_results.video_dict["video_name"],
-                    "metadata": yolo_results.video_dict,
+                    "name": analysis_results.video_dict["video_name"],
+                    "metadata": analysis_results.video_dict,
                 }
-                add_layer(yolo_results.video, **layer_dict)
+                add_layer(analysis_results.video, **layer_dict)
             elif (
-                yolo_results.height is not None
-                and yolo_results.width is not None
+                analysis_results.height is not None
+                and analysis_results.width is not None
             ):
                 add_layer = viewer.add_image
                 layer_dict = {"name": "dummy mask"}
                 add_layer(
-                    np.zeros((yolo_results.height, yolo_results.width)),
+                    np.zeros(
+                        (analysis_results.height, analysis_results.width)
+                    ),
                     **layer_dict,
                 )
             else:
@@ -3892,7 +4207,7 @@ class YOLO_octron:
                     f"(label '{label}'), skipping."
                 )
                 continue
-            color, napari_colormap = yolo_results.get_color_for_track_id(
+            color, napari_colormap = analysis_results.get_color_for_track_id(
                 track_id
             )
             tracking_df = tracking_data[track_id]["data"]
@@ -3951,7 +4266,7 @@ class YOLO_octron:
                 )
                 viewer.layers[f"{label} - id {track_id}"].tail_width = 3
                 viewer.layers[f"{label} - id {track_id}"].tail_length = min(
-                    yolo_results.num_frames, 250
+                    analysis_results.num_frames, 250
                 )
                 viewer.layers[
                     f"{label} - id {track_id}"

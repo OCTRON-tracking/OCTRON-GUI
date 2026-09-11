@@ -1,10 +1,10 @@
 """Tests for tracklet centroid smoothing and gap interpolation.
 
-Both now live in core ``YOLO_results.get_tracking_data`` (shared by the CLI
+Both now live in core ``AnalysisResults.get_tracking_data`` (shared by the CLI
 render path and the napari GUI), so they are exercised here through that single
 core entry point rather than a render-local duplicate.
 
-A lightweight ``YOLO_results`` is built via ``__new__`` (bypassing
+A lightweight ``AnalysisResults`` is built via ``__new__`` (bypassing
 ``__init__``),
 backed by one on-disk tracking CSV, so no video, zarr, or model is required.
 """
@@ -12,7 +12,7 @@ backed by one on-disk tracking CSV, so no video, zarr, or model is required.
 import numpy as np
 import pandas as pd
 
-from octron.yolo_octron.helpers.yolo_results import YOLO_results
+from octron.analysis_octron.helpers.analysis_results import AnalysisResults
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -20,7 +20,7 @@ from octron.yolo_octron.helpers.yolo_results import YOLO_results
 
 
 def _results(tmp_path, frames, xs, ys, num_frames, header_lines=0):
-    """Build a YOLO_results (no __init__) backed by one tracking CSV."""
+    """Build a AnalysisResults (no __init__) backed by one tracking CSV."""
     frames = list(frames)
     df = pd.DataFrame(
         {
@@ -35,7 +35,7 @@ def _results(tmp_path, frames, xs, ys, num_frames, header_lines=0):
     csv = tmp_path / "a_track_1.csv"
     df.to_csv(csv, index=False)
 
-    obj = YOLO_results.__new__(YOLO_results)
+    obj = AnalysisResults.__new__(AnalysisResults)
     obj.csvs = [csv]
     obj.csv_header_lines = header_lines
     obj.num_frames = num_frames
