@@ -203,10 +203,15 @@ class AnalysisResults:
         """Locate the tracking CSV files in the results directory."""
         results_dir = self.results_dir
         csvs = natsorted(results_dir.rglob("*track_*.csv"))
-        if not csvs and self.verbose:
-            logger.warning(
-                f"No tracking CSV files found in '{results_dir.name}'"
-            )
+        if not csvs:
+            # No tracking CSVs at all is a valid outcome (e.g. zero
+            # detections/tracks). Always record it as None regardless
+            # of verbosity — verbose only controls whether this is
+            # logged, not what state is recorded.
+            if self.verbose:
+                logger.warning(
+                    f"No tracking CSV files found in '{results_dir.name}'"
+                )
             self.csvs = None
         else:
             self.csvs = csvs
@@ -408,6 +413,26 @@ class AnalysisResults:
         csv_ids, csv_labels, track_id_label, csv_frame_indices = (
             _track_ids_labels_csv(self.csv_header_lines)
         )
+
+        if self.csvs is None:
+            # No tracking CSVs at all — a valid outcome (e.g. zero
+            # detections/tracks for the whole video), not an error.
+            # Leave the track/label collections empty so callers (e.g.
+            # AnalysisOctron.load_predictions) can detect "no results"
+            # and bail out gracefully instead of this constructor
+            # raising on an otherwise perfectly valid, if empty,
+            # results directory.
+            if self.verbose:
+                logger.warning(
+                    f"No tracking results found in "
+                    f"'{self.results_dir.name}' (zero detections?). "
+                    f"Track ID / label lookups will be empty."
+                )
+            self.track_ids = []
+            self.labels = []
+            self.track_id_label = {}
+            self._csv_frame_indices = {}
+            return
 
         if not csv_ids:
             raise ValueError("No track IDs found in CSV files.")

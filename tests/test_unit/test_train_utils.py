@@ -368,3 +368,21 @@ def test_patch_mlflow_artifacts_removes_duplication(monkeypatch):
     # Idempotent: a second call keeps the already-patched function.
     AnalysisOctron._patch_ultralytics_mlflow_artifacts()
     assert m.callbacks["on_train_end"] is end_fn
+
+
+# ---------------------------------------------------------------------------
+# load_predictions — empty results (zero detections/tracks for a video)
+#
+# Regression: ticking "View results" for a video with zero detections used
+# to raise ValueError deep inside AnalysisResults, crashing the batch
+# prediction worker. load_predictions() must now detect the empty-results
+# case and simply yield nothing.
+# ---------------------------------------------------------------------------
+
+
+def test_load_predictions_empty_results_yields_nothing(tmp_path):
+    obj = AnalysisOctron.__new__(AnalysisOctron)
+    results_dir = tmp_path / "clip_ByteTrack"
+    results_dir.mkdir()
+    predictions = obj.load_predictions(save_dir=results_dir, open_viewer=False)
+    assert list(predictions) == []

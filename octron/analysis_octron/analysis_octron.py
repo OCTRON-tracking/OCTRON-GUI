@@ -4137,11 +4137,23 @@ class AnalysisOctron:
 
 
         """
+        save_dir = Path(save_dir)
         analysis_results = AnalysisResults(save_dir)
         track_id_label = analysis_results.track_id_label
         assert track_id_label is not None, (
             "No track ID - label mapping found in the results"
         )
+        if not track_id_label:
+            # No prediction results for this video (e.g. zero
+            # detections/tracks). Nothing to load — warn and bail out
+            # before touching any further per-track files (tracking
+            # CSVs, mask zarr), which would otherwise raise.
+            logger.warning(
+                f"No prediction results found in '{save_dir.name}' — "
+                f"nothing to load (were any objects detected/tracked "
+                f"in this video?)."
+            )
+            return
         has_masks = analysis_results.has_masks
         tracking_data = analysis_results.get_tracking_data(
             interpolate=True,

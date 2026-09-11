@@ -1449,17 +1449,30 @@ class AnalysisHandler(QObject):
             # Show results?
             save_dir = progress_info.get("save_dir", "")
             if self.view_prediction_results:
-                for (
-                    label,
-                    track_id,
-                    _,
-                    _,
-                    _,
-                    _,
-                ) in self.analysis.load_predictions(save_dir=save_dir):
-                    logger.debug(
-                        f"Adding tracking result to viewer | "
-                        f"Label: {label}, Track ID: {track_id}"
+                try:
+                    for (
+                        label,
+                        track_id,
+                        _,
+                        _,
+                        _,
+                        _,
+                    ) in self.analysis.load_predictions(save_dir=save_dir):
+                        logger.debug(
+                            f"Adding tracking result to viewer | "
+                            f"Label: {label}, Track ID: {track_id}"
+                        )
+                except Exception as e:
+                    # Never let a results-loading hiccup (e.g. an
+                    # unexpected/corrupted output) crash the batch
+                    # prediction worker — log it and keep going with
+                    # the remaining videos.
+                    logger.warning(
+                        f"Could not load prediction results for "
+                        f"'{video_name}': {e}"
+                    )
+                    show_warning(
+                        f"Could not load results for '{video_name}': {e}"
                     )
 
         elif stage == "skipped_video":
