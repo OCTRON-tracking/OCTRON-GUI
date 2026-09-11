@@ -1454,6 +1454,56 @@ class YOLO_octron:
         loaders = {"rtdetr": RTDETR, "yolo": YOLO}
         return loaders.get(model_type or "yolo", YOLO)
 
+    @staticmethod
+    def _patch_ultralytics_tb_graph():
+        """Skip ultralytics' TensorBoard model-graph trace for RT-DETR.
+
+        ultralytics logs the model graph once at train start via
+        ``_log_tensorboard_graph``, which is decorated with
+        ``@smart_inference_mode`` and traces the real model under
+        ``torch.inference_mode()``. For RT-DETR that traced forward
+        caches the decoder's ``anchors``/``valid_mask`` as inference
+        tensors, so the first training backward raises "Inference
+        tensors cannot be saved for backward" (ultralytics#23359).
+
+        Toggling ``SETTINGS['tensorboard']`` at runtime cannot fix this
+        (the callback's enabled-state is frozen when the module is first
+        imported). Instead we wrap ``_log_tensorboard_graph`` so it is a
+        no-op for RT-DETR models, leaving YOLO graph logging and all
+        scalar logging untouched. Installed once (idempotent); the
+        wrapper is resolved by name at call time so it applies
+        regardless of import order.
+        """
+        try:
+            from ultralytics.utils.callbacks import tensorboard as _tb
+        except Exception:
+            return
+        if getattr(_tb, "_octron_rtdetr_graph_patch", False):
+            return
+        original = getattr(_tb, "_log_tensorboard_graph", None)
+        if original is None:
+            return
+
+        def _skip_graph_for_rtdetr(trainer, _original=original):
+            try:
+                is_rtdetr = any(
+                    type(m).__name__ == "RTDETRDecoder"
+                    for m in trainer.model.modules()
+                )
+            except Exception:
+                is_rtdetr = False
+            if is_rtdetr:
+                logger.info(
+                    "RT-DETR: skipping ultralytics TensorBoard "
+                    "model-graph trace (its inference-mode forward "
+                    "would poison the decoder and crash training)."
+                )
+                return None
+            return _original(trainer)
+
+        _tb._log_tensorboard_graph = _skip_graph_for_rtdetr
+        _tb._octron_rtdetr_graph_patch = True
+
     def load_model(
         self, model_name_path, train_mode="segment", model_info=None
     ):
@@ -2298,6 +2348,19 @@ class YOLO_octron:
                         "RT-DETR: disabling AMP (full-precision training) "
                         "for numerical stability."
                     )
+                    # ultralytics' TensorBoard integration traces the real
+                    # model under torch.inference_mode() at train start
+                    # (_log_tensorboard_graph is @smart_inference_mode);
+                    # for RT-DETR that traced forward caches the decoder's
+                    # anchors/valid_mask as inference tensors, so the first
+                    # training backward raises "Inference tensors cannot be
+                    # saved for backward" (ultralytics#23359). In the GUI
+                    # the worker thread swallows it and it looks like a
+                    # hang at 0/N. Toggling SETTINGS["tensorboard"] at
+                    # runtime does not help (the callback is frozen at
+                    # import), so neutralize just the graph trace for
+                    # RT-DETR; scalar logging still works.
+                    self._patch_ultralytics_tb_graph()
 
                 self.model.train(**train_kwargs)
             except Exception as e:
