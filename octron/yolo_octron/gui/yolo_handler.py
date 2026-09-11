@@ -96,7 +96,7 @@ class YoloHandler(QObject):
         self.w.videos_for_prediction_list.currentIndexChanged.connect(
             self.on_video_prediction_change
         )
-        self.w.yolomodel_tracker_list.currentIndexChanged.connect(
+        self.w.tracker_list.currentIndexChanged.connect(
             self.on_tracker_selection_change
         )
         self.w.tune_tracker_btn.clicked.connect(self.on_tune_tracker_clicked)
@@ -107,7 +107,7 @@ class YoloHandler(QObject):
             self.on_detailed_extraction_clicked
         )
         self.w.train_resume_checkBox.toggled.connect(self.on_resume_toggled)
-        self.w.yolomodel_trained_list.currentIndexChanged.connect(
+        self.w.trained_model_list.currentIndexChanged.connect(
             self.on_trained_model_changed
         )
 
@@ -118,8 +118,8 @@ class YoloHandler(QObject):
         image size dropdowns to signal that these options are ignored
         when resuming.
         """
-        self.w.yolomodel_list.setEnabled(not checked)
-        self.w.yoloimagesize_list.setEnabled(not checked)
+        self.w.training_model_list.setEnabled(not checked)
+        self.w.training_imgz_list.setEnabled(not checked)
 
     def on_trained_model_changed(self, index):
         """Enable/disable mask-related prediction options for the model.
@@ -132,11 +132,11 @@ class YoloHandler(QObject):
             self.w.predict_mask_opening_spinbox.setEnabled(True)
             self.w.prediction_mask_opening_label.setEnabled(True)
             self.w.detailed_extraction_checkBox.setEnabled(True)
-            self.w.yolomodel_trained_list.setToolTip("")
+            self.w.trained_model_list.setToolTip("")
             return
 
-        model_name = self.w.yolomodel_trained_list.currentText()
-        self.w.yolomodel_trained_list.setToolTip(model_name)
+        model_name = self.w.trained_model_list.currentText()
+        self.w.trained_model_list.setToolTip(model_name)
         model_path = self.trained_models.get(model_name)
         if model_path is None:
             return
@@ -161,8 +161,8 @@ class YoloHandler(QObject):
         model is a segmentation (purple) or detection (blue) model.
         """
         # Clear the old list, and re-instantiate
-        self.w.yolomodel_trained_list.clear()
-        self.w.yolomodel_trained_list.addItem("Model ...")
+        self.w.trained_model_list.clear()
+        self.w.trained_model_list.addItem("Model ...")
         trained_models = self.yolo.find_trained_models(
             search_path=self.w.project_path
         )
@@ -170,7 +170,7 @@ class YoloHandler(QObject):
             self.w.main_toolbox.widget(3).setEnabled(False)
             return
 
-        # Write the trained models to yolomodel_trained_list one by one
+        # Write the trained models to trained_model_list one by one
         for model in trained_models:
             # This is to clearly identify the model
             # in the list, since the model name is not unique
@@ -183,13 +183,13 @@ class YoloHandler(QObject):
             color = TASK_COLORS.get(task)
             if color:
                 icon = create_color_icon(color)
-                self.w.yolomodel_trained_list.addItem(icon, model_name)
+                self.w.trained_model_list.addItem(icon, model_name)
             else:
-                self.w.yolomodel_trained_list.addItem(model_name)
+                self.w.trained_model_list.addItem(model_name)
             # Build a multi-line tooltip from the model metadata
             tooltip = self._build_model_tooltip(info, model)
-            idx = self.w.yolomodel_trained_list.count() - 1
-            self.w.yolomodel_trained_list.setItemData(
+            idx = self.w.trained_model_list.count() - 1
+            self.w.trained_model_list.setItemData(
                 idx, tooltip, Qt.ToolTipRole
             )
         # Enable prediction tab if trained models are available
@@ -839,11 +839,11 @@ class YoloHandler(QObject):
                 show_info("No checkpoint found — starting fresh.")
 
         if not self.resume_training and not self.init_from_checkpoint:
-            index_model_list = self.w.yolomodel_list.currentIndex()
+            index_model_list = self.w.training_model_list.currentIndex()
             if index_model_list == 0:
                 show_warning("Please select a YOLO model")
                 return
-            model_name = self.w.yolomodel_list.currentText()
+            model_name = self.w.training_model_list.currentText()
             # Reverse lookup model_id
             # B007: model_id is read after the loop (reverse lookup)
             for model_id, model in (  # noqa: B007
@@ -851,11 +851,11 @@ class YoloHandler(QObject):
             ):
                 if model["name"] == model_name:
                     break
-            index_imagesize_list = self.w.yoloimagesize_list.currentIndex()
+            index_imagesize_list = self.w.training_imgz_list.currentIndex()
             if index_imagesize_list == 0:
                 show_warning("Please select an image size")
                 return
-            self.image_size_yolo = int(self.w.yoloimagesize_list.currentText())
+            self.image_size_yolo = int(self.w.training_imgz_list.currentText())
             if self.image_size_yolo % 32 != 0:
                 show_warning("Training image size must be divisible by 32")
                 return
@@ -913,8 +913,8 @@ class YoloHandler(QObject):
             self.w.start_stop_training_btn.setEnabled(False)
             # Disable training controls during training
             self.w.main_toolbox.widget(1).setEnabled(False)  # Annotation
-            self.w.yolomodel_list.setEnabled(False)
-            self.w.yoloimagesize_list.setEnabled(False)
+            self.w.training_model_list.setEnabled(False)
+            self.w.training_imgz_list.setEnabled(False)
             self.w.train_resume_checkBox.setEnabled(False)
             self.w.train_training_overwrite_checkBox.setEnabled(False)
             self.w.launch_training_logger_checkBox.setEnabled(False)
@@ -1021,8 +1021,8 @@ class YoloHandler(QObject):
             # Re-enable training controls (disabled during training)
             self.w.train_resume_checkBox.setEnabled(True)
             self.w.launch_training_logger_checkBox.setEnabled(True)
-            self.w.yolomodel_list.setEnabled(True)
-            self.w.yoloimagesize_list.setEnabled(True)
+            self.w.training_model_list.setEnabled(True)
+            self.w.training_imgz_list.setEnabled(True)
             self.w.num_epochs_input.setEnabled(True)
             self.w.save_period_input.setEnabled(True)
             # Reset pipeline flags so data generation can be re-entered
@@ -1057,26 +1057,26 @@ class YoloHandler(QObject):
             self.w.tune_tracker_btn.setEnabled(True)
             self.w.tune_tracker_btn.setText("Tune")
             self.w.tune_tracker_btn.setStyleSheet("")
-            self.w.yolomodel_tracker_list.setToolTip(
-                self.w.yolomodel_tracker_list.currentText().strip()
+            self.w.tracker_list.setToolTip(
+                self.w.tracker_list.currentText().strip()
             )
         else:
             # First item selected (header/placeholder)
             self.w.tune_tracker_btn.setEnabled(False)
             self.w.tune_tracker_btn.setText("")
             self.w.tune_tracker_btn.setStyleSheet("")
-            self.w.yolomodel_tracker_list.setToolTip("")
+            self.w.tracker_list.setToolTip("")
 
     def on_tune_tracker_clicked(self):
         """Handle clicks on the "Tune" button next to the tracker list.
 
         Open configuration dialog for the selected tracker.
         """
-        index = self.w.yolomodel_tracker_list.currentIndex()
+        index = self.w.tracker_list.currentIndex()
         if index <= 0:
             return  # Should not happen as button should be disabled
 
-        tracker_name = self.w.yolomodel_tracker_list.currentText().strip()
+        tracker_name = self.w.tracker_list.currentText().strip()
 
         # Find tracker ID from name
         tracker_id = None
@@ -1146,13 +1146,13 @@ class YoloHandler(QObject):
         if is_checked:
             # When "1 Subject" is checked
             # Set to first actual tracker (index 1, not the header at index 0)
-            self.w.yolomodel_tracker_list.setCurrentIndex(1)
-            self.w.yolomodel_tracker_list.setEnabled(False)
+            self.w.tracker_list.setCurrentIndex(1)
+            self.w.tracker_list.setEnabled(False)
             self.w.tune_tracker_btn.setEnabled(False)
             self.w.tune_tracker_btn.setText("")
         else:
-            self.w.yolomodel_tracker_list.setEnabled(True)
-            self.w.yolomodel_tracker_list.setCurrentIndex(0)
+            self.w.tracker_list.setEnabled(True)
+            self.w.tracker_list.setCurrentIndex(0)
             self.w.tune_tracker_btn.setEnabled(False)
 
     # YOLO Prediction handling
@@ -1264,11 +1264,11 @@ class YoloHandler(QObject):
             show_warning("Please load YOLO first.")
             return
 
-        index_model_list = self.w.yolomodel_trained_list.currentIndex()
+        index_model_list = self.w.trained_model_list.currentIndex()
         if index_model_list == 0:
             show_warning("Please select a YOLO model")
             return
-        model_name = self.w.yolomodel_trained_list.currentText()
+        model_name = self.w.trained_model_list.currentText()
         # The self.trained_models dictionary contains the model name
         # as last 5 folder names in the project path as key, and the
         # model path as value
@@ -1278,7 +1278,7 @@ class YoloHandler(QObject):
         )
         self.model_predict_path = self.trained_models[model_name]
         # Tracker
-        index_tracker_list = self.w.yolomodel_tracker_list.currentIndex()
+        index_tracker_list = self.w.tracker_list.currentIndex()
         if index_tracker_list == 0:
             show_warning("Please select a tracker")
             return
@@ -1289,7 +1289,7 @@ class YoloHandler(QObject):
 
         # Collect selected options
         self.yolo_tracker_name = (
-            self.w.yolomodel_tracker_list.currentText().strip()
+            self.w.tracker_list.currentText().strip()
         )
         self.view_prediction_results = (
             self.w.open_when_finish_checkBox.isChecked()
@@ -1335,8 +1335,8 @@ class YoloHandler(QObject):
         self.w.main_toolbox.widget(2).setEnabled(False)  # Training
         # Disable prediction controls during batch prediction
         self.w.predict_video_drop_groupbox.setEnabled(False)
-        self.w.yolomodel_trained_list.setEnabled(False)
-        self.w.yolomodel_tracker_list.setEnabled(False)
+        self.w.trained_model_list.setEnabled(False)
+        self.w.tracker_list.setEnabled(False)
         self.w.tune_tracker_btn.setEnabled(False)
         self.w.open_when_finish_checkBox.setEnabled(False)
         self.w.single_subject_checkBox.setEnabled(False)
@@ -1494,8 +1494,8 @@ class YoloHandler(QObject):
         self.w.main_toolbox.widget(1).setEnabled(True)  # Annotation tab
         self.w.main_toolbox.widget(2).setEnabled(True)  # Training tab
         self.w.predict_video_drop_groupbox.setEnabled(True)
-        self.w.yolomodel_trained_list.setEnabled(True)
-        self.w.yolomodel_tracker_list.setEnabled(True)
+        self.w.trained_model_list.setEnabled(True)
+        self.w.tracker_list.setEnabled(True)
         self.w.tune_tracker_btn.setEnabled(True)
         self.w.open_when_finish_checkBox.setEnabled(True)
         self.w.single_subject_checkBox.setEnabled(True)
@@ -1506,7 +1506,7 @@ class YoloHandler(QObject):
         self.w.skip_frames_analysis_spinBox.setEnabled(True)
         # Only re-enable mask-related controls if the selected model
         # is a segmentation model
-        model_name = self.w.yolomodel_trained_list.currentText()
+        model_name = self.w.trained_model_list.currentText()
         model_path = self.trained_models.get(model_name)
         is_segment = (
             model_path is not None

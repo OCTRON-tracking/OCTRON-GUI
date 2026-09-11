@@ -233,7 +233,7 @@ class octron_widget(QWidget):
                 square_icon = create_color_icon(
                     color
                 )  # Creates color icon to show computational demands
-                self.yolomodel_tracker_list.addItem(
+                self.tracker_list.addItem(
                     square_icon, self.trackers_dict[tracker]["name"] + " "
                 )
 
@@ -388,22 +388,22 @@ class octron_widget(QWidget):
         )
         # Remember the current selection so it can be restored if it is
         # still available in the new mode.
-        previous = self.yolomodel_list.currentText()
-        self.yolomodel_list.blockSignals(True)
-        self.yolomodel_list.clear()
+        previous = self.training_model_list.currentText()
+        self.training_model_list.blockSignals(True)
+        self.training_model_list.clear()
         # Index 0 is the placeholder/header item (see gui_elements).
-        self.yolomodel_list.addItem("")
+        self.training_model_list.addItem("")
         for model_id, model in self.yolomodels_dict.items():
             if not model.get(variant_key):
                 # Task unsupported by this model — hide it in this mode.
                 continue
             logger.info(f"Adding YOLO model {model_id} ({self.train_mode})")
-            self.yolomodel_list.addItem(model["name"])
+            self.training_model_list.addItem(model["name"])
         # Restore the previous selection when still present; otherwise
         # fall back to the header (index 0).
-        idx = self.yolomodel_list.findText(previous) if previous else -1
-        self.yolomodel_list.setCurrentIndex(idx if idx > 0 else 0)
-        self.yolomodel_list.blockSignals(False)
+        idx = self.training_model_list.findText(previous) if previous else -1
+        self.training_model_list.setCurrentIndex(idx if idx > 0 else 0)
+        self.training_model_list.blockSignals(False)
 
     def on_toolbox_tab_changed(self, index):
         """Handle selection of a different tab in the toolBox.
