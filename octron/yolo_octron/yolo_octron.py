@@ -1504,6 +1504,58 @@ class YOLO_octron:
         _tb._log_tensorboard_graph = _skip_graph_for_rtdetr
         _tb._octron_rtdetr_graph_patch = True
 
+    @staticmethod
+    def _patch_ultralytics_mlflow_artifacts():
+        """Stop the ultralytics MLflow callback from duplicating outputs.
+
+        ultralytics' MLflow ``on_train_end`` copies the whole ``weights``
+        directory (best/last/epoch checkpoints) *and* every result plot,
+        CSV and YAML from ``save_dir`` into the MLflow artifact store —
+        duplicating files that ultralytics already wrote to OCTRON's
+        training folder (RT-DETR checkpoints alone are ~63 MB each). Only
+        the logged *metrics* (loss/mAP/lr curves) are needed in MLflow
+        for the dashboard, and those are logged separately per epoch.
+
+        Replace ``on_train_end`` with one that just closes the run (no
+        artifact copy), leaving per-epoch metric logging untouched. The
+        module's ``callbacks`` dict is patched in place so the trainer
+        picks up the replacement at init (see
+        ``add_integration_callbacks``); installed once (idempotent).
+        """
+        try:
+            from ultralytics.utils.callbacks import mlflow as _mlf
+        except Exception:
+            return
+        if getattr(_mlf, "_octron_no_artifact_patch", False):
+            return
+        cbs = getattr(_mlf, "callbacks", None)
+        # Empty when the MLflow integration is disabled/unavailable; then
+        # there is nothing (and no duplication) to patch.
+        if not isinstance(cbs, dict) or "on_train_end" not in cbs:
+            return
+
+        def _end_run_without_artifacts(trainer):
+            """Close the MLflow run without copying training outputs."""
+            try:
+                import mlflow as _mlflow
+            except Exception:
+                return
+            keep_active = (
+                os.environ.get("MLFLOW_KEEP_RUN_ACTIVE", "False").lower()
+                == "true"
+            )
+            if not keep_active and _mlflow.active_run() is not None:
+                _mlflow.end_run()
+
+        _mlf.on_train_end = _end_run_without_artifacts
+        cbs["on_train_end"] = _end_run_without_artifacts
+        _mlf._octron_no_artifact_patch = True
+        logger.info(
+            "MLflow: not duplicating weights/plots into the artifact "
+            "store (they remain in the training folder); logging "
+            "metrics/curves only."
+        )
+
     def load_model(
         self, model_name_path, train_mode="segment", model_info=None
     ):
@@ -2377,6 +2429,12 @@ class YOLO_octron:
                     # for backward", ultralytics#23359). Neutralize that
                     # trace for RT-DETR regardless of TensorBoard state.
                     self._patch_ultralytics_tb_graph()
+
+                # Stop the ultralytics MLflow callback from duplicating
+                # training outputs (weights dir + result plots/CSVs) into
+                # its artifact store — they already live in the training
+                # folder. Per-epoch metrics/curves are still logged.
+                self._patch_ultralytics_mlflow_artifacts()
 
                 self.model.train(**train_kwargs)
             except Exception as e:

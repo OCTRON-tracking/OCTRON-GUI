@@ -306,3 +306,61 @@ def test_resume_state_missing_imgsz_errors(tmp_path):
     state = obj.resolve_resume_state(resume=True, overwrite=False)
     assert state["action"] == "error"
     assert "image size" in state["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# _patch_ultralytics_mlflow_artifacts
+#
+# ultralytics' MLflow ``on_train_end`` copies the whole weights dir plus
+# every result plot/CSV into the MLflow artifact store, duplicating files
+# already written to the training folder. The patch swaps it for one that
+# only closes the run, keeping the per-epoch metric callbacks (curves).
+# ---------------------------------------------------------------------------
+
+
+def test_patch_mlflow_artifacts_removes_duplication(monkeypatch):
+    """on_train_end is swapped for a no-artifact run-closer; metrics stay."""
+    import inspect
+    from collections import defaultdict
+
+    m = pytest.importorskip("ultralytics.utils.callbacks.mlflow")
+
+    # Isolate module-global state; monkeypatch restores it on teardown so
+    # the process-wide patch cannot leak into other tests. Build a fresh
+    # callbacks dict (populated as it is when the integration is enabled)
+    # so the test does not depend on the ultralytics mlflow setting.
+    cbs = {
+        "on_train_epoch_end": m.on_train_epoch_end,
+        "on_fit_epoch_end": m.on_fit_epoch_end,
+        "on_train_end": m.on_train_end,
+    }
+    monkeypatch.setattr(m, "callbacks", cbs)
+    monkeypatch.setattr(m, "on_train_end", m.on_train_end)
+    monkeypatch.setattr(m, "_octron_no_artifact_patch", False, raising=False)
+
+    # Precondition: the stock callback copies artifacts.
+    assert "log_artifact" in inspect.getsource(cbs["on_train_end"])
+
+    YOLO_octron._patch_ultralytics_mlflow_artifacts()
+
+    end_fn = m.callbacks["on_train_end"]
+    src = inspect.getsource(end_fn)
+    assert "log_artifact" not in src  # no weight/plot duplication
+    assert "end_run" in src  # but the run is still closed
+    # Metric callbacks (the dashboard curves) must be untouched.
+    epoch_src = inspect.getsource(m.callbacks["on_train_epoch_end"])
+    fit_src = inspect.getsource(m.callbacks["on_fit_epoch_end"])
+    assert "log_metrics" in epoch_src
+    assert "log_metrics" in fit_src
+
+    # A trainer's add_integration_callbacks would register the no-artifact
+    # function (it copies module callbacks into the trainer at init).
+    inst = defaultdict(list)
+    for k, v in m.callbacks.items():
+        if v not in inst[k]:
+            inst[k].append(v)
+    assert inst["on_train_end"] == [end_fn]
+
+    # Idempotent: a second call keeps the already-patched function.
+    YOLO_octron._patch_ultralytics_mlflow_artifacts()
+    assert m.callbacks["on_train_end"] is end_fn
