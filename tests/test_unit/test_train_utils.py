@@ -1,12 +1,12 @@
 """Tests for model-name resolution.
 
-Resolution now lives in core ``YOLO_octron.resolve_model_name``
+Resolution now lives in core ``AnalysisOctron.resolve_model_name``
 (case-insensitive
 match against the model catalog), shared by the CLI and the GUI, replacing the
 old CLI-only ``_normalise_model_name``.
 
-The catalog keys are read from the ``yolo_models.yaml`` that ships with the
-package; a ``YOLO_octron`` instance is built via ``__new__`` (bypassing
+The catalog keys are read from the ``analysis_models.yaml`` that ships with the
+package; a ``AnalysisOctron`` instance is built via ``__new__`` (bypassing
 ``__init__``) so no weights are downloaded or loaded.
 """
 
@@ -15,17 +15,19 @@ from pathlib import Path
 import pytest
 import yaml
 
-from octron.yolo_octron import yolo_octron as yolo_octron_module
-from octron.yolo_octron.yolo_octron import YOLO_octron
+from octron.analysis_octron import analysis_octron as analysis_octron_module
+from octron.analysis_octron.analysis_octron import AnalysisOctron
 
-MODELS_YAML = Path(yolo_octron_module.__file__).parent / "yolo_models.yaml"
+MODELS_YAML = (
+    Path(analysis_octron_module.__file__).parent / "analysis_models.yaml"
+)
 
 
 def _resolver():
-    """Build a YOLO_octron (no __init__) with catalog-name model keys."""
+    """Build a AnalysisOctron (no __init__) with catalog-name model keys."""
     with open(MODELS_YAML) as f:
         keys = list((yaml.safe_load(f) or {}).keys())
-    obj = YOLO_octron.__new__(YOLO_octron)
+    obj = AnalysisOctron.__new__(AnalysisOctron)
     obj.models_dict = {k: {} for k in keys}
     return obj, keys
 
@@ -94,8 +96,8 @@ def test_resolve_rtdetr_keys():
 
 
 def _catalog():
-    """YOLO_octron (no __init__) with a mixed-capability catalog."""
-    obj = YOLO_octron.__new__(YOLO_octron)
+    """AnalysisOctron (no __init__) with a mixed-capability catalog."""
+    obj = AnalysisOctron.__new__(AnalysisOctron)
     obj.models_dict = {
         "YOLO26m": {
             "name": "YOLO26m",
@@ -136,7 +138,7 @@ def test_load_model_rejects_unsupported_task():
     light unit test.
     """
     obj = _catalog()
-    obj.training_path = None  # skip the yolo_settings block
+    obj.training_path = None  # skip the analysis_settings block
     with pytest.raises(ValueError, match="does not support segmentation"):
         obj.load_model("rtdetr-l", train_mode="segment")
 
@@ -150,9 +152,9 @@ def test_load_model_rejects_unsupported_task():
 # ---------------------------------------------------------------------------
 
 
-def _make_yolo(tmp_path):
-    """Build a minimal YOLO_octron instance without running __init__."""
-    obj = YOLO_octron.__new__(YOLO_octron)
+def _make_analysis(tmp_path):
+    """Build a minimal AnalysisOctron instance without running __init__."""
+    obj = AnalysisOctron.__new__(AnalysisOctron)
     obj._project_path = tmp_path
     obj.training_path = tmp_path / "model"
     obj.data_path = obj.training_path / "training_data"
@@ -180,22 +182,22 @@ def _write_checkpoint(path, epoch, imgsz=640, include_imgsz=True):
 
 
 def test_config_path_derives_from_data_path(tmp_path):
-    obj = _make_yolo(tmp_path)
-    assert obj.config_path == obj.data_path / "yolo_config.yaml"
+    obj = _make_analysis(tmp_path)
+    assert obj.config_path == obj.data_path / "ultralytics_config.yaml"
 
 
 def test_config_path_explicit_override_and_reset(tmp_path):
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     custom = tmp_path / "elsewhere" / "cfg.yaml"
     obj.config_path = custom
     assert obj.config_path == custom
     # Resetting to None falls back to the derived path.
     obj.config_path = None
-    assert obj.config_path == obj.data_path / "yolo_config.yaml"
+    assert obj.config_path == obj.data_path / "ultralytics_config.yaml"
 
 
 def test_config_path_none_without_data_path(tmp_path):
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     obj.data_path = None
     assert obj.config_path is None
 
@@ -205,7 +207,7 @@ def test_config_path_none_without_data_path(tmp_path):
 
 @pytest.mark.parametrize("device", ["cpu", "mps"])
 def test_resolve_batch_size_non_cuda_returns_minus_one(tmp_path, device):
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     # No CUDA-only AutoBatch profiling for cpu/mps; returns the -1 sentinel.
     assert obj._resolve_batch_size(640, device) == -1
 
@@ -214,21 +216,21 @@ def test_resolve_batch_size_non_cuda_returns_minus_one(tmp_path, device):
 
 
 def test_resume_state_fresh_when_nothing(tmp_path):
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     state = obj.resolve_resume_state(resume=False, overwrite=False)
     assert state["action"] == "fresh"
     assert state["checkpoint"] is None
 
 
 def test_resume_state_completed_when_best_exists(tmp_path):
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     (_weights_dir(obj) / "best.pt").touch()
     state = obj.resolve_resume_state(resume=False, overwrite=False)
     assert state["action"] == "completed"
 
 
 def test_resume_state_overwrite_wins_over_existing(tmp_path):
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     (_weights_dir(obj) / "best.pt").touch()
     (_weights_dir(obj) / "last.pt").touch()
     state = obj.resolve_resume_state(resume=True, overwrite=True)
@@ -237,7 +239,7 @@ def test_resume_state_overwrite_wins_over_existing(tmp_path):
 
 def test_resume_state_strict_resume_for_interrupted_run(tmp_path):
     pytest.importorskip("torch")
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     last_pt = _weights_dir(obj) / "last.pt"
     _write_checkpoint(last_pt, epoch=7, imgsz=640)
     state = obj.resolve_resume_state(resume=True, overwrite=False)
@@ -248,7 +250,7 @@ def test_resume_state_strict_resume_for_interrupted_run(tmp_path):
 
 def test_resume_state_init_from_completed_checkpoint(tmp_path):
     pytest.importorskip("torch")
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     last_pt = _weights_dir(obj) / "last.pt"
     # ultralytics writes epoch == -1 for a completed run.
     _write_checkpoint(last_pt, epoch=-1, imgsz=832)
@@ -258,14 +260,14 @@ def test_resume_state_init_from_completed_checkpoint(tmp_path):
 
 
 def test_resume_state_resume_without_checkpoint_is_fresh(tmp_path):
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     state = obj.resolve_resume_state(resume=True, overwrite=False)
     assert state["action"] == "fresh"
 
 
 def test_resume_state_handles_imgsz_as_list(tmp_path):
     pytest.importorskip("torch")
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     last_pt = _weights_dir(obj) / "last.pt"
     _write_checkpoint(last_pt, epoch=3, imgsz=[768])
     state = obj.resolve_resume_state(resume=True, overwrite=False)
@@ -285,14 +287,16 @@ def test_resume_state_handles_imgsz_as_list(tmp_path):
 
 
 def test_collect_labels_missing_subfolder_returns_empty(tmp_path):
-    from octron.yolo_octron.helpers.training import collect_labels
+    from octron.analysis_octron.helpers.training import collect_labels
 
     # Project dir exists; the per-video subfolder has not been created yet.
     assert collect_labels(tmp_path, subfolder="acb207d1") == {}
 
 
 def test_find_files_with_depth_limit_missing_base_returns_empty(tmp_path):
-    from octron.yolo_octron.helpers.training import find_files_with_depth_limit
+    from octron.analysis_octron.helpers.training import (
+        find_files_with_depth_limit,
+    )
 
     missing = tmp_path / "does_not_exist"
     assert find_files_with_depth_limit(missing, "object_organizer.json") == []
@@ -300,7 +304,7 @@ def test_find_files_with_depth_limit_missing_base_returns_empty(tmp_path):
 
 def test_resume_state_missing_imgsz_errors(tmp_path):
     pytest.importorskip("torch")
-    obj = _make_yolo(tmp_path)
+    obj = _make_analysis(tmp_path)
     last_pt = _weights_dir(obj) / "last.pt"
     _write_checkpoint(last_pt, epoch=5, include_imgsz=False)
     state = obj.resolve_resume_state(resume=True, overwrite=False)
@@ -341,7 +345,7 @@ def test_patch_mlflow_artifacts_removes_duplication(monkeypatch):
     # Precondition: the stock callback copies artifacts.
     assert "log_artifact" in inspect.getsource(cbs["on_train_end"])
 
-    YOLO_octron._patch_ultralytics_mlflow_artifacts()
+    AnalysisOctron._patch_ultralytics_mlflow_artifacts()
 
     end_fn = m.callbacks["on_train_end"]
     src = inspect.getsource(end_fn)
@@ -362,5 +366,5 @@ def test_patch_mlflow_artifacts_removes_duplication(monkeypatch):
     assert inst["on_train_end"] == [end_fn]
 
     # Idempotent: a second call keeps the already-patched function.
-    YOLO_octron._patch_ultralytics_mlflow_artifacts()
+    AnalysisOctron._patch_ultralytics_mlflow_artifacts()
     assert m.callbacks["on_train_end"] is end_fn

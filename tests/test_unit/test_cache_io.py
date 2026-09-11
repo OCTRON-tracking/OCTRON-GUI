@@ -1,8 +1,9 @@
-"""Tests for octron.yolo_octron.helpers.cache_io — the prediction cache staging
-helpers used by core predict_batch.
+"""Tests for octron.analysis_octron.helpers.cache_io.
+
+Covers the prediction cache staging helpers used by core predict_batch.
 """
 
-from octron.yolo_octron.helpers.cache_io import (
+from octron.analysis_octron.helpers.cache_io import (
     is_network_path,
     move_prediction_folder,
 )

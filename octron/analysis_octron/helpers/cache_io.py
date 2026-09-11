@@ -1,6 +1,6 @@
 """Stage prediction output in a local cache dir and move it to its destination.
 
-Used by YOLO_octron.predict_batch when a prediction cache directory is
+Used by AnalysisOctron.predict_batch when a prediction cache directory is
 configured (config.yaml prediction_cache_dir or an explicit override).
 Writing zarr to a local SSD/NVMe cache and moving completed video
 folders to the final destination avoids zarr atomic-write failures on

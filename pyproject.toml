@@ -175,7 +175,7 @@ select = [
 # Deliberate late imports (env vars / warning filters / Qt setup first)
 "octron/main.py" = ["E402"]
 "octron/reader.py" = ["E402"]
-"octron/yolo_octron/yolo_octron.py" = ["E402"]
+"octron/analysis_octron/analysis_octron.py" = ["E402"]
 "octron/sam_octron/helpers/sam_zarr.py" = ["E402"]
 "*.ipynb" = ["E402"] # imports naturally spread across notebook cells
 

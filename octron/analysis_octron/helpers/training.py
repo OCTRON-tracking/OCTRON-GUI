@@ -1,4 +1,4 @@
-"""YOLO training related helpers."""
+"""Training-related helpers."""
 
 import importlib.util
 import json

@@ -1,6 +1,7 @@
-"""Main YOLO Octron class.
+"""Main OCTRON analysis/training class.
 
-We are using YOLO11 as the base class for YOLO Octron.
+Wraps ultralytics models (YOLO and RT-DETR) as the training/inference
+backend for OCTRON.
 See also: https://docs.ultralytics.com/models/yolo11
 """
 
@@ -41,31 +42,33 @@ import contextlib
 
 from loguru import logger
 
+from octron.analysis_octron.helpers.analysis_checks import (
+    check_analysis_models,
+)
+from octron.analysis_octron.helpers.analysis_zarr import (
+    create_prediction_store,
+    create_prediction_zarr,
+)
+from octron.analysis_octron.helpers.polygons import (
+    find_objects_in_mask,
+    get_polygons,
+    postprocess_mask,
+    watershed_mask,
+)
+from octron.analysis_octron.helpers.training import (
+    collect_labels,
+    pick_random_frames,
+    prune_frames_by_geometry,
+    train_test_val,
+)
 from octron.sam_octron.helpers.sam_zarr import mark_frames_annotated
 from octron.tracking.helpers.tracker_checks import (
     load_boxmot_tracker_config,
     load_boxmot_trackers,
     resolve_tracker,
 )
-from octron.yolo_octron.helpers.polygons import (
-    find_objects_in_mask,
-    get_polygons,
-    postprocess_mask,
-    watershed_mask,
-)
-from octron.yolo_octron.helpers.training import (
-    collect_labels,
-    pick_random_frames,
-    prune_frames_by_geometry,
-    train_test_val,
-)
-from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
-from octron.yolo_octron.helpers.yolo_zarr import (
-    create_prediction_store,
-    create_prediction_zarr,
-)
 
-from .helpers.yolo_results import YOLO_results
+from .helpers.analysis_results import AnalysisResults
 
 MIN_SIZE_RATIO_OBJECT_FRAME = (
     0.00001  # Minimum size ratio of an object to the whole image
@@ -76,12 +79,12 @@ MIN_SIZE_RATIO_OBJECT_MAX = (
 )
 
 
-class YOLO_octron:
-    """YOLO11 segmentation model class for training with OCTRON data.
+class AnalysisOctron:
+    """Ultralytics-based (YOLO / RT-DETR) model class for OCTRON data.
 
     This class encapsulates the full pipeline for preparing annotation
     data from OCTRON, generating training datasets, and training
-    YOLO11 models for segmentation tasks. It also contains
+    segmentation or detection models. It also contains
     visualization methods for (custom / trained) models.
 
     """
@@ -89,12 +92,12 @@ class YOLO_octron:
     def __init__(
         self, models_yaml_path=None, project_path=None, clean_training_dir=True
     ):
-        """Initialize YOLO_octron with project and model paths.
+        """Initialize AnalysisOctron with project and model paths.
 
         Parameters
         ----------
         models_yaml_path : str or Path
-            Path to list of available (standard, pre-trained) YOLO models.
+            Path to list of available (standard, pre-trained) models.
         project_path : str or Path, optional
             Path to the OCTRON project directory.
         clean_training_dir : bool
@@ -106,9 +109,11 @@ class YOLO_octron:
         try:
             from ultralytics import settings
 
-            self.yolo_settings = settings
+            self.analysis_settings = settings
         except ImportError as e:
-            raise ImportError("YOLOv11 is required to run this class.") from e
+            raise ImportError(
+                "ultralytics is required to run this class."
+            ) from e
 
         # Set up internal variables
         self._project_path = None  # Use private variable for property
@@ -130,8 +135,8 @@ class YOLO_octron:
                     f"Model YAML file not found: {self.models_yaml_path}"
                 )
 
-            # Check YOLO models, download if needed
-            self.models_dict = check_yolo_models(
+            # Check base models, download if needed
+            self.models_dict = check_analysis_models(
                 YOLO_BASE_URL=None,
                 models_yaml_path=self.models_yaml_path,
                 force_download=False,
@@ -149,8 +154,8 @@ class YOLO_octron:
             self._setup_training_directories(self.clean_training_dir)
 
     def __repr__(self):
-        """Return a string representation of the YOLO_octron object."""
-        pr = f"YOLO_octron(project_path={self.project_path})"
+        """Return a string representation of the AnalysisOctron object."""
+        pr = f"AnalysisOctron(project_path={self.project_path})"
         models = [
             f"{k}: seg={v['model_path_seg']}, detect={v['model_path_detect']}"
             for k, v in self.models_dict.items()
@@ -211,19 +216,19 @@ class YOLO_octron:
 
     @property
     def config_path(self):
-        """Path to the YOLO training config (``yolo_config.yaml``).
+        """Path to the training config (``ultralytics_config.yaml``).
 
         Derived from ``data_path`` when not explicitly set, so callers (CLI,
         GUI, programmatic) do not need to assign it manually after a split:
         as long as ``project_path`` is set it resolves to
-        ``<project>/model/training_data/yolo_config.yaml``.
-        ``write_yolo_config`` still assigns it explicitly. Returns
+        ``<project>/model/training_data/ultralytics_config.yaml``.
+        ``write_analysis_config`` still assigns it explicitly. Returns
         ``None`` only when ``data_path`` is also unset.
         """
         if self._config_path is not None:
             return self._config_path
         if self.data_path is not None:
-            return self.data_path / "yolo_config.yaml"
+            return self.data_path / "ultralytics_config.yaml"
         return None
 
     @config_path.setter
@@ -270,7 +275,9 @@ class YOLO_octron:
                 # Only remove the model checkpoint directory if the
                 # mode has changed
                 if self.train_mode is not None:
-                    existing_config_path = self.data_path / "yolo_config.yaml"
+                    existing_config_path = (
+                        self.data_path / "ultralytics_config.yaml"
+                    )
                     if existing_config_path.exists():
                         with open(existing_config_path) as f:
                             existing_config = yaml.safe_load(f)
@@ -888,11 +895,11 @@ class YOLO_octron:
         """Return structured train/val/test split report data.
 
         See
-        :func:`octron.yolo_octron.helpers.split_report.build_split_report`
+        :func:`octron.analysis_octron.helpers.split_report.build_split_report`
         for the structure. Call after :meth:`prepare_split` and before
         export (the report reads mask lengths, which export pops).
         """
-        from octron.yolo_octron.helpers.split_report import (
+        from octron.analysis_octron.helpers.split_report import (
             build_split_report,
         )
 
@@ -906,7 +913,7 @@ class YOLO_octron:
         self,
         verbose=False,
     ):
-        """Create training data for YOLO segmentation.
+        """Create training data for segmentation.
 
         Exports the training data to the data_path folder. The
         training data consists of images and corresponding label text
@@ -1111,10 +1118,10 @@ class YOLO_octron:
         self,
         verbose=False,
     ):
-        """Create training data for YOLO detection (bbox-only).
+        """Create training data for detection (bbox-only).
 
         Same image export as create_training_data_segment(), but
-        writes label files in the YOLO detection format:
+        writes label files in the ultralytics detection format:
         `class x_center y_center width height`
         (all values normalized to [0, 1]).
 
@@ -1262,7 +1269,7 @@ class YOLO_octron:
                                 optimize=True,
                             )
 
-                        # Write label file in YOLO detection format:
+                        # Write label file in ultralytics detection format:
                         # class x_center y_center width height (all normalized)
                         with open(
                             self.data_path
@@ -1306,14 +1313,14 @@ class YOLO_octron:
         else:
             yield from self.create_training_data_segment(verbose=verbose)
 
-    def write_yolo_config(
+    def write_analysis_config(
         self,
         train_path="train",
         val_path="val",
         test_path="test",
         train_mode="segment",
     ):
-        """Write the YOLO configuration file for training.
+        """Write the training configuration file.
 
         Parameters
         ----------
@@ -1375,7 +1382,7 @@ class YOLO_octron:
                     label_id_label_dict[entry] = labels[entry]["label"]
 
         ######## Write the YAML config
-        self.config_path = dataset_path / "yolo_config.yaml"
+        self.config_path = dataset_path / "ultralytics_config.yaml"
 
         # Create the config dictionary
         config = {
@@ -1395,7 +1402,9 @@ class YOLO_octron:
             f.write(header)
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-        logger.info(f"YOLO config saved to '{self.config_path.as_posix()}'")
+        logger.info(
+            f"Training config saved to '{self.config_path.as_posix()}'"
+        )
 
     ##### TRAINING AND INFERENCE #######################################
     def resolve_model_name(self, model_name):
@@ -1451,8 +1460,8 @@ class YOLO_octron:
         """
         from ultralytics import RTDETR, YOLO
 
-        loaders = {"rtdetr": RTDETR, "yolo": YOLO}
-        return loaders.get(model_type or "yolo", YOLO)
+        loaders = {"rtdetr": RTDETR, "analysis": YOLO}
+        return loaders.get(model_type or "analysis", YOLO)
 
     @staticmethod
     def _patch_ultralytics_tb_graph():
@@ -1589,7 +1598,7 @@ class YOLO_octron:
             The loaded ultralytics model (class chosen from the weights).
 
         """
-        # Configure YOLO settings
+        # Configure ultralytics settings
         if not hasattr(self, "training_path") or self.training_path is None:
             pass
         else:
@@ -1609,10 +1618,10 @@ class YOLO_octron:
             valid_settings = {
                 k: v
                 for k, v in desired_settings.items()
-                if k in self.yolo_settings
+                if k in self.analysis_settings
             }
             if valid_settings:
-                self.yolo_settings.update(valid_settings)
+                self.analysis_settings.update(valid_settings)
             # Point the ultralytics MLflow callback at a per-project,
             # local file store so training runs are logged there and
             # launch_training_logger() can serve the same location.
@@ -1674,17 +1683,17 @@ class YOLO_octron:
                     f"{task_label}-capable model."
                 )
             # Weights are loaded from the per-user cache (see
-            # config.get_yolo_models_dir), where check_yolo_models
+            # config.get_analysis_models_dir), where check_analysis_models
             # downloads them.
             from octron import config as _octron_config
 
             model_name_path = (
-                _octron_config.get_yolo_models_dir() / model_filename
+                _octron_config.get_analysis_models_dir() / model_filename
             )
             # Pick the loader from the resolved weight file itself.
             model_info = self.get_model_info(model_name_path)
 
-        model_type = (model_info or {}).get("model_type") or "yolo"
+        model_type = (model_info or {}).get("model_type") or "analysis"
         loader_cls = self._loader_for_model_type(model_type)
         model = loader_cls(model_name_path)
         logger.info(
@@ -2001,7 +2010,7 @@ class YOLO_octron:
         return batch
 
     def load_model_args(self, model_name_path):
-        """Load the YOLO model args.yaml (model training settings).
+        """Load the model args.yaml (model training settings).
 
         This file is supposed to be one level up of the "weights"
         folder for custom trained models.
@@ -2040,7 +2049,7 @@ class YOLO_octron:
         """Find whether rectangular or square training images are used.
 
         This determines the rect parameter and the correct imgsz for
-        YOLO training.
+        training.
 
         Samples up to *max_samples* images across all subdirectories so that
         the decision is robust even when multiple datasets contribute images
@@ -2114,7 +2123,7 @@ class YOLO_octron:
         resume=False,
         batch=-1,
     ):
-        """Train the YOLO model with epoch progress updates.
+        """Train the model with epoch progress updates.
 
         Parameters
         ----------
@@ -2149,7 +2158,8 @@ class YOLO_octron:
         if self.model is None:
             raise RuntimeError("😵 No model loaded!")
         if not hasattr(self.model, "train") or self.model.train is None:
-            # This happens if a non YOLO compliant model is loaded somehow
+            # This happens if a non-ultralytics-compliant model is loaded
+            # somehow
             raise AttributeError(
                 'The loaded model does not have a "train()" method.'
             )
@@ -2268,7 +2278,7 @@ class YOLO_octron:
             )
 
         assert imagesz > 0 and imagesz % 32 == 0, (
-            "YOLO image size must be a positive multiple of 32"
+            "Training image size must be a positive multiple of 32"
         )
 
         # Resolve a cached AutoBatch size for CUDA when the caller
@@ -2678,7 +2688,7 @@ class YOLO_octron:
 
     @staticmethod
     def get_model_info(model_path):
-        """Extract metadata from a trained YOLO model checkpoint.
+        """Extract metadata from a trained model checkpoint.
 
         Used to build the contents of a display tooltip.
 
@@ -2692,7 +2702,7 @@ class YOLO_octron:
         dict
             Dictionary with keys: task, model_type, architecture, imgsz,
             epochs, num_classes, class_names, trained_on.  ``model_type``
-            is a normalized loader family ('yolo' or 'rtdetr'); the other
+            is a normalized loader family ('analysis' or 'rtdetr'); the other
             values are None when the information could not be determined.
 
         """
@@ -2704,7 +2714,7 @@ class YOLO_octron:
 
         info = dict(
             task=None,
-            model_type="yolo",
+            model_type="analysis",
             architecture=None,
             imgsz=None,
             epochs=None,
@@ -2747,7 +2757,9 @@ class YOLO_octron:
         # model class so it works for both base weights and trained
         # checkpoints; task alone cannot distinguish RT-DETR (its task
         # is also 'detect').
-        info["model_type"] = "rtdetr" if "RTDETR" in model_cls_name else "yolo"
+        info["model_type"] = (
+            "rtdetr" if "RTDETR" in model_cls_name else "analysis"
+        )
 
         # Architecture / base model (store just the filename, not
         # the full path)
@@ -3019,7 +3031,7 @@ class YOLO_octron:
             - list: List of video file paths (str or Path)
             When passing paths, video metadata will be automatically probed.
         model_path : str or Path
-            Path to the YOLO model to use for prediction.
+            Path to the model to use for prediction.
         device : str
             Device to run prediction on ('cpu', 'cuda', etc.)
         tracker_name : str, optional
@@ -3192,7 +3204,7 @@ class YOLO_octron:
                         f"Available: {list(config_parameters.keys())}"
                     )
 
-        # Check YOLO configuration
+        # Validate the model path
         model_path = Path(model_path)
         assert model_path.exists(), f"Model path {model_path} does not exist."
 
@@ -3263,7 +3275,7 @@ class YOLO_octron:
         import atexit
 
         from octron import config as _octron_config
-        from octron.yolo_octron.helpers.cache_io import (
+        from octron.analysis_octron.helpers.cache_io import (
             is_network_path,
             move_prediction_folder,
         )
@@ -4092,7 +4104,7 @@ class YOLO_octron:
         sigma_tracking_pos=2,
         open_viewer=True,
     ):
-        """Load the predictions in a OCTRON (YOLO) output directory.
+        """Load the predictions in an OCTRON output directory.
 
         Optionally displays them in a new napari viewer.
 
@@ -4125,40 +4137,42 @@ class YOLO_octron:
 
 
         """
-        yolo_results = YOLO_results(save_dir)
-        track_id_label = yolo_results.track_id_label
+        analysis_results = AnalysisResults(save_dir)
+        track_id_label = analysis_results.track_id_label
         assert track_id_label is not None, (
             "No track ID - label mapping found in the results"
         )
-        has_masks = yolo_results.has_masks
-        tracking_data = yolo_results.get_tracking_data(
+        has_masks = analysis_results.has_masks
+        tracking_data = analysis_results.get_tracking_data(
             interpolate=True,
             interpolate_method="linear",
             interpolate_limit=None,
             sigma=sigma_tracking_pos,
         )
-        mask_data = yolo_results.get_mask_data() if has_masks else {}
+        mask_data = analysis_results.get_mask_data() if has_masks else {}
 
         if open_viewer:
             viewer = napari.Viewer()
             if (
-                yolo_results.video is not None
-                and yolo_results.video_dict is not None
+                analysis_results.video is not None
+                and analysis_results.video_dict is not None
             ):
                 add_layer = viewer.add_image
                 layer_dict = {
-                    "name": yolo_results.video_dict["video_name"],
-                    "metadata": yolo_results.video_dict,
+                    "name": analysis_results.video_dict["video_name"],
+                    "metadata": analysis_results.video_dict,
                 }
-                add_layer(yolo_results.video, **layer_dict)
+                add_layer(analysis_results.video, **layer_dict)
             elif (
-                yolo_results.height is not None
-                and yolo_results.width is not None
+                analysis_results.height is not None
+                and analysis_results.width is not None
             ):
                 add_layer = viewer.add_image
                 layer_dict = {"name": "dummy mask"}
                 add_layer(
-                    np.zeros((yolo_results.height, yolo_results.width)),
+                    np.zeros(
+                        (analysis_results.height, analysis_results.width)
+                    ),
                     **layer_dict,
                 )
             else:
@@ -4181,7 +4195,7 @@ class YOLO_octron:
                     f"(label '{label}'), skipping."
                 )
                 continue
-            color, napari_colormap = yolo_results.get_color_for_track_id(
+            color, napari_colormap = analysis_results.get_color_for_track_id(
                 track_id
             )
             tracking_df = tracking_data[track_id]["data"]
@@ -4240,7 +4254,7 @@ class YOLO_octron:
                 )
                 viewer.layers[f"{label} - id {track_id}"].tail_width = 3
                 viewer.layers[f"{label} - id {track_id}"].tail_length = min(
-                    yolo_results.num_frames, 250
+                    analysis_results.num_frames, 250
                 )
                 viewer.layers[
                     f"{label} - id {track_id}"

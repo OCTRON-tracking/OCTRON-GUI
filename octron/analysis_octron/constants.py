@@ -1,4 +1,4 @@
-"""Shared constants for the YOLO / OCTRON training pipeline."""
+"""Shared constants for the OCTRON training pipeline."""
 
 # Color codes for train-mode indicators (segment vs. detect)
 TASK_COLORS = {

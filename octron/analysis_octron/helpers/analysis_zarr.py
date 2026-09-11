@@ -1,4 +1,4 @@
-"""Zarr store helpers for YOLO prediction data.
+"""Zarr store helpers for prediction data.
 
 Very similar to the SAM2 zarr function - maybe unite in the future.
 """

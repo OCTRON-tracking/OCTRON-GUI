@@ -8,7 +8,7 @@ users can also run it standalone via `octron split`.
 from pathlib import Path
 
 _MODELS_YAML = (
-    Path(__file__).parent.parent / "yolo_octron" / "yolo_models.yaml"
+    Path(__file__).parent.parent / "analysis_octron" / "analysis_models.yaml"
 )
 
 
@@ -64,7 +64,7 @@ def run_split(
         If ``True``, print split sizes without writing anything to disk.
 
     """
-    from octron.yolo_octron.yolo_octron import YOLO_octron
+    from octron.analysis_octron.analysis_octron import AnalysisOctron
 
     train_mode = (
         train_mode.value if hasattr(train_mode, "value") else str(train_mode)
@@ -95,18 +95,18 @@ def run_split(
     # Validate fractions up front using the core guard (also enforced
     # inside prepare_split) so the CLI fails before any model, label, or
     # geometry work.
-    YOLO_octron._validate_split_fractions(train_fraction, val_fraction)
+    AnalysisOctron._validate_split_fractions(train_fraction, val_fraction)
 
-    yolo = YOLO_octron(
+    analysis = AnalysisOctron(
         models_yaml_path=_MODELS_YAML,
         project_path=project_path,
     )
-    yolo.train_mode = train_mode
-    yolo.enable_watershed = watershed
+    analysis.train_mode = train_mode
+    analysis.enable_watershed = watershed
 
     # --- Step 1: collect labels ---
     print("Preparing labels...")
-    yolo.prepare_labels(prune_empty_labels=prune)
+    analysis.prepare_labels(prune_empty_labels=prune)
 
     # --- Step 2: generate geometry (polygons for segment, bboxes for
     # detect) ---
@@ -119,12 +119,12 @@ def run_split(
     # stderr. We only drive the generator here; printing our own
     # carriage-return line to stdout in lockstep with tqdm makes the bar
     # "staircase" onto new lines (most visibly on Windows).
-    for _ in yolo.prepare_geometry():
+    for _ in analysis.prepare_geometry():
         pass
 
     # --- Step 3: split ---
     print("Splitting data into train/val/test sets...")
-    yolo.prepare_split(
+    analysis.prepare_split(
         training_fraction=train_fraction,
         validation_fraction=val_fraction,
         random_seed=seed,
@@ -132,9 +132,9 @@ def run_split(
     )
 
     # Print summary table + colored whole-video timelines (shared w/ GUI)
-    from octron.yolo_octron.helpers.split_report import render_split_report
+    from octron.analysis_octron.helpers.split_report import render_split_report
 
-    render_split_report(yolo.summarize_split(), seed)
+    render_split_report(analysis.summarize_split(), seed)
 
     if dry_run:
         print("Dry run — no files written.")
@@ -144,8 +144,8 @@ def run_split(
     print("Exporting training data...")
     # As above: tqdm owns the export progress bar; we just consume the
     # generator so a competing stdout writer can't break the bar.
-    for _ in yolo.create_training_data():
+    for _ in analysis.create_training_data():
         pass
 
-    yolo.write_yolo_config(train_mode=train_mode)
+    analysis.write_analysis_config(train_mode=train_mode)
     print("Training data export complete.")

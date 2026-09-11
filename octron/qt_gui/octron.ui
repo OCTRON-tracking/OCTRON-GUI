@@ -654,7 +654,7 @@ QTableCornerButton::section {
                 </size>
                </property>
                <property name="toolTip">
-                <string>SAM models</string>
+                <string>Annotation models</string>
                </property>
                <property name="currentText">
                 <string>Model</string>
@@ -1695,6 +1695,9 @@ but should be separate entities in the training data.</string>
                  <height>25</height>
                 </size>
                </property>
+               <property name="toolTip">
+                <string>Overwrite previous training data?</string>
+               </property>
                <property name="text">
                 <string>Overwrite</string>
                </property>
@@ -2070,7 +2073,7 @@ Recommended are at least ~50.</string>
                 </size>
                </property>
                <property name="toolTip">
-                <string>YOLO models</string>
+                <string>Choose your preferred model to train</string>
                </property>
                <item>
                 <property name="text">
@@ -2094,7 +2097,7 @@ Recommended are at least ~50.</string>
                 </size>
                </property>
                <property name="toolTip">
-                <string>Image size used for training within YOLO</string>
+                <string>Image size used for training</string>
                </property>
                <property name="editable">
                 <bool>true</bool>

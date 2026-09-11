@@ -1,6 +1,6 @@
 """Dialog for configuring scikit-image region properties to extract.
 
-Extracted during YOLO segmentation prediction. Modeled after
+Extracted during segmentation prediction. Modeled after
 BoxmotTrackerConfigDialog in tracking/tracker_config_ui.py.
 """
 
@@ -21,7 +21,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from octron.yolo_octron.constants import (
+from octron.analysis_octron.constants import (
     ALL_REGION_PROPERTIES,
     DEFAULT_REGION_PROPERTIES,
 )
@@ -170,7 +170,7 @@ class RegionPropertiesDialog(QDialog):
     @staticmethod
     def _write_defaults_to_constants(selected: tuple):
         """Rewrite DEFAULT_REGION_PROPERTIES in constants.py on disk."""
-        import octron.yolo_octron.constants as _mod
+        import octron.analysis_octron.constants as _mod
 
         path = _mod.__file__
 

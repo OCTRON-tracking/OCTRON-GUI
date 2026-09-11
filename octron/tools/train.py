@@ -1,14 +1,15 @@
 """OCTRON training pipeline.
 
-Wraps the YOLO_octron model-loading and training steps into a single callable.
-By default, training data is prepared automatically via ``run_split()``.
-Pass ``skip_split=True`` if ``octron split`` has already been run.
+Wraps the AnalysisOctron model-loading and training steps into a single
+callable. By default, training data is prepared automatically via
+``run_split()``. Pass ``skip_split=True`` if ``octron split`` has already
+been run.
 """
 
 from pathlib import Path
 
 _MODELS_YAML = (
-    Path(__file__).parent.parent / "yolo_octron" / "yolo_models.yaml"
+    Path(__file__).parent.parent / "analysis_octron" / "analysis_models.yaml"
 )
 
 
@@ -30,7 +31,7 @@ def run_training(
     prune=False,
     watershed=False,
 ):
-    """Run the OCTRON/YOLO training pipeline.
+    """Run the OCTRON training pipeline.
 
     By default this prepares and exports training data before training.
     Pass ``skip_split=True`` to skip that step when data is already up to date.
@@ -40,7 +41,7 @@ def run_training(
     project_path : str or Path
         Path to the OCTRON project directory.
     model : str or Path
-        YOLO model name (e.g. 'YOLO11m') or path to an existing model file.
+        Model name (e.g. 'YOLO11m') or path to an existing model file.
     device : str or None
         Device to train on ('auto', 'cpu', 'cuda', 'mps'). None reads
         ``device`` from ``config.yaml`` (default 'auto' selects CUDA if
@@ -83,9 +84,9 @@ def run_training(
 
     """
     from octron import config
+    from octron.analysis_octron.analysis_octron import AnalysisOctron
     from octron.test_gpu import auto_device
     from octron.tools.split import run_split
-    from octron.yolo_octron.yolo_octron import YOLO_octron
 
     # Unwrap enums to plain strings so they are never serialised as Python
     # object tags when written into YAML config files downstream.
@@ -103,15 +104,15 @@ def run_training(
 
     # Create the model wrapper first so the resume/overwrite decision and the
     # config-path resolution both live in core (shared with the GUI).
-    yolo = YOLO_octron(
+    analysis = AnalysisOctron(
         models_yaml_path=_MODELS_YAML,
         project_path=project_path,
         clean_training_dir=False,
     )
-    yolo.train_mode = train_mode
+    analysis.train_mode = train_mode
 
     # Decide fresh vs. strict-resume vs. continue-from-completed-checkpoint.
-    state = yolo.resolve_resume_state(resume=resume, overwrite=overwrite)
+    state = analysis.resolve_resume_state(resume=resume, overwrite=overwrite)
     action = state["action"]
     if action in ("completed", "error"):
         print(state["message"])
@@ -123,12 +124,12 @@ def run_training(
     # GUI, which hides unsupported models from the menu. Only relevant
     # for a fresh run; resume/continue reload the existing checkpoint.
     if action not in ("resume", "init_from_checkpoint") and (
-        not yolo.supports_task(model, train_mode)
+        not analysis.supports_task(model, train_mode)
     ):
-        resolved = yolo.resolve_model_name(model)
+        resolved = analysis.resolve_model_name(model)
         task_label = "detection" if train_mode == "detect" else "segmentation"
         other_label = "segmentation" if train_mode == "detect" else "detection"
-        display = yolo.models_dict[resolved].get("name", resolved)
+        display = analysis.models_dict[resolved].get("name", resolved)
         print(
             f"Model '{display}' does not support {task_label}. "
             f"Use --mode {other_label} or choose a "
@@ -154,15 +155,15 @@ def run_training(
     if action in ("resume", "init_from_checkpoint"):
         # Image size is recovered from the checkpoint, overriding --imagesz.
         imagesz = state["imgsz"]
-        yolo.load_model(state["checkpoint"], train_mode=train_mode)
+        analysis.load_model(state["checkpoint"], train_mode=train_mode)
     else:
         model_name = model.value if hasattr(model, "value") else model
         print(f"Loading model: {model_name}...")
-        yolo.load_model(model, train_mode=train_mode)
+        analysis.load_model(model, train_mode=train_mode)
 
     # --- Step 6: train (core resolves a cached AutoBatch size for CUDA) ---
     print(f"Training for {epochs} epochs on {device}...")
-    for progress in yolo.train(
+    for progress in analysis.train(
         device=device,
         imagesz=imagesz,
         epochs=epochs,

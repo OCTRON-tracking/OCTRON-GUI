@@ -136,10 +136,10 @@ def test_model_cache_dir_honors_config_and_tilde(cfg_path):
     assert config.get_model_cache_dir() == (Path.home() / "octron_models")
 
 
-def test_yolo_models_and_sam_checkpoints_dirs_created(cfg_path, tmp_path):
+def test_analysis_models_and_sam_checkpoints_dirs_created(cfg_path, tmp_path):
     base = tmp_path / "mcache"
     config.set_value("model_cache_dir", str(base))
-    models = config.get_yolo_models_dir()
+    models = config.get_analysis_models_dir()
     ckpts = config.get_sam_checkpoints_dir()
     assert models == base / "models" and models.is_dir()
     assert ckpts == base / "checkpoints" and ckpts.is_dir()
