@@ -404,6 +404,11 @@ class octron_widget(QWidget):
         idx = self.yolomodel_list.findText(previous) if previous else -1
         self.yolomodel_list.setCurrentIndex(idx if idx > 0 else 0)
         self.yolomodel_list.blockSignals(False)
+        # Signals were blocked above, so sync the TensorBoard checkbox to
+        # the (re)selected model explicitly (RT-DETR disables it). The
+        # YOLO handler owns that logic.
+        if hasattr(self, "yolo_handler"):
+            self.yolo_handler.sync_tensorboard_for_model()
 
     def on_toolbox_tab_changed(self, index):
         """Handle selection of a different tab in the toolBox.

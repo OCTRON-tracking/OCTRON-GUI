@@ -110,6 +110,46 @@ class YoloHandler(QObject):
         self.w.yolomodel_trained_list.currentIndexChanged.connect(
             self.on_trained_model_changed
         )
+        self.w.yolomodel_list.currentIndexChanged.connect(
+            self.sync_tensorboard_for_model
+        )
+
+    def sync_tensorboard_for_model(self, *args):
+        """Enable/disable the TensorBoard checkbox for the selected model.
+
+        RT-DETR training disables ultralytics' TensorBoard model-graph
+        trace (it crashes training) and OCTRON does not launch
+        TensorBoard for it, so when an RT-DETR model is selected the
+        'Launch Tensorboard' checkbox is unchecked and disabled; for any
+        other model it is enabled and checked. RT-DETR is recognised
+        from the catalog base-weight filename (ultralytics'
+        ``rtdetr-*.pt`` convention) — a lightweight UI hint only; the
+        authoritative loader choice still comes from the checkpoint at
+        load time.
+        """
+        name = self.w.yolomodel_list.currentText()
+        entry = next(
+            (
+                m
+                for m in self.w.yolomodels_dict.values()
+                if m.get("name") == name
+            ),
+            None,
+        )
+        is_rtdetr = bool(entry) and (
+            "rtdetr" in (entry.get("model_path_detect") or "").lower()
+        )
+        checkbox = self.w.launch_tensorboard_checkBox
+        if is_rtdetr:
+            checkbox.setChecked(False)
+            checkbox.setEnabled(False)
+            checkbox.setToolTip(
+                "TensorBoard is unavailable for RT-DETR training."
+            )
+        else:
+            checkbox.setEnabled(True)
+            checkbox.setChecked(True)
+            checkbox.setToolTip("")
 
     def on_resume_toggled(self, checked):
         """Toggle enabled state of model/image-size dropdowns on resume.
@@ -930,6 +970,9 @@ class YoloHandler(QObject):
         self.w.train_epochs_progressbar.setEnabled(True)
         self.w.train_finishtime_label.setEnabled(True)
         self.w.train_finishtime_label.setText("↬ ... wait one epoch")
+        # launch_tensorbrd reflects the 'Launch Tensorboard' checkbox,
+        # which sync_tensorboard_for_model() unchecks for RT-DETR, so no
+        # extra model check is needed here.
         if self.launch_tensorbrd:
             self.yolo.quit_tensorboard()
             self.yolo.launch_tensorboard()
