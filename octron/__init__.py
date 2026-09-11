@@ -5,7 +5,11 @@ from importlib.metadata import version
 from octron._logging import setup_logging
 
 # Configure loguru with OCTRON's compact log format as soon as the package is
-# imported
+# imported. NOTE: some dependencies (e.g. boxmot) call logger.remove() /
+# logger.add() with their own verbose format at their own import time. Since
+# those dependencies are only pulled in lazily (see __getattr__ below), this
+# initial call does not survive past the first such import — setup_logging()
+# is called again after each lazy import for that reason.
 setup_logging()
 
 
@@ -64,23 +68,28 @@ def __getattr__(name):
     if name == "octron_widget":
         with _suppress_known_dependency_warnings():
             from .main import octron_widget
+        setup_logging()
         return octron_widget
     if name == "octron_reader":
         with _suppress_known_dependency_warnings():
             from .reader import octron_reader
+        setup_logging()
         return octron_reader
     if name == "AnalysisOctron":
         with _suppress_known_dependency_warnings():
             from .analysis_octron.analysis_octron import AnalysisOctron
+        setup_logging()
         return AnalysisOctron
     if name == "AnalysisResults":
         with _suppress_known_dependency_warnings():
             from .analysis_octron.helpers.analysis_results import (
                 AnalysisResults,
             )
+        setup_logging()
         return AnalysisResults
     if name == "ANNOT_results":
         with _suppress_known_dependency_warnings():
             from .analysis_octron.helpers.sam2_results import ANNOT_results
+        setup_logging()
         return ANNOT_results
     raise AttributeError(f"module 'octron' has no attribute {name!r}")

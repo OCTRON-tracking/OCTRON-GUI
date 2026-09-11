@@ -131,6 +131,11 @@ class octron_widget(QWidget):
     def __init__(self, viewer: "napari.viewer.Viewer", parent=None):
         """Initialize state, load SAM2 models, and build the GUI."""
         super().__init__(parent)
+
+        # Need to set up logging here
+        from octron._logging import setup_logging
+
+        setup_logging()
         base_path_parent = base_path  # TODO: Get rid of this path madness
         self.base_path = Path(os.path.abspath(__file__)).parent
         self._viewer = viewer
