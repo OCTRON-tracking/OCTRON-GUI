@@ -1613,6 +1613,9 @@ that yield bboxes, but NO masks.</string>
              <property name="spacing">
               <number>10</number>
              </property>
+             <property name="sizeConstraint">
+              <enum>QLayout::SizeConstraint::SetDefaultConstraint</enum>
+             </property>
              <property name="bottomMargin">
               <number>10</number>
              </property>

@@ -1567,6 +1567,12 @@ class YOLO_octron:
             os.environ["MLFLOW_TRACKING_URI"] = str(
                 self.training_path / "mlflow"
             )
+            # MLflow >=3 puts the plain filesystem store in "maintenance
+            # mode" and raises unless this opt-in is set. OCTRON uses a
+            # local per-project file store on purpose (single folder, no
+            # database/account), so opt in. The MLflow UI subprocess
+            # launched later inherits this env var.
+            os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
         # Resolve the weights path and the model_info used to pick the
         # loader class. A path that exists on disk is a checkpoint
         # (trained model, resume, or predict); otherwise the name is
@@ -2444,6 +2450,11 @@ class YOLO_octron:
             )
             return False
 
+        # MLflow >=3 gates the filesystem store behind this opt-in, and
+        # the UI server opens that store too. The training process sets
+        # it in load_model; set it here as well so a standalone launch
+        # (and the inherited subprocess env) also works.
+        os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
         # Serve the same local file store the ultralytics MLflow callback
         # logs to (MLFLOW_TRACKING_URI, set in load_model).
         tracking_dir = self.training_path / "mlflow"
@@ -2467,8 +2478,9 @@ class YOLO_octron:
                 text=True,
             )
 
-            # Give it a moment to start up
-            time.sleep(3)
+            # Give it a moment to start up (the MLflow server can take a
+            # few seconds to come online).
+            time.sleep(5)
 
             # Check if process is still running
             if mlflow_process.poll() is not None:

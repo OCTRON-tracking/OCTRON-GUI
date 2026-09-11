@@ -567,6 +567,7 @@ class Ui_octron_widgetui(object):
         self.octron.train_checkboxes_verticalLayout = QVBoxLayout(self.octron.layoutWidget_6)
         self.octron.train_checkboxes_verticalLayout.setSpacing(10)
         self.octron.train_checkboxes_verticalLayout.setObjectName(u"train_checkboxes_verticalLayout")
+        self.octron.train_checkboxes_verticalLayout.setSizeConstraint(QLayout.SizeConstraint.SetDefaultConstraint)
         self.octron.train_checkboxes_verticalLayout.setContentsMargins(0, 0, 0, 10)
         self.octron.train_prune_checkBox = QCheckBox(self.octron.layoutWidget_6)
         self.octron.train_prune_checkBox.setObjectName(u"train_prune_checkBox")
@@ -1353,3 +1354,4 @@ class Ui_octron_widgetui(object):
         self.octron.main_toolbox.setItemToolTip(self.octron.main_toolbox.indexOf(self.octron.predict_tab), QCoreApplication.translate("self", u"Use trained models to run predictions on new videos", None))
 #endif // QT_CONFIG(tooltip)
     # retranslateUi
+
