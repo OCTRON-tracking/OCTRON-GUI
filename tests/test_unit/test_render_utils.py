@@ -22,6 +22,7 @@ import pytest
 
 from octron.tools.render import (
     _coerce_track_ids,
+    _coerce_tracking_frames,
     _select_render_frames,
     _validate_render_args,
     run_tracklets,
@@ -111,6 +112,55 @@ def test_coerce_track_ids_rejects_mixed_iterable():
 def test_coerce_track_ids_rejects_float():
     with pytest.raises(ValueError, match="track_ids"):
         _coerce_track_ids(1.5)
+
+
+# ---------------------------------------------------------------------------
+# _coerce_tracking_frames (--tracking-frames)
+# ---------------------------------------------------------------------------
+
+
+def test_coerce_tracking_frames_none_is_off():
+    assert _coerce_tracking_frames(None) == 0
+
+
+def test_coerce_tracking_frames_zero_is_off():
+    assert _coerce_tracking_frames(0) == 0
+
+
+def test_coerce_tracking_frames_positive_int():
+    assert _coerce_tracking_frames(30) == 30
+
+
+def test_coerce_tracking_frames_numeric_string():
+    assert _coerce_tracking_frames("30") == 30
+
+
+def test_coerce_tracking_frames_numeric_string_with_whitespace():
+    assert _coerce_tracking_frames(" 30 ") == 30
+
+
+@pytest.mark.parametrize("value", ["inf", "Inf", "INF", "infinity", " inf "])
+def test_coerce_tracking_frames_inf_string_case_insensitive(value):
+    assert _coerce_tracking_frames(value) == float("inf")
+
+
+def test_coerce_tracking_frames_float_inf():
+    assert _coerce_tracking_frames(float("inf")) == float("inf")
+
+
+def test_coerce_tracking_frames_rejects_negative():
+    with pytest.raises(ValueError, match="tracking_frames"):
+        _coerce_tracking_frames(-1)
+
+
+def test_coerce_tracking_frames_rejects_malformed_string():
+    with pytest.raises(ValueError, match="tracking_frames"):
+        _coerce_tracking_frames("bogus")
+
+
+def test_coerce_tracking_frames_rejects_non_numeric_type():
+    with pytest.raises(ValueError, match="tracking_frames"):
+        _coerce_tracking_frames([1, 2])
 
 
 # ---------------------------------------------------------------------------
