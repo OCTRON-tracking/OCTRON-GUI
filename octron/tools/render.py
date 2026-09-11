@@ -241,8 +241,8 @@ def _next_mask_batch(q, timeout=120):
 
 
 def _load_results(predictions_path, video_path):
-    """Load YOLO_results and optionally override the video path."""
-    from octron.yolo_octron.helpers.yolo_results import YOLO_results
+    """Load AnalysisResults and optionally override the video path."""
+    from octron.analysis_octron.helpers.analysis_results import AnalysisResults
 
     predictions_path = Path(predictions_path)
     if not predictions_path.exists():
@@ -250,7 +250,7 @@ def _load_results(predictions_path, video_path):
             f"Predictions directory not found: {predictions_path}"
         )
 
-    results = YOLO_results(
+    results = AnalysisResults(
         predictions_path,
         verbose=True,
         **({"video_path": video_path} if video_path is not None else {}),

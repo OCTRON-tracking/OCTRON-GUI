@@ -1,4 +1,4 @@
-"""Code for checking the availability of the YOLO models."""
+"""Code for checking the availability of the base analysis models."""
 
 from pathlib import Path
 
@@ -9,8 +9,8 @@ from loguru import logger
 from octron.url_check import check_url_availability
 
 
-def download_yolo_model(url, fpath, overwrite=False):
-    """Download the YOLO model file from a URL.
+def download_analysis_model(url, fpath, overwrite=False):
+    """Download the model file from a URL.
 
     Parameters
     ----------
@@ -20,7 +20,7 @@ def download_yolo_model(url, fpath, overwrite=False):
         download/v8.3.0/yolo11l-seg.pt"
     fpath : str or Path
         Destination path to save the model to. For example
-        "yolo_octron/models/yolo11l-seg.pt"
+        "analysis_octron/models/yolo11l-seg.pt"
     overwrite : bool
         If True, overwrite the file if it already exists.
         If False, skip the download if the file already exists.
@@ -43,17 +43,17 @@ def download_yolo_model(url, fpath, overwrite=False):
             with open(fpath, "wb") as f:
                 for chunk in response.iter_content(1024):
                     f.write(chunk)
-            logger.info(f"Saved YOLO model to {fpath}")
+            logger.info(f"Saved model to {fpath}")
         else:
             pass
 
 
-def check_yolo_models(
+def check_analysis_models(
     YOLO_BASE_URL,
     models_yaml_path,
     force_download=False,
 ):
-    """Check the availability of the YOLO model.
+    """Check the availability of the base analysis model(s).
 
     Optionally download the model file if they are not available
     or if force_download is set to True.
@@ -66,7 +66,7 @@ def check_yolo_models(
         If not provided, the default URL is used.
     models_yaml_path : str or Path
         Path to the YAML file containing the model information.
-        For example "yolo_octron/models.yaml"
+        For example "analysis_octron/models.yaml"
     force_download : bool
         If True, download the model even if it already exists.
         Default is False.
@@ -95,12 +95,12 @@ def check_yolo_models(
     models_yaml_path = Path(models_yaml_path)
     assert models_yaml_path.exists(), f"Path {models_yaml_path} does not exist"
     # Downloaded weights live in the per-user cache
-    # (config.get_yolo_models_dir()), NOT inside the installed package
+    # (config.get_analysis_models_dir()), NOT inside the installed package
     # (which may be read-only and is wiped on reinstall). The manifest
     # YAML stays bundled with the package.
     from octron import config
 
-    yolo_model_path = config.get_yolo_models_dir()
+    analysis_model_path = config.get_analysis_models_dir()
 
     # Load the model YAML file and convert it to a dictionary
     with open(models_yaml_path) as file:
@@ -132,7 +132,7 @@ def check_yolo_models(
             if not variant:
                 # Unsupported task for this model — nothing to download.
                 continue
-            model_path = yolo_model_path / variant
+            model_path = analysis_model_path / variant
             # Check if the model file exists. If not, download it.
             if model_path.exists() and not force_download:
                 logger.info(
@@ -148,7 +148,7 @@ def check_yolo_models(
                 assert check_url_availability(model_url), (
                     f"URL {model_url} is not available."
                 )
-                download_yolo_model(
+                download_analysis_model(
                     url=model_url, fpath=model_path, overwrite=True
                 )
 

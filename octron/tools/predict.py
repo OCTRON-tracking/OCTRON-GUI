@@ -1,6 +1,6 @@
 """OCTRON prediction pipeline.
 
-Wraps ``YOLO_octron.predict_batch()`` into a single callable usable from
+Wraps ``AnalysisOctron.predict_batch()`` into a single callable usable from
 the CLI or programmatically.
 
 Local prediction caching (staging output on a fast local disk, then moving each
@@ -34,14 +34,14 @@ def run_predict(
     debug=False,
     local_cache_dir=None,
 ):
-    """Run YOLO prediction and tracking on one or more videos.
+    """Run prediction and tracking on one or more videos.
 
     Parameters
     ----------
     videos : str, Path, or list
         Single video path, a directory of ``.mp4`` files, or a list of paths.
     model_path : str or Path
-        Path to a trained YOLO ``.pt`` file, or a directory containing one.
+        Path to a trained ``.pt`` model file, or a directory containing one.
     tracker_name : str, optional
         Tracker to use (e.g. 'ByteTrack', 'BotSort'). Either this or
         ``tracker_cfg_path`` must be provided.
@@ -120,8 +120,8 @@ def run_predict(
     from loguru import logger
 
     from octron import config
+    from octron.analysis_octron.analysis_octron import AnalysisOctron
     from octron.test_gpu import auto_device
-    from octron.yolo_octron.yolo_octron import YOLO_octron
 
     # Silence boxmot's verbose INFO chatter (tracker init parameter dumps).
     logger.disable("boxmot")
@@ -144,7 +144,7 @@ def run_predict(
     if device == "auto":
         device = auto_device()
 
-    yolo = YOLO_octron()
+    analysis = AnalysisOctron()
 
     _wall_start = time.time()
     # Consumer-side fps: timestamps of the last _FPS_WINDOW seconds of
@@ -170,7 +170,7 @@ def run_predict(
             _progress_line_open = False
 
     try:
-        for progress in yolo.predict_batch(
+        for progress in analysis.predict_batch(
             videos=videos,
             model_path=model_path,
             device=device,

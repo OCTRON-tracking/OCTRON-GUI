@@ -1,4 +1,4 @@
-"""Helpers for loading and querying YOLO/OCTRON prediction results."""
+"""Helpers for loading and querying OCTRON prediction results."""
 
 import ast
 import json
@@ -17,8 +17,8 @@ from skimage.morphology import binary_closing, disk, remove_small_holes
 from tqdm import tqdm
 
 
-class YOLO_results:
-    """Load and query YOLO/OCTRON prediction results (video, CSVs, zarr)."""
+class AnalysisResults:
+    """Load and query OCTRON prediction results (video, CSVs, zarr)."""
 
     def __init__(self, results_dir, verbose=True, **kwargs):
         """Initialize by locating and loading the prediction results.
@@ -605,7 +605,7 @@ class YOLO_results:
         # Import napari colormap support lazily. Importing napari.utils
         # at module import time triggers Pydantic json_encoders
         # deprecation warnings from a dependency even when users only
-        # do `from octron import YOLO_results`.
+        # do `from octron import AnalysisResults`.
         from octron import _suppress_known_dependency_warnings
 
         with _suppress_known_dependency_warnings():
@@ -1292,11 +1292,11 @@ class YOLO_results:
             and self.height is not None
         ):
             return (
-                f"YOLO_results\n{self.results_dir}\n{self.num_frames} "
+                f"AnalysisResults\n{self.results_dir}\n{self.num_frames} "
                 f"frames, {self.width}x{self.height}"
             )
         else:
-            return f"YOLO_results\n{self.results_dir}"
+            return f"AnalysisResults\n{self.results_dir}"
 
     def __str__(self) -> str:
         """Return a concise summary of the results directory and video info."""
@@ -1306,11 +1306,11 @@ class YOLO_results:
             and self.height is not None
         ):
             return (
-                f"YOLO_results\n{self.results_dir}\n{self.num_frames} "
+                f"AnalysisResults\n{self.results_dir}\n{self.num_frames} "
                 f"frames, {self.width}x{self.height}"
             )
         else:
-            return f"YOLO_results\n{self.results_dir}"
+            return f"AnalysisResults\n{self.results_dir}"
 
     #### OTHER HELPERS ########################################################
 

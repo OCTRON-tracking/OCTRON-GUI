@@ -57,6 +57,16 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from octron.analysis_octron.analysis_octron import AnalysisOctron
+from octron.analysis_octron.constants import TASK_COLORS
+
+# YOLO specific
+from octron.analysis_octron.gui.analysis_handler import AnalysisHandler
+from octron.analysis_octron.helpers.training import (
+    collect_labels,
+    load_object_organizer,
+)
+
 # Custom dialog boxes
 from octron.gui_dialog_elements import (
     add_new_label_dialog,
@@ -95,15 +105,6 @@ from octron.sam_octron.object_organizer import Obj, ObjectOrganizer
 # Tracker specific
 from octron.tracking.helpers.tracker_checks import load_boxmot_trackers
 from octron.tracking.helpers.tracker_vis import create_color_icon
-from octron.yolo_octron.constants import TASK_COLORS
-
-# YOLO specific
-from octron.yolo_octron.gui.yolo_handler import YoloHandler
-from octron.yolo_octron.helpers.training import (
-    collect_labels,
-    load_object_organizer,
-)
-from octron.yolo_octron.yolo_octron import YOLO_octron
 
 # If there's already a QApplication instance (as may be the case when
 # running as a napari plugin), then set its style explicitly:
@@ -123,7 +124,8 @@ class octron_widget(QWidget):
     """Main OCTRON widget class.
 
     It contains SAM2 methods for now. All YOLO methods are in the
-    YoloHandler class, to be found in yolo_octron/gui/yolo_handler.py.
+    AnalysisHandler class, to be found in
+    analysis_octron/gui/analysis_handler.py.
     """
 
     def __init__(self, viewer: "napari.viewer.Viewer", parent=None):
@@ -177,11 +179,13 @@ class octron_widget(QWidget):
         )
 
         # Model yaml for YOLO
-        yolo_models_yaml_path = self.base_path / "yolo_octron/yolo_models.yaml"
-        self.yolo_octron = YOLO_octron(
-            models_yaml_path=yolo_models_yaml_path
+        analysis_models_yaml_path = (
+            self.base_path / "analysis_octron/analysis_models.yaml"
+        )
+        self.analysis = AnalysisOctron(
+            models_yaml_path=analysis_models_yaml_path
         )  # Feeding in yaml to initiate models dict
-        self.yolomodels_dict = self.yolo_octron.models_dict
+        self.analysis_models_dict = self.analysis.models_dict
 
         # Model yaml for Trackers
         trackers_yaml_path = self.base_path / "tracking/boxmot_trackers.yaml"
@@ -191,8 +195,8 @@ class octron_widget(QWidget):
         octron_gui_elements(self, base_path=base_path_parent)
 
         # Initialize sub GUI handlers for YOLO
-        self.yolo_handler = YoloHandler(self, self.yolo_octron)
-        self.yolo_handler.connect_signals()
+        self.analysis_handler = AnalysisHandler(self, self.analysis)
+        self.analysis_handler.connect_signals()
 
         # (De)activate certain functionality while WIP
         last_index = self.layer_type_combobox.count() - 1
@@ -221,7 +225,7 @@ class octron_widget(QWidget):
         # Populate YOLO dropdown list with models available for the
         # current train mode (segmentation by default). The menu is
         # re-filtered whenever the detect/segment radio changes.
-        self.populate_yolo_model_list()
+        self.populate_analysis_model_list()
 
         # Populate Tracker dropdown list with available boxmot trackers
         for tracker in self.trackers_dict:
@@ -233,7 +237,7 @@ class octron_widget(QWidget):
                 square_icon = create_color_icon(
                     color
                 )  # Creates color icon to show computational demands
-                self.yolomodel_tracker_list.addItem(
+                self.tracker_list.addItem(
                     square_icon, self.trackers_dict[tracker]["name"] + " "
                 )
 
@@ -290,7 +294,7 @@ class octron_widget(QWidget):
         )
         self.hard_reset_layer_btn.clicked.connect(self.reset_predictor)
         self.hard_reset_layer_btn.setEnabled(False)
-        # ... YOLO
+        # ... Training/prediction
         self.generate_training_data_btn.setText("")
         self.start_stop_training_btn.setText("")
         self.predict_start_btn.setText("")
@@ -369,10 +373,10 @@ class octron_widget(QWidget):
             self._update_train_mode_indicators(TASK_COLORS["detect"])
         logger.info(f"Train mode set to: {self.train_mode}")
         # Re-filter the model menu for the newly selected task.
-        self.populate_yolo_model_list()
+        self.populate_analysis_model_list()
 
-    def populate_yolo_model_list(self):
-        """Fill the YOLO model dropdown for the current train mode.
+    def populate_analysis_model_list(self):
+        """Fill the model dropdown for the current train mode.
 
         Only models that support the active task are shown: a model is
         listed when its variant for the current mode is non-empty
@@ -388,22 +392,22 @@ class octron_widget(QWidget):
         )
         # Remember the current selection so it can be restored if it is
         # still available in the new mode.
-        previous = self.yolomodel_list.currentText()
-        self.yolomodel_list.blockSignals(True)
-        self.yolomodel_list.clear()
+        previous = self.training_model_list.currentText()
+        self.training_model_list.blockSignals(True)
+        self.training_model_list.clear()
         # Index 0 is the placeholder/header item (see gui_elements).
-        self.yolomodel_list.addItem("")
-        for model_id, model in self.yolomodels_dict.items():
+        self.training_model_list.addItem("")
+        for model_id, model in self.analysis_models_dict.items():
             if not model.get(variant_key):
                 # Task unsupported by this model — hide it in this mode.
                 continue
-            logger.info(f"Adding YOLO model {model_id} ({self.train_mode})")
-            self.yolomodel_list.addItem(model["name"])
+            logger.info(f"Adding model {model_id} ({self.train_mode})")
+            self.training_model_list.addItem(model["name"])
         # Restore the previous selection when still present; otherwise
         # fall back to the header (index 0).
-        idx = self.yolomodel_list.findText(previous) if previous else -1
-        self.yolomodel_list.setCurrentIndex(idx if idx > 0 else 0)
-        self.yolomodel_list.blockSignals(False)
+        idx = self.training_model_list.findText(previous) if previous else -1
+        self.training_model_list.setCurrentIndex(idx if idx > 0 else 0)
+        self.training_model_list.blockSignals(False)
 
     def on_toolbox_tab_changed(self, index):
         """Handle selection of a different tab in the toolBox.
@@ -1152,7 +1156,7 @@ class octron_widget(QWidget):
             self.train_generate_groupbox.setEnabled(True)
             # train_train_groupbox is enabled only after training data
             # generation finishes (see _on_training_data_finished in
-            # yolo_handler.py)
+            # analysis_handler.py)
             # Enable some buttons too
             self.train_data_watershed_checkBox.setEnabled(True)
             self.train_data_overwrite_checkBox.setEnabled(True)
@@ -1388,7 +1392,7 @@ class octron_widget(QWidget):
         self.project_path = folder
         self.project_video_drop_groupbox.setEnabled(True)
         self.refresh_label_table_list(delete_old=True)
-        self.yolo_handler.refresh_trained_model_list()
+        self.analysis_handler.refresh_trained_model_list()
         return
 
     def open_project_folder_dialog(self):

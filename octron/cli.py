@@ -9,15 +9,16 @@ Subcommands
   config      View/edit config.yaml settings
               (init/list/get/set/path/edit)
   split       Prepare and export train/val/test data from an OCTRON project
-  train       Prepare training data and run YOLO model training
-  predict     Run YOLO prediction and tracking on one or more videos
+  train       Prepare training data and run model training (YOLO/RT-DETR)
+  predict     Run prediction and tracking on one or more videos
   dump-tracker-config  Print a tracker's default config YAML (edit,
                         then pass via --tracker-config)
   render      Render annotated video(s) from prediction output
               (use --bbox-sizes to report bbox sizes instead of rendering)
   transcode   Transcode video files to MP4 (H.264/libx264) using ffmpeg
   gif         Convert MP4/MOV/AVI videos to GIF (GUI)
-  download-yolo   Download/refresh YOLO base weights into the model cache
+  download-models Download/refresh base model weights (YOLO/RT-DETR) into
+                   the model cache (alias: download-yolo)
   download-sam2   Download/refresh SAM2 checkpoints into the model cache
   download-sam3   Download/refresh the SAM3 checkpoint (needs
                   HuggingFace access)
@@ -32,7 +33,7 @@ import typer
 import yaml
 from loguru import logger
 
-from octron.yolo_octron.constants import ALL_REGION_PROPERTIES
+from octron.analysis_octron.constants import ALL_REGION_PROPERTIES
 
 _PKG_DIR = Path(__file__).parent
 
@@ -159,8 +160,8 @@ def _enum_from_yaml(
 # runtime in the else branch.
 if TYPE_CHECKING:
 
-    class YOLOModel(str, Enum):
-        """Type-checking stand-in for the runtime-built YOLOModel enum."""
+    class AnalysisModel(str, Enum):
+        """Type-checking stand-in for the runtime-built AnalysisModel enum."""
 
         yolo26m = "yolo26m"
 
@@ -169,9 +170,9 @@ if TYPE_CHECKING:
 
         bytetrack = "bytetrack"
 else:
-    YOLOModel = _enum_from_yaml(
-        "YOLOModel",
-        _PKG_DIR / "yolo_octron" / "yolo_models.yaml",
+    AnalysisModel = _enum_from_yaml(
+        "AnalysisModel",
+        _PKG_DIR / "analysis_octron" / "analysis_models.yaml",
         fallback="yolo26m",
     )
     TrackerName = _enum_from_yaml(
@@ -183,7 +184,7 @@ else:
 
 
 class TrainMode(str, Enum):
-    """YOLO task mode: instance segmentation or object detection."""
+    """Task mode: instance segmentation or object detection."""
 
     segment = "segment"
     detect = "detect"
@@ -328,8 +329,8 @@ def train(
     project_path: Path = typer.Argument(
         ..., help="Path to the OCTRON project directory."
     ),
-    model: YOLOModel = typer.Option(
-        YOLOModel.yolo26m, help="YOLO model to train."
+    model: AnalysisModel = typer.Option(
+        AnalysisModel.yolo26m, help="YOLO model to train."
     ),
     train_mode: TrainMode = typer.Option(
         TrainMode.segment, "--mode", help="Training mode."
@@ -411,8 +412,8 @@ def train(
     ),
 ):
     (
-        """Prepare training data and run YOLO model training on an """
-        """OCTRON project."""
+        """Prepare training data and run model training (YOLO/RT-DETR) """
+        """on an OCTRON project."""
     )
     from octron.tools.train import run_training
 
@@ -442,7 +443,7 @@ def predict(
         ..., help="One or more video file paths."
     ),
     model_path: Path = typer.Option(
-        ..., "--model", help="Path to a trained YOLO .pt file."
+        ..., "--model", help="Path to a trained .pt model file."
     ),
     tracker: TrackerName = typer.Option(
         TrackerName.bytetrack, "--tracker", help="Tracker algorithm."
@@ -502,7 +503,7 @@ def predict(
         ),
     ),
 ):
-    """Run YOLO prediction and tracking on one or more videos."""
+    """Run prediction and tracking on one or more videos."""
     # Validate --detailed up front (before any heavy import) so a typo
     # fails fast.
     region_properties = _parse_region_properties(detailed)
@@ -964,7 +965,35 @@ def gif():
     gif_main()
 
 
-@app.command("download-yolo")
+@app.command("download-models")
+def download_models(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-download even if the weight files already exist.",
+    ),
+):
+    """Download base model weights (YOLO/RT-DETR) into the model cache.
+
+    Files are stored under config.get_analysis_models_dir() (the per-user model
+    cache, or model_cache_dir from config.yaml). Missing files are always
+    fetched; pass --force to re-download ones that already exist.
+    """
+    from octron import config
+    from octron.analysis_octron.helpers.analysis_checks import (
+        check_analysis_models,
+    )
+
+    yaml_path = _PKG_DIR / "analysis_octron" / "analysis_models.yaml"
+    check_analysis_models(
+        YOLO_BASE_URL=None, models_yaml_path=yaml_path, force_download=force
+    )
+    logger.info(
+        f"Model weights are in: {config.get_analysis_models_dir().as_posix()}"
+    )
+
+
+@app.command("download-yolo", hidden=True)
 def download_yolo(
     force: bool = typer.Option(
         False,
@@ -972,22 +1001,8 @@ def download_yolo(
         help="Re-download even if the weight files already exist.",
     ),
 ):
-    """Download YOLO base model weights into the model cache.
-
-    Files are stored under config.get_yolo_models_dir() (the per-user model
-    cache, or model_cache_dir from config.yaml). Missing files are always
-    fetched; pass --force to re-download ones that already exist.
-    """
-    from octron import config
-    from octron.yolo_octron.helpers.yolo_checks import check_yolo_models
-
-    yaml_path = _PKG_DIR / "yolo_octron" / "yolo_models.yaml"
-    check_yolo_models(
-        YOLO_BASE_URL=None, models_yaml_path=yaml_path, force_download=force
-    )
-    logger.info(
-        f"YOLO weights are in: {config.get_yolo_models_dir().as_posix()}"
-    )
+    """Run ``download-models`` (kept as a backward-compatible alias)."""
+    download_models(force=force)
 
 
 @app.command("download-sam2")

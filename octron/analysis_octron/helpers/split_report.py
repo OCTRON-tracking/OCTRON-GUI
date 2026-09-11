@@ -7,7 +7,7 @@ two layers:
 
 - ``build_split_report(label_dict)`` computes pure, click-free structured
   data (per-subfolder counts and timeline column structure). This is what
-  :meth:`YOLO_octron.summarize_split` returns, so callers can inspect the
+  :meth:`AnalysisOctron.summarize_split` returns, so callers can inspect the
   split programmatically or feed a widget.
 - ``render_split_report(report, seed)`` prints that data to the console:
   the count table via ``print`` and the colored timeline via ``click``
@@ -193,7 +193,7 @@ def _build_timeline(labels):
 def build_split_report(label_dict):
     """Compute the structured split report (counts + timeline) per subfolder.
 
-    Pure and click-free; this is what :meth:`YOLO_octron.summarize_split`
+    Pure and click-free; this is what :meth:`AnalysisOctron.summarize_split`
     returns and what :func:`render_split_report` consumes.
     """
     report = []
@@ -306,7 +306,7 @@ def render_split_report(report, seed):
 
     Shared by the CLI (``run_split``) and the GUI so both surfaces show an
     identical report. ``report`` is the output of :func:`build_split_report`
-    (or :meth:`YOLO_octron.summarize_split`); ``seed`` is shown in the table
+    (or :meth:`AnalysisOctron.summarize_split`); ``seed`` is shown in the table
     header only.
     """
     import click

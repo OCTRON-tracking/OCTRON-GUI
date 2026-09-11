@@ -1,7 +1,7 @@
 r"""OCTRON user configuration.
 
 A single, GUI- and CLI-friendly home for *user-tunable runtime settings*, kept
-deliberately separate from ``octron/yolo_octron/constants.py``:
+deliberately separate from ``octron/analysis_octron/constants.py``:
 
 - ``constants.py``  : developer-owned, code-coupled catalogs and theme
                       that are NOT meant to be hand-edited (e.g.
@@ -445,7 +445,7 @@ def get_model_cache_dir() -> Path:
     otherwise the per-user cache directory
     ``platformdirs.user_cache_dir("octron")`` (e.g.
     ``~/Library/Caches/octron`` on macOS). The directory is NOT created
-    here; use :func:`get_yolo_models_dir` / :func:`get_sam_checkpoints_dir`
+    here; use :func:`get_analysis_models_dir` / :func:`get_sam_checkpoints_dir`
     for the concrete (created) subdirectories.
     """
     raw = get_value("model_cache_dir")
@@ -454,10 +454,10 @@ def get_model_cache_dir() -> Path:
     return Path(platformdirs.user_cache_dir("octron", opinion=False))
 
 
-def get_yolo_models_dir() -> Path:
+def get_analysis_models_dir() -> Path:
     """Return ``<model_cache_dir>/models`` (created if missing).
 
-    Home for downloaded YOLO weight files. See :func:`get_model_cache_dir`.
+    Home for downloaded model weight files. See :func:`get_model_cache_dir`.
     """
     d = get_model_cache_dir() / "models"
     d.mkdir(parents=True, exist_ok=True)

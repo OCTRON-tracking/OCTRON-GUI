@@ -2,12 +2,12 @@
 
 These cover the RT-DETR support additions:
 
-* ``check_yolo_models`` must tolerate catalog entries that ship only one
+* ``check_analysis_models`` must tolerate catalog entries that ship only one
   task variant (empty ``model_path_seg`` or ``model_path_detect``),
   downloading only the non-empty variants and rejecting entries with
   neither.
 * ``get_model_info`` must expose a normalized ``model_type`` derived from
-  the stored model class name (``rtdetr`` vs ``yolo``), which is how the
+  the stored model class name (``rtdetr`` vs ``analysis``), which is how the
   loader picks the ultralytics class.
 
 Downloads and torch checkpoint reads are monkeypatched, so no network or
@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from octron.yolo_octron.helpers import yolo_checks
-from octron.yolo_octron.yolo_octron import YOLO_octron
+from octron.analysis_octron.analysis_octron import AnalysisOctron
+from octron.analysis_octron.helpers import analysis_checks
 
 
 def _write_catalog(tmp_path, catalog):
@@ -29,7 +29,7 @@ def _write_catalog(tmp_path, catalog):
     return yaml_path
 
 
-def test_check_yolo_models_skips_empty_variants(tmp_path, monkeypatch):
+def test_check_analysis_models_skips_empty_variants(tmp_path, monkeypatch):
     """Only non-empty variants are downloaded; empty ones are skipped."""
     catalog = {
         "RTDETR-l": {
@@ -49,20 +49,20 @@ def test_check_yolo_models_skips_empty_variants(tmp_path, monkeypatch):
 
     from octron import config
 
-    monkeypatch.setattr(config, "get_yolo_models_dir", lambda: cache)
+    monkeypatch.setattr(config, "get_analysis_models_dir", lambda: cache)
     monkeypatch.setattr(
-        yolo_checks, "check_url_availability", lambda url: True
+        analysis_checks, "check_url_availability", lambda url: True
     )
     downloaded = []
     monkeypatch.setattr(
-        yolo_checks,
-        "download_yolo_model",
+        analysis_checks,
+        "download_analysis_model",
         lambda url, fpath, overwrite=False: downloaded.append(
             Path(fpath).name
         ),
     )
 
-    result = yolo_checks.check_yolo_models(
+    result = analysis_checks.check_analysis_models(
         YOLO_BASE_URL="http://example/base",
         models_yaml_path=yaml_path,
         force_download=True,
@@ -76,7 +76,7 @@ def test_check_yolo_models_skips_empty_variants(tmp_path, monkeypatch):
     )
 
 
-def test_check_yolo_models_requires_one_variant(tmp_path, monkeypatch):
+def test_check_analysis_models_requires_one_variant(tmp_path, monkeypatch):
     """An entry with neither variant is rejected."""
     catalog = {
         "BROKEN": {
@@ -89,22 +89,22 @@ def test_check_yolo_models_requires_one_variant(tmp_path, monkeypatch):
 
     from octron import config
 
-    monkeypatch.setattr(config, "get_yolo_models_dir", lambda: tmp_path)
+    monkeypatch.setattr(config, "get_analysis_models_dir", lambda: tmp_path)
     monkeypatch.setattr(
-        yolo_checks, "check_url_availability", lambda url: True
+        analysis_checks, "check_url_availability", lambda url: True
     )
     monkeypatch.setattr(
-        yolo_checks, "download_yolo_model", lambda *a, **k: None
+        analysis_checks, "download_analysis_model", lambda *a, **k: None
     )
 
     with pytest.raises(AssertionError, match="neither a segmentation"):
-        yolo_checks.check_yolo_models(
+        analysis_checks.check_analysis_models(
             YOLO_BASE_URL="http://example/base",
             models_yaml_path=yaml_path,
         )
 
 
-def test_get_model_info_model_type_rtdetr_vs_yolo(monkeypatch):
+def test_get_model_info_model_type_rtdetr_vs_analysis(monkeypatch):
     """model_type is derived from the stored model class name."""
     torch = pytest.importorskip("torch")
 
@@ -124,15 +124,17 @@ def test_get_model_info_model_type_rtdetr_vs_yolo(monkeypatch):
 
     monkeypatch.setattr(torch, "load", fake_load)
 
-    info_rtdetr = YOLO_octron.get_model_info("some/rtdetr-l.pt")
+    info_rtdetr = AnalysisOctron.get_model_info("some/rtdetr-l.pt")
     assert info_rtdetr["model_type"] == "rtdetr"
 
-    info_yolo = YOLO_octron.get_model_info("some/yolo11m.pt")
-    assert info_yolo["model_type"] == "yolo"
+    info_native = AnalysisOctron.get_model_info("some/yolo11m.pt")
+    assert info_native["model_type"] == "analysis"
 
 
-def test_get_model_info_model_type_defaults_yolo_on_read_error(monkeypatch):
-    """A checkpoint that cannot be read falls back to model_type 'yolo'."""
+def test_get_model_info_model_type_defaults_analysis_on_read_error(
+    monkeypatch,
+):
+    """A checkpoint that cannot be read falls back to model_type 'analysis'."""
     torch = pytest.importorskip("torch")
 
     def boom(path, map_location=None, weights_only=False):
@@ -140,6 +142,6 @@ def test_get_model_info_model_type_defaults_yolo_on_read_error(monkeypatch):
 
     monkeypatch.setattr(torch, "load", boom)
 
-    info = YOLO_octron.get_model_info("some/whatever.pt")
-    assert info["model_type"] == "yolo"
+    info = AnalysisOctron.get_model_info("some/whatever.pt")
+    assert info["model_type"] == "analysis"
     assert info["task"] is None

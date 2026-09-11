@@ -73,10 +73,10 @@ def read_octron_folder(path: "PathOrPaths") -> list["LayerData"]:
     if csvs and prediction_metadata.exists():
         logger.info(f"Detected OCTRON prediction folder: {folder}")
         # Load predictions
-        from octron.yolo_octron.yolo_octron import YOLO_octron
+        from octron.analysis_octron.analysis_octron import AnalysisOctron
 
-        yolo_octron = YOLO_octron()
-        for label, track_id, _, _, _, _ in yolo_octron.load_predictions(
+        analysis_octron = AnalysisOctron()
+        for label, track_id, _, _, _, _ in analysis_octron.load_predictions(
             save_dir=folder,
             sigma_tracking_pos=2,  # Fixed for now
         ):

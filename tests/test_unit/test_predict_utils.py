@@ -1,10 +1,11 @@
 """Tests for run_predict entry validation in octron/tools/predict.py.
 
-These checks (video discovery + model_path resolution) fire before any heavy
-imports (loguru / yolo_octron) or model loading, so no torch/cv2/YOLO needed.
+These checks (video discovery + model_path resolution) fire before any
+heavy imports (loguru / analysis_octron) or model loading, so no
+torch/cv2/YOLO needed.
 
-The network-share helper moved to octron.yolo_octron.helpers.cache_io and is
-covered by tests/test_cache_io.py.
+The network-share helper moved to octron.analysis_octron.helpers.cache_io
+and is covered by tests/test_cache_io.py.
 """
 
 import pytest
@@ -65,7 +66,7 @@ def test_run_predict_model_dir_with_weights_best_pt_resolves(
 # ---------------------------------------------------------------------------
 # device handling
 #
-# These stub run_predict's lazy heavy imports (YOLO_octron /
+# These stub run_predict's lazy heavy imports (AnalysisOctron /
 # auto_device) so the
 # device-normalisation logic can be exercised without torch/cv2/YOLO.
 # ---------------------------------------------------------------------------
@@ -81,15 +82,15 @@ def _stub_predict_batch(monkeypatch):
 
     captured = {}
 
-    class _FakeYOLO:
+    class _FakeAnalysis:
         def predict_batch(self, **kwargs):
             captured.update(kwargs)
             return iter(())  # no progress events
 
-    fake_yolo = types.ModuleType("octron.yolo_octron.yolo_octron")
-    fake_yolo.YOLO_octron = _FakeYOLO
+    fake_analysis = types.ModuleType("octron.analysis_octron.analysis_octron")
+    fake_analysis.AnalysisOctron = _FakeAnalysis
     monkeypatch.setitem(
-        sys.modules, "octron.yolo_octron.yolo_octron", fake_yolo
+        sys.modules, "octron.analysis_octron.analysis_octron", fake_analysis
     )
 
     fake_gpu = types.ModuleType("octron.test_gpu")
