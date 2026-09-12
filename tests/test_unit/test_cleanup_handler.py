@@ -561,6 +561,31 @@ def test_apply_full_trace_state_recheck_reuses_true_original():
     assert handler._original_trace_lengths[2] == (0, 250)
 
 
+def test_show_all_layers_makes_every_layer_visible():
+    handler, track1, track2 = _make_full_trace_handler()
+    track1.visible = False
+    track2.visible = False
+
+    handler._show_all_layers()
+
+    assert track1.visible is True
+    assert track2.visible is True
+
+
+def test_show_all_layers_restores_full_traced_head_and_tail():
+    """ "Show all" must undo the full-trace override, not just visibility."""
+    handler, track1, track2 = _make_full_trace_handler()
+    handler._apply_full_trace_state([1, 2])
+    assert (track1.head_length, track1.tail_length) == (200, 200)
+    assert (track2.head_length, track2.tail_length) == (200, 200)
+
+    handler._show_all_layers()
+
+    assert (track1.head_length, track1.tail_length) == (0, 250)
+    assert (track2.head_length, track2.tail_length) == (0, 250)
+    assert handler._full_traced_ids == set()
+
+
 # ---------------------------------------------------------------------------
 # Breakpoint-nav button lifecycle: setup after candidate refresh, jump
 # wiring, and viewer-frame-change propagation to every row's widget.
