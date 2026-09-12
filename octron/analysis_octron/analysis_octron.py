@@ -4103,6 +4103,7 @@ class AnalysisOctron:
         save_dir,
         sigma_tracking_pos=2,
         open_viewer=True,
+        show_cleaner_widget=True,
     ):
         """Load the predictions in an OCTRON output directory.
 
@@ -4117,6 +4118,11 @@ class AnalysisOctron:
             CURRENTLY FIXED TO 2
         open_viewer : bool
             Whether to open the napari viewer or not
+        show_cleaner_widget : bool
+            Whether to auto-dock the prediction cleaner widget onto the
+            newly created viewer (only relevant when open_viewer=True).
+            Currently a UI shell only (no track-fusion logic wired up
+            yet). Default True.
 
 
         Yields
@@ -4200,6 +4206,22 @@ class AnalysisOctron:
                     raise ValueError(
                         "Could not load video or mask metadata for viewer"
                     )
+
+            if show_cleaner_widget:
+                # Prediction cleaner: merges over-segmented tracks/masks
+                # into coherent timelines. Auto-docked here since this is
+                # exactly the point where a prediction folder's results
+                # become visible in napari (reader-triggered or direct
+                # notebook/script use). UI shell only for now — no
+                # track-fusion logic wired up yet.
+                from octron.cleanup_octron.cleanup_widget import (
+                    octron_prediction_cleaner_widget,
+                )
+
+                viewer.window.add_dock_widget(
+                    octron_prediction_cleaner_widget(viewer),
+                    name="OCTRON — Prediction cleaner",
+                )
 
         # Collect results per track for ordered layer addition
         results_per_track = []
