@@ -573,7 +573,7 @@ def test_show_all_layers_makes_every_layer_visible():
 
 
 def test_show_all_layers_restores_full_traced_head_and_tail():
-    """ "Show all" must undo the full-trace override, not just visibility."""
+    """Show all must undo the full-trace override, not just visibility."""
     handler, track1, track2 = _make_full_trace_handler()
     handler._apply_full_trace_state([1, 2])
     assert (track1.head_length, track1.tail_length) == (200, 200)

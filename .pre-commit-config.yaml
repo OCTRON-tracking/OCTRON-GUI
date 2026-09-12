@@ -7,21 +7,22 @@ repos:
       rev: v6.0.0
       hooks:
           - id: check-docstring-first
-            # Qt-Designer-generated files (regenerated from octron.ui; edits are lost)
-            exclude: ^octron/(gui_elements|qt_gui/(octron|octron_corrected))\.py$
+            # Qt-Designer-generated files (regenerated from octron.ui /
+            # octron_prediction_cleaner.ui; edits are lost)
+            exclude: &generated_qt_files ^octron/(gui_elements|cleanup_octron/cleanup_gui_elements|qt_gui/(octron|octron_corrected|octron_prediction_cleaner|octron_prediction_cleaner_corrected))\.py$
           - id: check-executables-have-shebangs
           - id: check-merge-conflict
           - id: check-toml
           - id: end-of-file-fixer
             # Generated Qt files churn under whitespace fixers; skip them.
-            exclude: ^octron/(gui_elements|qt_gui/(octron|octron_corrected))\.py$
+            exclude: *generated_qt_files
           - id: mixed-line-ending
             args: [--fix=lf]
-            exclude: ^octron/(gui_elements|qt_gui/(octron|octron_corrected))\.py$
+            exclude: *generated_qt_files
           - id: requirements-txt-fixer
           - id: trailing-whitespace
             # Generated Qt files churn under whitespace fixers; skip them.
-            exclude: ^octron/(gui_elements|qt_gui/(octron|octron_corrected))\.py$
+            exclude: *generated_qt_files
     - repo: https://github.com/astral-sh/ruff-pre-commit
       rev: v0.15.20
       hooks:
