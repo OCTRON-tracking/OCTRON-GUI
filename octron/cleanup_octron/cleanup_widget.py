@@ -2,11 +2,9 @@
 
 Dockable napari widget for merging over-segmented tracks/masks (produced
 when a real animal briefly loses tracking and BoxMOT assigns it a new
-track ID) back into coherent timelines.
-
-This is currently a visible shell only: the UI is built and displayed,
-but no button/table logic is wired up yet. See ``cleanup_gui_elements.py``
-for how the widgets are constructed (verbatim from the .ui-generated code).
+track ID) back into coherent timelines. See ``cleanup_gui_elements.py``
+for how the widgets are constructed (verbatim from the .ui-generated code)
+and ``cleanup_handler.py`` for the actual join/fuse/revert logic.
 """
 
 import os
@@ -18,13 +16,14 @@ from qtpy.QtWidgets import QWidget
 from octron.cleanup_octron.cleanup_gui_elements import (
     octron_prediction_cleaner_gui_elements,
 )
+from octron.cleanup_octron.cleanup_handler import CleanerHandler
 
 
 class octron_prediction_cleaner_widget(QWidget):
     """Main prediction cleaner widget class."""
 
-    def __init__(self, viewer=None, parent=None):
-        """Initialize the prediction cleaner widget (UI shell, no logic).
+    def __init__(self, viewer=None, parent=None, analysis_results=None, save_dir=None):
+        """Initialize the prediction cleaner widget.
 
         Parameters
         ----------
@@ -34,10 +33,20 @@ class octron_prediction_cleaner_widget(QWidget):
             the first positional parameter for the napari.yaml ``widgets``
             contribution (manual Plugins-menu invocation) to work; the
             auto-dock call site in ``load_predictions()`` also passes it
-            explicitly. Not used yet (UI shell only).
+            explicitly.
         parent : QWidget, optional
             Qt parent widget (rarely set explicitly; napari manages this
             via ``add_dock_widget``).
+        analysis_results : AnalysisResults, optional
+            Already-loaded results for the prediction folder currently
+            shown in ``viewer`` (passed by ``load_predictions()``). None
+            when the widget is opened manually from the Plugins menu
+            without a prediction folder in view yet -- the widget then
+            just shows its empty/disabled default state.
+        save_dir : str or Path, optional
+            Path to the prediction folder ``analysis_results`` was loaded
+            from. Required (together with ``analysis_results``) for any
+            join/fuse/revert/reset operation, since those write to disk.
 
         """
         super().__init__(parent)
@@ -51,4 +60,12 @@ class octron_prediction_cleaner_widget(QWidget):
         self.gui = octron_prediction_cleaner_gui_elements(
             self, base_path=self.base_path
         )
-        logger.debug("Prediction cleaner widget shell initialized")
+
+        # Business logic lives in the handler (mirrors AnalysisHandler's
+        # relationship to the main octron_widget).
+        self.cleaner_handler = CleanerHandler(
+            self, analysis_results=analysis_results, save_dir=save_dir
+        )
+        self.cleaner_handler.connect_signals()
+        self.cleaner_handler.refresh_from_results()
+        logger.debug("Prediction cleaner widget initialized")
