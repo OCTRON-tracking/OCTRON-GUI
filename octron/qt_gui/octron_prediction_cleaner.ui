@@ -365,8 +365,8 @@
           <rect>
            <x>9</x>
            <y>29</y>
-           <width>233</width>
-           <height>161</height>
+           <width>232</width>
+           <height>159</height>
           </rect>
          </property>
          <layout class="QVBoxLayout" name="verticalLayout">
@@ -484,32 +484,32 @@ QTableCornerButton::section {
              <widget class="QLabel" name="coverage_label">
               <property name="minimumSize">
                <size>
-                <width>65</width>
+                <width>40</width>
                 <height>25</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
-                <width>65</width>
+                <width>40</width>
                 <height>25</height>
                </size>
               </property>
               <property name="text">
-               <string>Coverage:</string>
+               <string>Cov:</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QLabel" name="coverage_percent">
+             <widget class="QLabel" name="coverage_percent_label">
               <property name="minimumSize">
                <size>
-                <width>40</width>
+                <width>50</width>
                 <height>25</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
-                <width>40</width>
+                <width>50</width>
                 <height>25</height>
                </size>
               </property>
@@ -547,13 +547,13 @@ QTableCornerButton::section {
              <widget class="QLabel" name="increase_percent_label">
               <property name="minimumSize">
                <size>
-                <width>40</width>
+                <width>50</width>
                 <height>25</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
-                <width>40</width>
+                <width>50</width>
                 <height>25</height>
                </size>
               </property>

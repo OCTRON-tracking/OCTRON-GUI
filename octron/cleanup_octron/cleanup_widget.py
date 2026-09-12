@@ -22,7 +22,9 @@ from octron.cleanup_octron.cleanup_handler import CleanerHandler
 class octron_prediction_cleaner_widget(QWidget):
     """Main prediction cleaner widget class."""
 
-    def __init__(self, viewer=None, parent=None, analysis_results=None, save_dir=None):
+    def __init__(
+        self, viewer=None, parent=None, analysis_results=None, save_dir=None
+    ):
         """Initialize the prediction cleaner widget.
 
         Parameters

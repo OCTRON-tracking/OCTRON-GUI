@@ -193,7 +193,7 @@ class octron_prediction_cleaner_gui_elements(QWidget):
         self.cleaner.tuning_params_groupbox_3.setMaximumSize(QSize(250, 200))
         self.cleaner.verticalLayoutWidget_5 = QWidget(self.cleaner.tuning_params_groupbox_3)
         self.cleaner.verticalLayoutWidget_5.setObjectName(u"verticalLayoutWidget_5")
-        self.cleaner.verticalLayoutWidget_5.setGeometry(QRect(9, 29, 233, 161))
+        self.cleaner.verticalLayoutWidget_5.setGeometry(QRect(9, 29, 232, 159))
         self.cleaner.verticalLayout = QVBoxLayout(self.cleaner.verticalLayoutWidget_5)
         self.cleaner.verticalLayout.setObjectName(u"verticalLayout")
         self.cleaner.verticalLayout.setContentsMargins(0, 0, 0, 0)
@@ -252,18 +252,18 @@ class octron_prediction_cleaner_gui_elements(QWidget):
         self.cleaner.coverage_layout.setObjectName(u"coverage_layout")
         self.cleaner.coverage_label = QLabel(self.cleaner.verticalLayoutWidget_5)
         self.cleaner.coverage_label.setObjectName(u"coverage_label")
-        self.cleaner.coverage_label.setMinimumSize(QSize(65, 25))
-        self.cleaner.coverage_label.setMaximumSize(QSize(65, 25))
+        self.cleaner.coverage_label.setMinimumSize(QSize(40, 25))
+        self.cleaner.coverage_label.setMaximumSize(QSize(40, 25))
 
         self.cleaner.coverage_layout.addWidget(self.cleaner.coverage_label)
 
-        self.cleaner.coverage_percent = QLabel(self.cleaner.verticalLayoutWidget_5)
-        self.cleaner.coverage_percent.setObjectName(u"coverage_percent")
-        self.cleaner.coverage_percent.setMinimumSize(QSize(40, 25))
-        self.cleaner.coverage_percent.setMaximumSize(QSize(40, 25))
-        self.cleaner.coverage_percent.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
+        self.cleaner.coverage_percent_label = QLabel(self.cleaner.verticalLayoutWidget_5)
+        self.cleaner.coverage_percent_label.setObjectName(u"coverage_percent_label")
+        self.cleaner.coverage_percent_label.setMinimumSize(QSize(50, 25))
+        self.cleaner.coverage_percent_label.setMaximumSize(QSize(50, 25))
+        self.cleaner.coverage_percent_label.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
-        self.cleaner.coverage_layout.addWidget(self.cleaner.coverage_percent)
+        self.cleaner.coverage_layout.addWidget(self.cleaner.coverage_percent_label)
 
         self.cleaner.increase_label = QLabel(self.cleaner.verticalLayoutWidget_5)
         self.cleaner.increase_label.setObjectName(u"increase_label")
@@ -275,8 +275,8 @@ class octron_prediction_cleaner_gui_elements(QWidget):
 
         self.cleaner.increase_percent_label = QLabel(self.cleaner.verticalLayoutWidget_5)
         self.cleaner.increase_percent_label.setObjectName(u"increase_percent_label")
-        self.cleaner.increase_percent_label.setMinimumSize(QSize(40, 25))
-        self.cleaner.increase_percent_label.setMaximumSize(QSize(40, 25))
+        self.cleaner.increase_percent_label.setMinimumSize(QSize(50, 25))
+        self.cleaner.increase_percent_label.setMaximumSize(QSize(50, 25))
         self.cleaner.increase_percent_label.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
         self.cleaner.coverage_layout.addWidget(self.cleaner.increase_percent_label)
@@ -340,8 +340,8 @@ class octron_prediction_cleaner_gui_elements(QWidget):
         self.cleaner.max_gap_space_label.setText(QCoreApplication.translate("self", u"Max. gap in space (px)", None))
         self.cleaner.max_gap_space_spinbox.setSuffix("")
         self.cleaner.tuning_params_groupbox_3.setTitle(QCoreApplication.translate("self", u"Possible tracking joins", None))
-        self.cleaner.coverage_label.setText(QCoreApplication.translate("self", u"Coverage:", None))
-        self.cleaner.coverage_percent.setText(QCoreApplication.translate("self", u"%", None))
+        self.cleaner.coverage_label.setText(QCoreApplication.translate("self", u"Cov:", None))
+        self.cleaner.coverage_percent_label.setText(QCoreApplication.translate("self", u"%", None))
         self.cleaner.increase_label.setText(QCoreApplication.translate("self", u"Increase:", None))
         self.cleaner.increase_percent_label.setText(QCoreApplication.translate("self", u"%", None))
         self.cleaner.tuning_params_groupbox_2.setTitle("")
@@ -349,3 +349,4 @@ class octron_prediction_cleaner_gui_elements(QWidget):
         self.cleaner.revert1_btn.setText(QCoreApplication.translate("self", u"\u2190 Revert", None))
         self.cleaner.save_btn.setText(QCoreApplication.translate("self", u"\u21f2 Save", None))
     # retranslateUi
+

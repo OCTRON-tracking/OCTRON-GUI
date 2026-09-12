@@ -4104,6 +4104,7 @@ class AnalysisOctron:
         sigma_tracking_pos=2,
         open_viewer=True,
         show_cleaner_widget=True,
+        viewer=None,
     ):
         """Load the predictions in an OCTRON output directory.
 
@@ -4120,9 +4121,15 @@ class AnalysisOctron:
             Whether to open the napari viewer or not
         show_cleaner_widget : bool
             Whether to auto-dock the prediction cleaner widget onto the
-            newly created viewer (only relevant when open_viewer=True).
-            Currently a UI shell only (no track-fusion logic wired up
-            yet). Default True.
+            viewer (only relevant when open_viewer=True). Currently a UI
+            shell only (no track-fusion logic wired up yet). Default True.
+        viewer : napari.viewer.Viewer, optional
+            Reuse this existing viewer instead of creating a new one
+            (only relevant when open_viewer=True). The caller is
+            responsible for clearing its layers first if a clean reload
+            is desired — used by the prediction cleaner widget to refresh
+            in place after a fuse/revert/reset operation without opening
+            an extra window. None (default) creates a new viewer.
 
 
         Yields
@@ -4170,10 +4177,11 @@ class AnalysisOctron:
         mask_data = analysis_results.get_mask_data() if has_masks else {}
 
         if open_viewer:
-            from octron import _suppress_known_dependency_warnings
+            if viewer is None:
+                from octron import _suppress_known_dependency_warnings
 
-            with _suppress_known_dependency_warnings():
-                viewer = napari.Viewer()
+                with _suppress_known_dependency_warnings():
+                    viewer = napari.Viewer()
             if (
                 analysis_results.video is not None
                 and analysis_results.video_dict is not None
@@ -4219,8 +4227,12 @@ class AnalysisOctron:
                 )
 
                 viewer.window.add_dock_widget(
-                    octron_prediction_cleaner_widget(viewer),
-                    name="OCTRON — Prediction cleaner",
+                    octron_prediction_cleaner_widget(
+                        viewer,
+                        analysis_results=analysis_results,
+                        save_dir=save_dir,
+                    ),
+                    name="OCTRON - Prediction cleaner",
                 )
 
         # Collect results per track for ordered layer addition
