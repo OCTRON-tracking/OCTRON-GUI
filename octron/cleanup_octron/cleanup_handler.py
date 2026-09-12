@@ -98,11 +98,17 @@ class CleanerHandler(QObject):
         # they can be explicitly torn down and so _on_viewer_frame_changed
         # can update all of them without needing the view at all.
         self._breakpoint_widgets = []
+        # Set while _reload() is clearing/repopulating the viewer's own
+        # layers, so _on_layer_removed() can tell "the whole viewer is
+        # being refreshed by us" apart from "the user deleted a layer"
+        # -- both fire the exact same layers.events.removed event.
+        self._reloading = False
         viewer = getattr(self.w, "_viewer", None)
         if viewer is not None:
             viewer.dims.events.current_step.connect(
                 self._on_viewer_frame_changed
             )
+            viewer.layers.events.removed.connect(self._on_layer_removed)
 
     def _configure_joins_table_view(self):
         """Fix up column sizing/checkbox styling that setupUi() can't express.
@@ -300,6 +306,25 @@ class CleanerHandler(QObject):
             return None
         return self.results.track_id_label.get(track_id)
 
+    _LAYER_NAME_ID_RE = re.compile(r" - (?:MASKS - )?id (\d+)$")
+
+    def _track_id_for_layer_name(self, name):
+        """Return the track ID a Tracks/Labels layer name belongs to.
+
+        Matches both ``_track_layer_name()`` ("<label> - id <id>") and
+        ``_mask_layer_name()`` ("<label> - MASKS - id <id>") shapes.
+        None for layers not owned by (a still-current track in) this
+        results dir -- e.g. the source video, or leftovers from a
+        results dir that no longer exists post-reload.
+        """
+        if self.results is None:
+            return None
+        match = self._LAYER_NAME_ID_RE.search(name)
+        if not match:
+            return None
+        track_id = int(match.group(1))
+        return track_id if track_id in self.results.track_id_label else None
+
     def _owned_layer_names(self):
         """Return every track/mask layer name load_predictions() can create.
 
@@ -426,10 +451,18 @@ class CleanerHandler(QObject):
         self._full_traced_ids = desired
 
     def _show_all_layers(self):
-        """Set every napari layer's visibility back to True."""
+        """Reset the view: show every layer and restore normal head/tail.
+
+        Undoes both effects ``_isolate_tracks``/``_apply_full_trace_state``
+        apply while reviewing a source/candidates -- visibility (every
+        layer becomes visible again) and the temporary full-trace
+        head/tail extension (every currently full-traced track is put
+        back to what it had before review started).
+        """
         viewer = self.w._viewer
         if viewer is None:
             return
+        self._apply_full_trace_state(set())
         for layer in viewer.layers:
             layer.visible = True
 
@@ -761,6 +794,7 @@ class CleanerHandler(QObject):
                 )
 
             manifest = {
+                "kind": "fuse",
                 "fused_id": fused_id,
                 "label": label,
                 "member_track_ids": member_ids,
@@ -823,27 +857,127 @@ class CleanerHandler(QObject):
             fused_array.attrs["classes"] = classes_attr
         mark_frames_annotated(fused_array, sorted(set(all_frame_indices)))
 
-        # Rename originals in place. get_mask_data() only looks up
-        # f"{track_id}_masks" for track IDs still present in the
-        # current CSV set, so a renamed array becomes invisible without
-        # needing an extension trick (unlike the CSV .bak rename).
-        # NOTE: the new name must NOT start with "<digits>_", since
-        # AnalysisResults._track_ids_zarr() treats ANY zarr array key
-        # of that shape as a live track ID (it only looks at the token
-        # before the first underscore) -- a suffix-style rename such as
-        # f"{tid}_masks_fused_orig" would still be picked up as track
-        # id `tid`. A prefix keeps it invisible to that scan.
+        # Rename originals in place (see _rename_mask_array() for why a
+        # prefix, not a suffix).
         mask_arrays_renamed = []
         for tid in member_ids:
-            old_dir = zarr_root_path / f"{tid}_masks"
-            if not old_dir.exists():
-                continue
-            new_name = f"fused_orig_{tid}_masks"
-            shutil.move(str(old_dir), str(zarr_root_path / new_name))
-            mask_arrays_renamed.append(
-                {"from": f"{tid}_masks", "to": new_name}
-            )
+            record = self._rename_mask_array(tid, prefix="fused_orig")
+            if record is not None:
+                mask_arrays_renamed.append(record)
         return mask_arrays_renamed
+
+    def _rename_mask_array(self, track_id, prefix):
+        """Rename a track's mask array in place; return the manifest record.
+
+        Used by both fuse (``prefix="fused_orig"``) and delete
+        (``prefix="deleted_orig"``) to archive a mask array without
+        deleting it. ``get_mask_data()`` only looks up f"{track_id}_masks"
+        for track IDs still present in the current CSV set, so a renamed
+        array becomes invisible without needing an extension trick
+        (unlike the CSV ``.bak`` rename).
+
+        NOTE: the new name must NOT start with "<digits>_", since
+        ``AnalysisResults._track_ids_zarr()`` treats ANY zarr array key
+        of that shape as a live track ID (it only looks at the token
+        before the first underscore) -- a suffix-style rename such as
+        f"{track_id}_masks_archived" would still be picked up as track
+        id ``track_id``. A prefix keeps it invisible to that scan.
+
+        Returns
+        -------
+        dict or None
+            ``{"from": <original name>, "to": <renamed name>}``, or
+            None when there is no mask array for this track (detection
+            predictions, or the track already has none).
+
+        """
+        if not self.results.has_masks or self.results.zarr_root is None:
+            return None
+        zarr_root_path = Path(self.results.zarr)
+        old_dir = zarr_root_path / f"{track_id}_masks"
+        if not old_dir.exists():
+            return None
+        new_name = f"{prefix}_{track_id}_masks"
+        shutil.move(str(old_dir), str(zarr_root_path / new_name))
+        return {"from": f"{track_id}_masks", "to": new_name}
+
+    #######################################################################
+    # DELETE (triggered by removing a track's layer in the viewer)
+    #######################################################################
+
+    def _on_layer_removed(self, event):
+        """Archive a track's CSV/mask when the user removes its layer.
+
+        Connected once (in ``__init__``) to the viewer's
+        ``layers.events.removed``. Fires for every layer removal,
+        including ``_reload()``'s own ``viewer.layers.clear()`` -- the
+        latter is excluded via ``self._reloading``, since re-archiving
+        every track on every save/revert/reset would be both wrong and
+        destructive.
+        """
+        if self._reloading or self.results is None or self.save_dir is None:
+            return
+        layer = getattr(event, "value", None)
+        if layer is None:
+            return
+        track_id = self._track_id_for_layer_name(layer.name)
+        if track_id is None:
+            return
+        self._delete_track(track_id)
+
+    def _delete_track(self, track_id):
+        """Archive a track's CSV (+ mask array) so its removal is undoable.
+
+        Mirrors :meth:`save`'s archive/manifest pattern but for a single
+        track with nothing new created: the CSV is renamed to
+        ``.csv.bak`` and the mask array (if any) is renamed in place
+        (see :meth:`_rename_mask_array`), both moved under
+        ``fused_originals/<timestamp>_del<track_id>/`` together with a
+        ``manifest.json`` :meth:`revert_last`/:meth:`reset_all` can read
+        -- the same undo log the fuse operation uses.
+
+        Removing either a track's Tracks layer or its Labels/MASKS
+        layer triggers this for the whole track (both files); the
+        sibling layer disappears too once the deferred reload runs.
+        """
+        label = self.results.track_id_label.get(track_id)
+        if label is None:
+            return
+        csv_path = self._csv_path_for_track(track_id)
+        if csv_path is None or not csv_path.exists():
+            return  # Already archived/gone -- nothing to do.
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        archive_dir = self._archive_root() / f"{timestamp}_del{track_id}"
+
+        try:
+            mask_record = self._rename_mask_array(
+                track_id, prefix="deleted_orig"
+            )
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(
+                str(csv_path), str(archive_dir / f"{csv_path.name}.bak")
+            )
+            manifest = {
+                "kind": "delete",
+                "label": label,
+                "deleted_track_id": track_id,
+                "mask_arrays_renamed": [mask_record]
+                if mask_record is not None
+                else [],
+                "timestamp": timestamp,
+            }
+            with open(archive_dir / "manifest.json", "w") as f:
+                json.dump(manifest, f, indent=2)
+        except Exception as e:
+            logger.error(f"Archiving deleted track {track_id}: {e}")
+            show_error(f"Could not archive deleted track {track_id}: {e}")
+            return
+
+        show_info(
+            f"Deleted track '{label}' (id {track_id}). Undo with Revert."
+        )
+        self._schedule_reload()
 
     #######################################################################
     # REVERT / RESET
@@ -863,7 +997,19 @@ class CleanerHandler(QObject):
         )
 
     def revert_last(self):
-        """Undo the most recent save (restore originals, drop fused track)."""
+        """Undo the most recent save/delete (restore originals on disk).
+
+        Handles both manifest kinds the archive log can contain (see
+        :meth:`save` and :meth:`_delete_track`):
+
+        - ``"fuse"``: restore every archived CSV/mask array, then
+          remove the fused CSV/mask array that ``save()`` created.
+        - ``"delete"``: restore the single archived CSV/mask array;
+          nothing new was created, so there is nothing else to remove.
+
+        Archives written before this distinction existed have no
+        ``"kind"`` key and are treated as ``"fuse"`` for compatibility.
+        """
         archives = self._list_archives()
         if not archives:
             return
@@ -871,30 +1017,36 @@ class CleanerHandler(QObject):
         try:
             with open(archive_dir / "manifest.json") as f:
                 manifest = json.load(f)
-            fused_id = manifest["fused_id"]
+            kind = manifest.get("kind", "fuse")
             label = manifest["label"]
 
+            # Common to both kinds: restore every archived CSV (one for
+            # "delete", one per member for "fuse") and every renamed
+            # mask array.
             for bak_file in archive_dir.glob("*.csv.bak"):
                 original_name = bak_file.name[: -len(".bak")]
                 shutil.move(str(bak_file), str(self.save_dir / original_name))
 
-            fused_csv = self.save_dir / f"{label}_track_{fused_id}.csv"
-            if fused_csv.exists():
-                fused_csv.unlink()
+            zarr_root_path = (
+                Path(self.results.zarr)
+                if self.results is not None and self.results.zarr is not None
+                else None
+            )
+            if zarr_root_path is not None:
+                for entry in manifest.get("mask_arrays_renamed", []):
+                    renamed_dir = zarr_root_path / entry["to"]
+                    original_dir = zarr_root_path / entry["from"]
+                    if renamed_dir.exists():
+                        shutil.move(str(renamed_dir), str(original_dir))
 
-            has_renamed = manifest.get("mask_arrays_renamed")
-            if has_renamed and self.results is not None:
-                zarr_root_path = (
-                    Path(self.results.zarr)
-                    if self.results.zarr is not None
-                    else None
-                )
+            # Kind-specific: remove whatever artifact this operation
+            # newly created (fuse only -- delete created nothing new).
+            if kind == "fuse":
+                fused_id = manifest["fused_id"]
+                fused_csv = self.save_dir / f"{label}_track_{fused_id}.csv"
+                if fused_csv.exists():
+                    fused_csv.unlink()
                 if zarr_root_path is not None:
-                    for entry in manifest["mask_arrays_renamed"]:
-                        renamed_dir = zarr_root_path / entry["to"]
-                        original_dir = zarr_root_path / entry["from"]
-                        if renamed_dir.exists():
-                            shutil.move(str(renamed_dir), str(original_dir))
                     fused_mask_dir = zarr_root_path / f"{fused_id}_masks"
                     if fused_mask_dir.exists():
                         shutil.rmtree(fused_mask_dir)
@@ -902,10 +1054,14 @@ class CleanerHandler(QObject):
             shutil.rmtree(archive_dir)
         except Exception as e:
             logger.error(f"Reverting archive '{archive_dir.name}': {e}")
-            show_error(f"Could not revert last fuse operation: {e}")
+            show_error(f"Could not revert last operation: {e}")
             return
 
-        show_info(f"Reverted fused track (id {manifest.get('fused_id')}).")
+        if kind == "delete":
+            deleted_id = manifest.get("deleted_track_id")
+            show_info(f"Restored deleted track (id {deleted_id}).")
+        else:
+            show_info(f"Reverted fused track (id {manifest.get('fused_id')}).")
         self._reload()
 
     def reset_all(self):
@@ -926,17 +1082,35 @@ class CleanerHandler(QObject):
     # RELOAD
     #######################################################################
 
+    def _schedule_reload(self):
+        """Defer :meth:`_reload` to the next Qt event-loop tick.
+
+        :meth:`_delete_track` is invoked from inside the viewer's
+        ``layers.events.removed`` dispatch. Calling ``_reload()``
+        synchronously there would mutate ``viewer.layers`` (via
+        ``clear()``) while napari is still in the middle of processing
+        the current removal -- a re-entrant list mutation. Running it
+        on the next tick instead lets that dispatch finish first.
+        """
+        from qtpy.QtCore import QTimer
+
+        QTimer.singleShot(0, self._reload)
+
     def _reload(self):
-        """Clear and repopulate the viewer in place after a fuse/revert."""
+        """Clear and repopulate the viewer after a fuse/revert/delete."""
         viewer = self.w._viewer
         if viewer is None or self.save_dir is None:
             return
         from octron.analysis_octron.analysis_octron import AnalysisOctron
 
-        viewer.layers.clear()
-        for _ in AnalysisOctron().load_predictions(
-            self.save_dir, viewer=viewer, show_cleaner_widget=False
-        ):
-            pass
+        self._reloading = True
+        try:
+            viewer.layers.clear()
+            for _ in AnalysisOctron().load_predictions(
+                self.save_dir, viewer=viewer, show_cleaner_widget=False
+            ):
+                pass
+        finally:
+            self._reloading = False
         self.results = AnalysisResults(self.save_dir)
         self.refresh_from_results()

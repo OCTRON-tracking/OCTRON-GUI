@@ -982,3 +982,175 @@ def test_set_default_thresholds_uses_fov_and_frame_count(
     assert handler.w.max_gap_space_spinbox.value_set == round(
         max(WIDTH, HEIGHT) / 3
     )
+
+
+# ---------------------------------------------------------------------------
+# Layer-removal-triggered delete: removing a track's layer in the viewer
+# archives (not deletes) its CSV/mask, undoable via the same revert log.
+# ---------------------------------------------------------------------------
+
+
+def test_track_id_for_layer_name_matches_tracks_and_mask_names():
+    handler = _make_handler()
+    handler.results = _make_results_stub({1: "mouse", 2: "mouse"}, {})
+    assert handler._track_id_for_layer_name("mouse - id 1") == 1
+    assert handler._track_id_for_layer_name("mouse - MASKS - id 2") == 2
+    assert handler._track_id_for_layer_name("some_video.mp4") is None
+    # Well-formed suffix, but not a track that currently exists.
+    assert handler._track_id_for_layer_name("mouse - id 999") is None
+
+
+class _FakeRemovedEvent:
+    def __init__(self, layer):
+        self.value = layer
+
+
+class _FakeLayerForRemoval:
+    def __init__(self, name):
+        self.name = name
+
+
+def test_on_layer_removed_ignores_non_owned_layer(two_track_results_dir):
+    results_dir, _frames_a, _frames_b = two_track_results_dir
+    handler = _make_disk_handler(results_dir)
+    handler._reloading = False
+
+    handler._on_layer_removed(
+        _FakeRemovedEvent(_FakeLayerForRemoval("some_video.mp4"))
+    )
+
+    assert (results_dir / "mouse_track_1.csv").exists()
+    assert (results_dir / "mouse_track_2.csv").exists()
+    assert not (results_dir / "fused_originals").exists()
+
+
+def test_on_layer_removed_ignores_events_while_reloading(
+    two_track_results_dir,
+):
+    """_reload()'s own viewer.layers.clear() must not trigger archival."""
+    results_dir, _frames_a, _frames_b = two_track_results_dir
+    handler = _make_disk_handler(results_dir)
+    handler._reloading = True
+
+    handler._on_layer_removed(
+        _FakeRemovedEvent(_FakeLayerForRemoval("mouse - id 2"))
+    )
+
+    assert (results_dir / "mouse_track_2.csv").exists()
+    assert not (results_dir / "fused_originals").exists()
+
+
+def test_on_layer_removed_archives_track_for_tracks_layer_name(
+    two_track_results_dir,
+):
+    results_dir, _frames_a, frames_b = two_track_results_dir
+    handler = _make_disk_handler(results_dir)
+    handler._reloading = False
+    handler._schedule_reload = lambda: None  # no real viewer/event loop here
+
+    handler._on_layer_removed(
+        _FakeRemovedEvent(_FakeLayerForRemoval("mouse - id 2"))
+    )
+
+    assert not (results_dir / "mouse_track_2.csv").exists()
+    assert (results_dir / "mouse_track_1.csv").exists()
+    archives = list((results_dir / "fused_originals").iterdir())
+    assert len(archives) == 1
+    manifest = json.loads((archives[0] / "manifest.json").read_text())
+    assert manifest["kind"] == "delete"
+    assert manifest["deleted_track_id"] == 2
+
+    fresh = AnalysisResults(results_dir, verbose=False)
+    assert fresh.track_id_label == {1: "mouse"}
+    mask_data = fresh.get_mask_data()
+    assert 2 not in mask_data
+
+
+def test_on_layer_removed_archives_track_for_mask_layer_name(
+    two_track_results_dir,
+):
+    """Deleting the Labels/MASKS layer (not Tracks) also deletes the track."""
+    results_dir, _frames_a, _frames_b = two_track_results_dir
+    handler = _make_disk_handler(results_dir)
+    handler._reloading = False
+    handler._schedule_reload = lambda: None
+
+    handler._on_layer_removed(
+        _FakeRemovedEvent(_FakeLayerForRemoval("mouse - MASKS - id 2"))
+    )
+
+    assert not (results_dir / "mouse_track_2.csv").exists()
+
+
+def test_delete_track_is_idempotent_once_archived(two_track_results_dir):
+    results_dir, _frames_a, _frames_b = two_track_results_dir
+    handler = _make_disk_handler(results_dir)
+
+    handler._delete_track(2)
+    archives_after_first = list((results_dir / "fused_originals").iterdir())
+    handler._delete_track(2)  # CSV already moved away -> no-op
+    archives_after_second = list((results_dir / "fused_originals").iterdir())
+
+    assert len(archives_after_first) == 1
+    assert len(archives_after_second) == 1
+
+
+def test_revert_last_restores_deleted_track(two_track_results_dir):
+    results_dir, _frames_a, frames_b = two_track_results_dir
+    handler = _make_disk_handler(results_dir)
+
+    handler._delete_track(2)
+    handler.results = AnalysisResults(results_dir, verbose=False)
+
+    handler.revert_last()
+
+    assert (results_dir / "mouse_track_2.csv").exists()
+    assert not list((results_dir / "fused_originals").glob("*/manifest.json"))
+    reverted = AnalysisResults(results_dir, verbose=False)
+    assert reverted.track_id_label == {1: "mouse", 2: "mouse"}
+    mask_data = reverted.get_mask_data()
+    assert set(mask_data[2]["frame_indices"]) == set(frames_b)
+
+
+def test_schedule_reload_defers_call_to_next_event_loop_tick():
+    import time
+
+    handler = _make_handler()
+    called = []
+    handler._reload = lambda: called.append(True)
+
+    handler._schedule_reload()
+    assert called == []  # not yet -- deferred, not synchronous
+
+    for _ in range(10):
+        _APP.processEvents()
+        if called:
+            break
+        time.sleep(0.01)
+    assert called == [True]
+
+
+def test_revert_last_treats_missing_kind_key_as_fuse(two_track_results_dir):
+    """Archives written before the "kind" field existed must still revert."""
+    results_dir, _frames_a, _frames_b = two_track_results_dir
+    handler = _make_disk_handler(results_dir)
+    handler.joins_table = PossibleJoinsTableModel()
+    handler.joins_table.set_candidates([{"track_id": 2, "name": "x"}])
+    handler.joins_table.setData(
+        handler.joins_table.index(0, 0), Qt.Checked, role=Qt.CheckStateRole
+    )
+    handler._source_track_id = 1
+    handler.save()
+
+    fused_results = AnalysisResults(results_dir, verbose=False)
+    archive_dir = next((results_dir / "fused_originals").iterdir())
+    manifest_path = archive_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    del manifest["kind"]
+    manifest_path.write_text(json.dumps(manifest))
+
+    handler.results = fused_results
+    handler.revert_last()
+
+    assert (results_dir / "mouse_track_1.csv").exists()
+    assert (results_dir / "mouse_track_2.csv").exists()
