@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import zarr
+from napari.layers import Tracks
 from qtpy.QtCore import QEvent, QObject, QPointF, QRect, Qt
 from qtpy.QtGui import QMouseEvent
 from qtpy.QtWidgets import QApplication, QStyleOptionViewItem
@@ -311,6 +312,10 @@ def _make_handler():
     handler._candidates = []
     handler._source_track_id = None
     handler._num_frames = None
+    # Read by _update_join_highlighting(), which _isolate_tracks() calls
+    # unconditionally -- default to empty so callers that don't touch
+    # full-trace/join-highlight state don't need to set it themselves.
+    handler._full_traced_ids = set()
     return handler
 
 
@@ -436,6 +441,11 @@ class _FakeNapariLayer:
         self.color_by = None
         self.head_length = head_length
         self.tail_length = tail_length
+        self.display_id = False
+        self.blending = "additive"
+
+    def refresh(self):
+        pass
 
 
 class _FakeNapariLayers(list):
@@ -501,12 +511,47 @@ def test_isolate_tracks_leaves_video_layer_untouched():
 # ---------------------------------------------------------------------------
 
 
+class _FakeComboBox:
+    """Minimal stand-in for the source-track QComboBox."""
+
+    def __init__(self):
+        self.signals_blocked = False
+        self.current_index = 3
+
+    def blockSignals(self, value):
+        self.signals_blocked = value
+
+    def setCurrentIndex(self, index):
+        self.current_index = index
+
+
+class _FakeLabel:
+    def __init__(self):
+        self.value = None
+
+    def setText(self, text):
+        self.value = text
+
+    def setStyleSheet(self, _style):
+        pass
+
+
+class _FakeButton:
+    def __init__(self):
+        self.enabled = True
+
+    def setEnabled(self, value):
+        self.enabled = value
+
+
 def _make_full_trace_handler():
     handler = _make_handler()
     handler.results = _make_results_stub({1: "mouse", 2: "mouse"}, {})
     handler._num_frames = 200
     handler._full_traced_ids = set()
     handler._original_trace_lengths = {}
+    handler._breakpoint_widgets = []
+    handler.joins_table = PossibleJoinsTableModel()
 
     track1 = _FakeNapariLayer("mouse - id 1", head_length=0, tail_length=250)
     track2 = _FakeNapariLayer("mouse - id 2", head_length=0, tail_length=250)
@@ -515,6 +560,10 @@ def _make_full_trace_handler():
 
     class _FakeWidget:
         _viewer = viewer
+        source_layers_comboBox = _FakeComboBox()
+        coverage_percent_label = _FakeLabel()
+        increase_percent_label = _FakeLabel()
+        save_btn = _FakeButton()
 
     handler.w = _FakeWidget()
     return handler, track1, track2
@@ -524,18 +573,25 @@ def test_apply_full_trace_state_extends_head_and_tail_to_num_frames():
     handler, track1, _track2 = _make_full_trace_handler()
     handler._apply_full_trace_state([1])
     assert (track1.head_length, track1.tail_length) == (200, 200)
+    assert track1.display_id is True
+    # Opaque blending disables napari's native alpha-based tail fade,
+    # which would otherwise wash out the join-highlight coloring
+    # depending on where the playhead is scrubbed to.
+    assert track1.blending == "opaque"
 
 
 def test_apply_full_trace_state_captures_and_restores_original_lengths():
     handler, _track1, track2 = _make_full_trace_handler()
     handler._apply_full_trace_state([1, 2])
     assert (track2.head_length, track2.tail_length) == (200, 200)
-    assert handler._original_trace_lengths[2] == (0, 250)
+    assert handler._original_trace_lengths[2] == (0, 250, False, "additive")
 
     # Unchecking candidate 2 (source 1 stays selected) restores track2
     # only, leaving track1 untouched.
     handler._apply_full_trace_state([1])
     assert (track2.head_length, track2.tail_length) == (0, 250)
+    assert track2.display_id is False
+    assert track2.blending == "additive"
 
 
 def test_apply_full_trace_state_restores_previous_source_on_switch():
@@ -546,7 +602,11 @@ def test_apply_full_trace_state_restores_previous_source_on_switch():
     # Switching source to track 2 restores track1 and full-traces track2.
     handler._apply_full_trace_state([2])
     assert (track1.head_length, track1.tail_length) == (0, 250)
+    assert track1.display_id is False
+    assert track1.blending == "additive"
     assert (track2.head_length, track2.tail_length) == (200, 200)
+    assert track2.display_id is True
+    assert track2.blending == "opaque"
 
 
 def test_apply_full_trace_state_recheck_reuses_true_original():
@@ -558,7 +618,7 @@ def test_apply_full_trace_state_recheck_reuses_true_original():
     handler._apply_full_trace_state([1])  # uncheck 2 -> restored
     handler._apply_full_trace_state([1, 2])  # re-check 2
     assert (track2.head_length, track2.tail_length) == (200, 200)
-    assert handler._original_trace_lengths[2] == (0, 250)
+    assert handler._original_trace_lengths[2] == (0, 250, False, "additive")
 
 
 def test_show_all_layers_makes_every_layer_visible():
@@ -583,7 +643,280 @@ def test_show_all_layers_restores_full_traced_head_and_tail():
 
     assert (track1.head_length, track1.tail_length) == (0, 250)
     assert (track2.head_length, track2.tail_length) == (0, 250)
+    assert track1.display_id is False
+    assert track2.display_id is False
+    assert track1.blending == "additive"
+    assert track2.blending == "additive"
     assert handler._full_traced_ids == set()
+
+
+def test_show_all_layers_resets_source_selection_and_joins_table():
+    """Show all resets the combobox/candidates, not just layer visuals.
+
+    Otherwise re-selecting the SAME source track afterwards would be a
+    silent no-op (Qt's currentIndexChanged only fires on an actual
+    index change), leaving the view stuck in the "show all" state.
+    """
+    handler, _track1, _track2 = _make_full_trace_handler()
+    handler._source_track_id = 1
+    handler.joins_table.set_candidates([{"track_id": 2, "name": "a"}])
+
+    handler._show_all_layers()
+
+    assert handler._source_track_id is None
+    assert handler.w.source_layers_comboBox.current_index == -1
+    assert handler.joins_table.rowCount() == 0
+    assert handler.w.save_btn.enabled is False
+
+
+# ---------------------------------------------------------------------------
+# Join-highlight fading: real napari.layers.Tracks objects are used here
+# (instead of _FakeNapariLayer) since track_colors/data ordering
+# semantics are napari-internal and not safely reproducible by a hand
+# rolled fake.
+# ---------------------------------------------------------------------------
+
+
+def _make_real_track_layer(track_id, frames):
+    """Build a real single-track napari Tracks layer for the given frames."""
+    data = np.array(
+        [[track_id, float(f), 0.0, 0.0] for f in frames], dtype=float
+    )
+    return Tracks(data, name=f"mouse - id {track_id}", color_by="track_id")
+
+
+class _FakeJoinsTable:
+    def __init__(self, checked):
+        self._checked = list(checked)
+
+    def checked_track_ids(self):
+        return list(self._checked)
+
+
+def _make_join_highlight_handler(
+    track_frames, source_id=1, checked=(), num_frames=100
+):
+    """Build a handler + real Tracks layers wired up for join-highlight tests.
+
+    track_frames maps track_id to frame indices, used both as the
+    CSV-frame lookup (_join_directions) and each Tracks layer's own
+    data (_apply_track_highlight). num_frames stands in for the whole
+    video's frame count, which anchors the highlight window (see
+    CleanerHandler._apply_track_highlight) independent of any
+    individual track's own (possibly much shorter) span.
+    """
+    handler = _make_handler()
+    csv_frame_indices = {
+        tid: set(frames) for tid, frames in track_frames.items()
+    }
+    handler.results = _make_results_stub(
+        {tid: "mouse" for tid in track_frames}, csv_frame_indices
+    )
+    handler._source_track_id = source_id
+    handler._num_frames = num_frames
+    handler.joins_table = _FakeJoinsTable(checked)
+    # No video to sample a background from (_make_results_stub sets no
+    # .video attribute), so _join_fade_color() falls back to
+    # _JOIN_FADE_COLOR_FALLBACK -- bypassed __init__ never set this.
+    handler._background_color = None
+
+    layers = {
+        tid: _make_real_track_layer(tid, frames)
+        for tid, frames in track_frames.items()
+    }
+    viewer = type("FakeViewer", (), {})()
+    viewer.layers = _FakeNapariLayers(list(layers.values()))
+
+    class _FakeWidget:
+        _viewer = viewer
+
+    handler.w = _FakeWidget()
+    return handler, layers
+
+
+def test_join_directions_empty_until_candidate_checked():
+    handler, _layers = _make_join_highlight_handler(
+        {1: range(0, 10), 2: range(15, 25)}, source_id=1, checked=[]
+    )
+    assert handler._join_directions() == {1: set()}
+
+
+def test_join_directions_candidate_after_source():
+    handler, _layers = _make_join_highlight_handler(
+        {1: range(0, 10), 2: range(15, 25)}, source_id=1, checked=[2]
+    )
+    assert handler._join_directions() == {1: {"end"}, 2: {"start"}}
+
+
+def test_join_directions_candidate_before_source():
+    handler, _layers = _make_join_highlight_handler(
+        {1: range(15, 25), 2: range(0, 10)}, source_id=1, checked=[2]
+    )
+    assert handler._join_directions() == {1: {"start"}, 2: {"end"}}
+
+
+def test_join_directions_candidates_on_both_sides():
+    handler, _layers = _make_join_highlight_handler(
+        {1: range(10, 20), 2: range(0, 5), 3: range(25, 35)},
+        source_id=1,
+        checked=[2, 3],
+    )
+    directions = handler._join_directions()
+    assert directions[1] == {"start", "end"}
+    assert directions[2] == {"end"}
+    assert directions[3] == {"start"}
+
+
+def _blend(handler, cmap_position, intensity):
+    """Compute the expected fade->colormap blend for known scalar inputs.
+
+    Mirrors _apply_track_highlight's final blend step only (fade *
+    (1 - intensity) + colormap(cmap_position) * intensity), given an
+    already-known cmap_position/intensity pair, so tests can assert
+    against it without hardcoding iceburn's actual RGBA values.
+    """
+    fade = np.array(handler._join_fade_color())
+    highlight = np.array(handler._JOIN_HIGHLIGHT_CMAP(cmap_position))
+    return fade * (1.0 - intensity) + highlight * intensity
+
+
+def test_apply_track_highlight_end_direction_ramps_over_fixed_window():
+    """The gradient's width is 5% of the WHOLE timeline (num_frames),
+    not of this (much longer, 50-frame) track's own span.
+    """
+    handler, layers = _make_join_highlight_handler(
+        {1: range(0, 50)}, source_id=1, checked=[], num_frames=100
+    )
+    layer = layers[1]
+
+    handler._apply_track_highlight(1, {"end"})
+
+    colors = layer.track_colors
+    times = layer.data[:, 1]
+    fade = np.array(handler._join_fade_color())
+    # At the join (last real frame, 49): full intensity, at the
+    # colormap's literal midpoint (0.5 -- black, for iceburn).
+    np.testing.assert_allclose(
+        colors[times == 49.0][0], handler._JOIN_HIGHLIGHT_CMAP(0.5)
+    )
+    # 5 frames (5% of num_frames=100) before the join: intensity has
+    # decayed to zero, i.e. pure background.
+    np.testing.assert_allclose(colors[times == 44.0][0], fade)
+    # Further from the join: stays pure background (no overshoot).
+    np.testing.assert_allclose(colors[times == 0.0][0], fade)
+    # Partway through the window (2 of 5 frames from the join):
+    # intensity 0.4, colormap position 0.2 (0.5 * 0.4).
+    np.testing.assert_allclose(
+        colors[times == 46.0][0], _blend(handler, 0.2, 0.4)
+    )
+
+
+def test_apply_track_highlight_start_direction_ramps_over_fixed_window():
+    handler, layers = _make_join_highlight_handler(
+        {1: range(0, 50)}, source_id=1, checked=[], num_frames=100
+    )
+    layer = layers[1]
+
+    handler._apply_track_highlight(1, {"start"})
+
+    colors = layer.track_colors
+    times = layer.data[:, 1]
+    fade = np.array(handler._join_fade_color())
+    np.testing.assert_allclose(
+        colors[times == 0.0][0], handler._JOIN_HIGHLIGHT_CMAP(0.5)
+    )
+    np.testing.assert_allclose(colors[times == 5.0][0], fade)
+    np.testing.assert_allclose(colors[times == 49.0][0], fade)
+
+
+def test_apply_track_highlight_window_is_fixed_not_scaled_to_track_span():
+    """A track much shorter than the highlight window ramps using the
+    SAME fixed window, not one scaled to its own tiny span -- otherwise
+    short/fragmentary tracks end up either fully highlighted or barely
+    highlighted depending on their own length, rather than a consistent
+    absolute amount of the timeline (the originally reported bug).
+    """
+    handler, layers = _make_join_highlight_handler(
+        {1: range(0, 3)}, source_id=1, checked=[], num_frames=100
+    )
+    layer = layers[1]
+
+    handler._apply_track_highlight(1, {"start"})
+
+    colors = layer.track_colors
+    times = layer.data[:, 1]
+    # Window = 5 frames; this whole 3-frame track sits inside it, so
+    # even its last frame (2 frames from the join) keeps a partial
+    # highlight rather than being fully faded like a track-span-scaled
+    # window would produce.
+    np.testing.assert_allclose(
+        colors[times == 0.0][0], handler._JOIN_HIGHLIGHT_CMAP(0.5)
+    )
+    intensity_at_2 = (5 - 2) / 5
+    cmap_position_at_2 = 1.0 - 0.5 * intensity_at_2
+    np.testing.assert_allclose(
+        colors[times == 2.0][0],
+        _blend(handler, cmap_position_at_2, intensity_at_2),
+    )
+
+
+def test_apply_track_highlight_noop_without_directions():
+    handler, layers = _make_join_highlight_handler(
+        {1: range(0, 10)}, source_id=1, checked=[]
+    )
+    layer = layers[1]
+    original = np.array(layer.track_colors, copy=True)
+
+    handler._apply_track_highlight(1, set())
+
+    np.testing.assert_array_equal(layer.track_colors, original)
+
+
+def test_reset_track_colors_discards_custom_recoloring():
+    handler, layers = _make_join_highlight_handler(
+        {1: range(0, 10)}, source_id=1, checked=[]
+    )
+    layer = layers[1]
+    original_rgb = np.array(layer.track_colors, copy=True)[:, :3]
+    handler._apply_track_highlight(1, {"end"})
+    assert not np.allclose(layer.track_colors[:, :3], original_rgb)
+
+    handler._reset_track_colors(1)
+
+    np.testing.assert_allclose(layer.track_colors[:, :3], original_rgb)
+
+
+def test_update_join_highlighting_highlights_paired_tracks_and_resets_others():
+    handler, layers = _make_join_highlight_handler(
+        {1: range(0, 30), 2: range(35, 65), 3: range(70, 100)},
+        source_id=1,
+        checked=[2],
+        num_frames=100,
+    )
+    original_rgb = {
+        tid: np.array(layer.track_colors, copy=True)[:, :3]
+        for tid, layer in layers.items()
+    }
+    fade = np.array(handler._join_fade_color())
+    # Track 3 isn't checked, so _join_directions() never mentions it and
+    # it must be left at its native coloring; source 1 and candidate 2
+    # must be recolored to the background except near their bordering
+    # ends (5 frames -- 5% of num_frames=100 -- on either side).
+    handler._update_join_highlighting()
+
+    np.testing.assert_allclose(layers[3].track_colors[:, :3], original_rgb[3])
+    times1 = layers[1].data[:, 1]
+    np.testing.assert_allclose(
+        layers[1].track_colors[times1 == 29.0][0],
+        handler._JOIN_HIGHLIGHT_CMAP(0.5),
+    )
+    np.testing.assert_allclose(layers[1].track_colors[times1 == 0.0][0], fade)
+    times2 = layers[2].data[:, 1]
+    np.testing.assert_allclose(
+        layers[2].track_colors[times2 == 35.0][0],
+        handler._JOIN_HIGHLIGHT_CMAP(0.5),
+    )
+    np.testing.assert_allclose(layers[2].track_colors[times2 == 64.0][0], fade)
 
 
 # ---------------------------------------------------------------------------

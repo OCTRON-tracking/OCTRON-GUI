@@ -16,6 +16,8 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+import cmasher as cmr
+import numpy as np
 import pandas as pd
 import zarr
 from loguru import logger
@@ -48,6 +50,21 @@ def _rgba_to_qcolor(rgba):
 
 class CleanerHandler(QObject):
     """Wire the prediction-cleaner GUI to on-disk track-fusion logic."""
+
+    # Join-highlight fade: a reviewed track blends from the video's
+    # sampled background color (_sample_video_background_color) into
+    # cmr.iceburn right at a checked join boundary. iceburn runs blue
+    # (0.0) -> black (0.5) -> yellow (1.0); the earlier track ("end"
+    # direction) sweeps 0.0 to 0.5, the later one ("start") sweeps 0.5
+    # to 1.0, so both sides meet at the same black at the join. The
+    # gradient window is a fixed fraction of the whole video's frame
+    # count, not of each track's own span, so short and long tracks
+    # get a visually consistent highlight width. See
+    # _apply_track_highlight().
+    _JOIN_HIGHLIGHT_FRACTION = 0.05
+    _JOIN_HIGHLIGHT_CMAP = cmr.cm.iceburn
+    # Fallback fade target when the video's background can't be sampled.
+    _JOIN_FADE_COLOR_FALLBACK = (0.35, 0.35, 0.35, 1.0)
 
     def __init__(self, parent_widget, analysis_results=None, save_dir=None):
         """Initialize the handler, storing widget/results refs.
@@ -91,6 +108,10 @@ class CleanerHandler(QObject):
         # back exactly as they were. See _apply_full_trace_state().
         self._full_traced_ids = set()
         self._original_trace_lengths = {}
+        # Cached RGBA background color sampled from the video (see
+        # _join_fade_color()); reset in refresh_from_results() since a
+        # reload can point at a different video.
+        self._background_color = None
 
         # One BreakpointNavWidget per candidate row (column 3), recreated
         # on every _refresh_candidates(). Kept here (rather than only
@@ -181,6 +202,7 @@ class CleanerHandler(QObject):
         # nothing left to restore -- just drop the bookkeeping.
         self._full_traced_ids = set()
         self._original_trace_lengths = {}
+        self._background_color = None
         self._set_default_thresholds()
 
         combobox = self.w.source_layers_comboBox
@@ -189,12 +211,23 @@ class CleanerHandler(QObject):
         if self.results is not None and self.results.track_id_label:
             self._label_colors = self._label_swatch_colors()
             self._track_positions = self._build_track_positions()
+            coverage_by_id = {
+                track_id: self._coverage_pct(track_id)
+                for track_id in self.results.track_id_label
+            }
+            # Grouped by label (fusion is always same-label), then
+            # ascending by coverage within each label so the most
+            # fragmented tracks -- the ones most likely to need a join
+            # -- sort to the top, making them easier to spot/filter for.
             entries = sorted(
                 self.results.track_id_label.items(),
-                key=lambda kv: (kv[1], kv[0]),
+                key=lambda kv: (kv[1], coverage_by_id[kv[0]], kv[0]),
             )
             for track_id, label in entries:
-                text = f"{label} (id {track_id})"
+                text = (
+                    f"{label} (id {track_id}) "
+                    f"(Cov: {coverage_by_id[track_id]:.1f}%)"
+                )
                 color = self._label_colors.get(label)
                 if color is not None:
                     icon = create_color_icon(_rgba_to_qcolor(color))
@@ -371,6 +404,7 @@ class CleanerHandler(QObject):
             name = self._track_layer_name(label, tid)
             if name in viewer.layers:
                 viewer.layers[name].color_by = "frame_idx"
+        self._update_join_highlighting()
 
     def _track_layer(self, track_id):
         """Return the napari Tracks layer for a track ID, or None."""
@@ -388,13 +422,16 @@ class CleanerHandler(QObject):
         return viewer.layers[name]
 
     def _set_full_trace(self, track_ids):
-        """Extend head/tail length to the full video for the given tracks.
+        """Extend head/tail length to the full video and show the track ID.
 
-        napari has no "infinite" trail option, so the closest equivalent
-        is extending both ``head_length`` (frames ahead of the current
-        one) and ``tail_length`` (frames behind it) to the video's full
-        frame count -- long enough that the whole track is always drawn
-        regardless of where the time slider currently sits.
+        napari has no infinite-trail option, so head_length and
+        tail_length are set to the full frame count so the whole track
+        is always drawn. Also enables display_id and switches blending
+        to opaque: napari otherwise multiplies each vertex's alpha by
+        a time-based tail fade tied to the playhead position (see
+        napari/napari#7764, #6586), which would wash out the join
+        highlight's colors depending on scrub position. Opaque
+        blending disables that fade so the highlight stays stable.
         """
         if self.results is None or not self._num_frames:
             return
@@ -404,9 +441,11 @@ class CleanerHandler(QObject):
                 continue
             layer.head_length = self._num_frames
             layer.tail_length = self._num_frames
+            layer.display_id = True
+            layer.blending = "opaque"
 
     def _capture_original_trace(self, track_id):
-        """Remember a track's current head/tail lengths, once, before override.
+        """Remember head/tail/display_id/blending, once, before override.
 
         A no-op if already captured (e.g. re-checking a candidate that
         was previously full-traced and reverted in this same session)
@@ -420,17 +459,24 @@ class CleanerHandler(QObject):
         self._original_trace_lengths[track_id] = (
             layer.head_length,
             layer.tail_length,
+            layer.display_id,
+            layer.blending,
         )
 
     def _restore_original_trace(self, track_id):
-        """Reset a track's head/tail lengths back to their captured values."""
+        """Reset head/tail/display_id/blending to their captured values."""
         original = self._original_trace_lengths.get(track_id)
         if original is None:
             return
         layer = self._track_layer(track_id)
         if layer is None:
             return
-        layer.head_length, layer.tail_length = original
+        (
+            layer.head_length,
+            layer.tail_length,
+            layer.display_id,
+            layer.blending,
+        ) = original
 
     def _apply_full_trace_state(self, desired_ids):
         """Full-trace exactly ``desired_ids``; restore everyone else.
@@ -453,18 +499,273 @@ class CleanerHandler(QObject):
     def _show_all_layers(self):
         """Reset the view: show every layer and restore normal head/tail.
 
-        Undoes both effects ``_isolate_tracks``/``_apply_full_trace_state``
-        apply while reviewing a source/candidates -- visibility (every
-        layer becomes visible again) and the temporary full-trace
-        head/tail extension (every currently full-traced track is put
-        back to what it had before review started).
+        Undoes _isolate_tracks/_apply_full_trace_state (visibility,
+        full-trace head/tail extension, join-highlight colors) and
+        clears the source selection, since leaving a stale selection
+        behind would make re-selecting the same source track a no-op
+        (Qt only fires currentIndexChanged on an actual index change).
         """
         viewer = self.w._viewer
         if viewer is None:
             return
+        previously_reviewed = set(self._full_traced_ids)
         self._apply_full_trace_state(set())
+        for track_id in previously_reviewed:
+            self._reset_track_colors(track_id)
         for layer in viewer.layers:
             layer.visible = True
+
+        self._source_track_id = None
+        combobox = self.w.source_layers_comboBox
+        combobox.blockSignals(True)
+        combobox.setCurrentIndex(-1)
+        combobox.blockSignals(False)
+        self.joins_table.clear()
+        self._clear_breakpoint_widgets()
+        self.w.coverage_percent_label.setText("%")
+        self.w.increase_percent_label.setText("%")
+        self.w.increase_percent_label.setStyleSheet("")
+        self.w.save_btn.setEnabled(False)
+
+    def _join_directions(self):
+        """Return {track_id: {"start", "end"}} for source + candidates.
+
+        "end" means a track's last frames border a checked partner
+        that comes after it; "start" means its first frames border
+        one that comes before it. Used by _apply_track_highlight to
+        pick which end(s) to keep at full color. The source maps to
+        an empty set until a candidate is checked, and can carry both
+        directions if checked candidates exist on either side of it.
+        """
+        directions = {}
+        source_id = self._source_track_id
+        if source_id is None:
+            return directions
+        directions[source_id] = set()
+        checked_ids = self.joins_table.checked_track_ids()
+        source_frames = sorted(self._csv_frames(source_id))
+        for cand_id in checked_ids:
+            directions.setdefault(cand_id, set())
+            cand_frames = sorted(self._csv_frames(cand_id))
+            if not source_frames or not cand_frames:
+                continue
+            if source_frames[-1] < cand_frames[0]:
+                directions[source_id].add("end")
+                directions[cand_id].add("start")
+            elif cand_frames[-1] < source_frames[0]:
+                directions[source_id].add("start")
+                directions[cand_id].add("end")
+            else:
+                logger.debug(
+                    f"_join_directions: source {source_id} "
+                    f"({source_frames[0]}-{source_frames[-1]}) and "
+                    f"candidate {cand_id} "
+                    f"({cand_frames[0]}-{cand_frames[-1]}) overlap -- "
+                    f"no direction assigned to either."
+                )
+        logger.debug(f"_join_directions: source={source_id} -> {directions}")
+        return directions
+
+    def _reset_track_colors(self, track_id):
+        """Discard any custom per-vertex recoloring; restore native color."""
+        layer = self._track_layer(track_id)
+        if layer is None:
+            return
+        # Reassigning color_by (even to its current value) forces napari
+        # to recompute track_colors from color_by/colormap, discarding
+        # whatever custom colors _apply_track_highlight() set directly.
+        layer.color_by = layer.color_by
+        layer.refresh()
+
+    def _sample_video_background_color(self):
+        """Estimate the video's dominant background color from a few frames.
+
+        Returns an RGBA float tuple in [0, 1], or None if unavailable
+        (no source video, or it could not be read). Samples the
+        first, middle, and last frame and takes the median pixel,
+        assuming a static background that dominates each frame.
+        """
+        video = getattr(self.results, "video", None) if self.results else None
+        num_frames = self._num_frames
+        if video is None or not num_frames:
+            return None
+        sample_indices = sorted({0, num_frames // 2, max(0, num_frames - 1)})
+        pixel_samples = []
+        for idx in sample_indices:
+            try:
+                frame = np.asarray(video[idx])
+            except Exception as e:
+                logger.debug(f"Could not read video frame {idx}: {e}")
+                continue
+            channels = frame.shape[-1] if frame.ndim == 3 else 1
+            pixel_samples.append(frame.reshape(-1, channels))
+        if not pixel_samples:
+            return None
+        all_pixels = np.concatenate(pixel_samples, axis=0).astype(float)
+        background = np.median(all_pixels, axis=0)
+        if background.max() > 1.0:
+            background = background / 255.0
+        if background.size == 1:
+            background = np.repeat(background, 3)
+        return (*background[:3].tolist(), 1.0)
+
+    def _join_fade_color(self):
+        """Return the RGBA color faded track segments blend towards.
+
+        Sampled once from the video's background
+        (_sample_video_background_color) and cached; falls back to a
+        neutral gray when no video is available to sample.
+        """
+        if self._background_color is None:
+            self._background_color = (
+                self._sample_video_background_color()
+                or self._JOIN_FADE_COLOR_FALLBACK
+            )
+        return self._background_color
+
+    def _apply_track_highlight(self, track_id, directions):
+        """Blend a track from background color into the iceburn colormap.
+
+        The earlier track ("end" direction) is colored from
+        _JOIN_HIGHLIGHT_CMAP's blue end (0.0, far from the join) up to
+        its black midpoint (0.5, at the join); the later track
+        ("start") goes from that midpoint up to the yellow end (1.0,
+        far from the join), so both sides meet at the same color at
+        the join instead of each sweeping its own mismatched 0..1
+        range. A per-vertex intensity in [0, 1] blends between that
+        colormap color and the video's background color
+        (_join_fade_color): 0 beyond _JOIN_HIGHLIGHT_FRACTION of the
+        video's frame count from the join, ramping to 1 at the join.
+
+        Requires blending="opaque" (see _set_full_trace) so napari's
+        native playhead-based alpha fade does not wash out these
+        colors.
+        """
+        layer = self._track_layer(track_id)
+        if layer is None:
+            logger.debug(
+                f"_apply_track_highlight: track={track_id} -- no layer "
+                f"found (bailing out, no coloring applied)"
+            )
+            return
+        if not directions:
+            logger.debug(
+                f"_apply_track_highlight: track={track_id} -- called "
+                f"with empty directions (should not happen; "
+                f"_update_join_highlighting routes empty directions to "
+                f"_reset_track_colors instead)"
+            )
+            return
+        colors = layer.track_colors
+        if colors is None or len(colors) == 0:
+            logger.debug(
+                f"_apply_track_highlight: track={track_id} -- "
+                f"layer.track_colors is empty/None (bailing out)"
+            )
+            return
+        times = layer.data[:, 1].astype(float)
+        if len(times) == 0:
+            logger.debug(
+                f"_apply_track_highlight: track={track_id} -- "
+                f"layer.data has zero points (bailing out)"
+            )
+            return
+        try:
+            # Anchor the window to the REAL, CSV-observed frame range
+            # (matching what _join_directions() used to decide "start"
+            # vs "end"), not layer.data's own min/max: AnalysisResults'
+            # interpolation (interpolate_limit=None) can hold/extend a
+            # track's last known position all the way to the end of
+            # the video once its real detections stop, so layer.data
+            # can span far more frames than the track was actually
+            # observed for. Anchoring to that extended range put the
+            # highlight window thousands of frames past the real join,
+            # making the earlier of two joined tracks always show
+            # 0 intensity (pure background) right at the actual break
+            # point -- exactly the reported "earlier track never gets
+            # a gradient" symptom.
+            csv_frames = sorted(self._csv_frames(track_id))
+            if csv_frames:
+                t_min, t_max = float(csv_frames[0]), float(csv_frames[-1])
+            else:
+                t_min, t_max = float(times.min()), float(times.max())
+            window = self._JOIN_HIGHLIGHT_FRACTION * (self._num_frames or 0)
+            if window <= 0:
+                # No global frame count to anchor a fixed window to
+                # (should not normally happen) -- fall back to a
+                # gradient across this track's own span so
+                # highlighting still degrades gracefully instead of
+                # doing nothing.
+                window = t_max - t_min
+            intensity = np.zeros(len(times))
+            cmap_position = np.full(len(times), 0.5)
+            if window > 0:
+                if "end" in directions:
+                    # Earlier track: 0.0/blue (far edge) -> 0.5/black (join).
+                    end_intensity = np.clip(
+                        (times - (t_max - window)) / window, 0.0, 1.0
+                    )
+                    take = end_intensity > intensity
+                    cmap_position = np.where(
+                        take, 0.5 * end_intensity, cmap_position
+                    )
+                    intensity = np.maximum(intensity, end_intensity)
+                if "start" in directions:
+                    # Later track: 0.5/black (join) -> 1.0/yellow (far edge).
+                    start_intensity = np.clip(
+                        ((t_min + window) - times) / window, 0.0, 1.0
+                    )
+                    take = start_intensity > intensity
+                    cmap_position = np.where(
+                        take, 1.0 - 0.5 * start_intensity, cmap_position
+                    )
+                    intensity = np.maximum(intensity, start_intensity)
+            else:
+                # Single-frame track (t_min == t_max) with no usable
+                # window -- its one frame IS the join boundary.
+                intensity[:] = 1.0
+            fade = np.array(self._join_fade_color())
+            highlight = self._JOIN_HIGHLIGHT_CMAP(cmap_position)
+            colors = fade[None, :] * (1.0 - intensity[:, None]) + (
+                highlight * intensity[:, None]
+            )
+            layer.track_colors = colors
+            # Belt-and-suspenders: track_colors' setter already fires
+            # events.color_by(), which the vispy layer wrapper listens
+            # to in order to re-pull track_colors onto the canvas -- but
+            # force an explicit refresh() too, in case that alone isn't
+            # always enough to repaint this specific layer.
+            layer.refresh()
+            logger.debug(
+                f"_apply_track_highlight: track={track_id} "
+                f"directions={directions} n_points={len(times)} "
+                f"t_min={t_min} t_max={t_max} window={window:.1f} "
+                f"intensity=[{intensity.min():.3f},{intensity.max():.3f}] "
+                f"cmap_position=[{cmap_position.min():.3f},"
+                f"{cmap_position.max():.3f}]"
+            )
+        except Exception as e:
+            logger.error(f"Applying join highlight to track {track_id}: {e}")
+
+    def _update_join_highlighting(self):
+        """(Re)apply the fade-except-near-join coloring for the current review.
+
+        Called after every _isolate_tracks, since selecting a source
+        or toggling a candidate checkbox can change which tracks are
+        paired. Also resets any track that was part of the previous
+        review but has no entry in the current _join_directions()
+        result (e.g. an unchecked candidate), so it doesn't keep
+        stale highlight colors.
+        """
+        previously_reviewed = set(self._full_traced_ids)
+        directions_by_track = self._join_directions()
+        for track_id, directions in directions_by_track.items():
+            if directions:
+                self._apply_track_highlight(track_id, directions)
+            else:
+                self._reset_track_colors(track_id)
+        for track_id in previously_reviewed - set(directions_by_track):
+            self._reset_track_colors(track_id)
 
     #######################################################################
     # SOURCE SELECTION / CANDIDATE FILTERING
@@ -480,7 +781,30 @@ class CleanerHandler(QObject):
         self._source_track_id = int(track_id)
         self._isolate_tracks([self._source_track_id])
         self._apply_full_trace_state([self._source_track_id])
+        self._select_source_layers_in_viewer()
         self._refresh_candidates()
+
+    def _select_source_layers_in_viewer(self):
+        """Select the source track's own layers in napari's layer list.
+
+        Lets the user immediately hit napari's delete icon (or press
+        Backspace) to remove the whole track -- Tracks and mask layers
+        together -- instead of having to search for it manually in a
+        potentially long layer list.
+        """
+        viewer = self.w._viewer
+        if viewer is None:
+            return
+        label = self._label_for(self._source_track_id)
+        if label is None:
+            return
+        names = {
+            self._track_layer_name(label, self._source_track_id),
+            self._mask_layer_name(label, self._source_track_id),
+        }
+        layers = {layer for layer in viewer.layers if layer.name in names}
+        if layers:
+            viewer.layers.selection = layers
 
     def _on_thresholds_changed(self, _value):
         """Recompute candidates when the gap/distance thresholds change."""
@@ -491,6 +815,12 @@ class CleanerHandler(QObject):
         if self.results is None:
             return set()
         return self.results._csv_frame_indices.get(track_id, set())
+
+    def _coverage_pct(self, track_id):
+        """Return the percentage of the video's frames this track covers."""
+        if not self._num_frames:
+            return 0.0
+        return 100.0 * len(self._csv_frames(track_id)) / self._num_frames
 
     def _track_endpoints(self, source_id, cand_id):
         """Return ``(src_endpoint, cand_endpoint)`` frames nearest each other.
@@ -616,12 +946,7 @@ class CleanerHandler(QObject):
 
         source_id = self._source_track_id
         label = self.results.track_id_label.get(source_id)
-        source_frames = self._csv_frames(source_id)
-        coverage = (
-            100.0 * len(source_frames) / self._num_frames
-            if self._num_frames
-            else 0.0
-        )
+        coverage = self._coverage_pct(source_id)
         self.w.coverage_percent_label.setText(f"{coverage:.1f}%")
         self.w.increase_percent_label.setText("0.0%")
         self.w.increase_percent_label.setStyleSheet(
