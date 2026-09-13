@@ -103,8 +103,8 @@ BoostTrack:
       - 0.0
       - 1.0
     max_age:
-      current_value: 300
-      default_value: 300
+      current_value: 150
+      default_value: 150
       disabled: false
       docstring: Maximum age (in frames) of a track before it is considered lost
       gui_element: spin_box

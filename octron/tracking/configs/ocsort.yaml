@@ -87,8 +87,8 @@ OcSort:
         bounding boxes
       gui_element: checkbox
     max_age:
-      current_value: 300
-      default_value: 300
+      current_value: 150
+      default_value: 150
       disabled: false
       docstring: Maximum age (in frames) of a track before it is considered lost
       gui_element: spin_box

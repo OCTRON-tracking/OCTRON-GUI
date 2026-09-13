@@ -153,8 +153,8 @@ HybridSort:
       - 10
       - 60
     longterm_reid_correction_thresh:
-      current_value: 0.4
-      default_value: 0.4
+      current_value: 0.3
+      default_value: 0.3
       disabled: false
       docstring: Threshold for ReID-based correction
       gui_element: double_spin_box
@@ -162,8 +162,8 @@ HybridSort:
       - 0.1
       - 0.7
     longterm_reid_correction_thresh_low:
-      current_value: 0.4
-      default_value: 0.4
+      current_value: 0.3
+      default_value: 0.3
       disabled: false
       docstring: Lower threshold for ReID-based correction
       gui_element: double_spin_box
@@ -189,8 +189,8 @@ HybridSort:
       - 0.05
       - 0.5
     max_age:
-      current_value: 300
-      default_value: 300
+      current_value: 150
+      default_value: 150
       disabled: false
       docstring: Maximum age (in frames) of a track before it is considered lost
       gui_element: spin_box
