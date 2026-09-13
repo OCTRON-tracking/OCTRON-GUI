@@ -210,6 +210,8 @@ python =
 passenv =
     CI
     GITHUB_ACTIONS
+setenv =
+    QT_QPA_PLATFORM = offscreen
 extras =
     dev
     pyqt6
