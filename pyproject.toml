@@ -212,6 +212,7 @@ passenv =
     GITHUB_ACTIONS
 extras =
     dev
+    pyqt6
 commands =
     pytest -v --color=yes --cov=octron --cov-report=xml
 """
