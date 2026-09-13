@@ -140,6 +140,11 @@ exclude = [
     "octron/gui_elements.py",
     "octron/qt_gui/octron.py",
     "octron/qt_gui/octron_corrected.py",
+    # Qt-Designer-generated files (regenerated from
+    # octron_prediction_cleaner.ui; edits are lost)
+    "octron/cleanup_octron/cleanup_gui_elements.py",
+    "octron/qt_gui/octron_prediction_cleaner.py",
+    "octron/qt_gui/octron_prediction_cleaner_corrected.py",
 ]
 fix = true
 
@@ -205,8 +210,11 @@ python =
 passenv =
     CI
     GITHUB_ACTIONS
+setenv =
+    QT_QPA_PLATFORM = offscreen
 extras =
     dev
+    pyqt6
 commands =
     pytest -v --color=yes --cov=octron --cov-report=xml
 """

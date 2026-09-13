@@ -3,8 +3,8 @@ BotSort:
   name: BotSort
   parameters:
     appearance_thresh:
-      current_value: 0.25
-      default_value: 0.25
+      current_value: 0.2
+      default_value: 0.2
       disabled: false
       docstring: Appearance embedding distance threshold for ReID
       gui_element: double_spin_box
@@ -91,8 +91,8 @@ BotSort:
       - 0.1
       - 1.0
     max_age:
-      current_value: 300
-      default_value: 300
+      current_value: 150
+      default_value: 150
       disabled: false
       docstring: Maximum age (in frames) of a track before it is considered lost
       gui_element: spin_box
@@ -153,8 +153,8 @@ BotSort:
       - 0.1
       - 1.0
     track_buffer:
-      current_value: 300
-      default_value: 300
+      current_value: 150
+      default_value: 150
       disabled: false
       docstring: Frames to keep a track alive after last detection
       gui_element: spin_box

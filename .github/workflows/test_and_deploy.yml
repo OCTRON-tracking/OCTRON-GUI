@@ -43,6 +43,14 @@ jobs:
       # (it is the only version avail in all mirrors)
       - uses: AnimMouse/setup-ffmpeg@v1
 
+      # Installs the system Qt/OpenGL libraries (libEGL, libGL,
+      # libxkbcommon, etc.) our PyQt6 tests need to even import on
+      # Linux, plus a virtual framebuffer (Xvfb); a no-op on macOS and
+      # sets up Mesa on Windows.
+      - uses: pyvista/setup-headless-display-action@v3
+        with:
+          qt: true
+
       # Run tests
       - uses: neuroinformatics-unit/actions/test@v2
         with:

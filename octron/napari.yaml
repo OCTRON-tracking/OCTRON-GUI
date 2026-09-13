@@ -8,6 +8,9 @@ contributions:
     - id: octron.octron_reader
       title: OCTRON project reader
       python_name: octron:octron_reader
+    - id: octron.octron_prediction_cleaner_widget
+      title: OCTRON prediction cleaner
+      python_name: octron.cleanup_octron.cleanup_widget:octron_prediction_cleaner_widget
   readers:
     - command: octron.octron_reader
       accepts_directories: true
@@ -15,4 +18,6 @@ contributions:
       - '*'
   widgets:
     - command: octron.octron_widget
-      display_name: OCTRON
+      display_name: Main GUI
+    - command: octron.octron_prediction_cleaner_widget
+      display_name: Prediction cleaner

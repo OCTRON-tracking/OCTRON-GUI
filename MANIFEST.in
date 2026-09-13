@@ -17,4 +17,5 @@ recursive-include octron/qt_gui/icons *.svg
 
 # dev-time design resources
 exclude octron/qt_gui/octron.ui
+exclude octron/qt_gui/octron_prediction_cleaner.ui
 exclude octron/qt_gui/octron_logo.ai
