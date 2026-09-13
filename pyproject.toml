@@ -9,7 +9,13 @@ dynamic = ["version"]
 dependencies = [
     "setuptools",
     "napari==0.9.1",
-    "numpy>=2.1.0",
+    # BoxMOT (pinned below) still calls float()/int() on arrays that are
+    # size-1 but not strictly 0-dimensional (e.g. shape (1,) slices).
+    # numpy 2.4 turned the long-standing DeprecationWarning for that into
+    # a hard TypeError ("only 0-dimensional arrays can be converted to
+    # Python scalars"), which intermittently aborts tracker.update() calls
+    # during prediction. Cap below 2.4 until BoxMOT is patched upstream.
+    "numpy>=2.1.0,<2.4",
     "qtpy>=2.4.3",
     "torch>=2.5.1",
     "torchvision>=0.20.1",

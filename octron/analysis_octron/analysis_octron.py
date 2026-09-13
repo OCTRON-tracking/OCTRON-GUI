@@ -3562,7 +3562,13 @@ class AnalysisOctron:
                 try:
                     tracking_result = tracker.update(tracker_input, frame)
                 except Exception as e:
-                    logger.warning(f"Tracker error on frame {frame_idx}: {e}")
+                    # opt(exception=True) logs the full traceback (not just
+                    # str(e)), which is needed to pin down exactly which
+                    # line inside the tracker raised -- e.g. numpy version
+                    # differences around float()/int() on non-0d arrays.
+                    logger.opt(exception=True).warning(
+                        f"Tracker error on frame {frame_idx}: {e}"
+                    )
                     continue
                 if tracking_result.shape[0] == 0:
                     logger.debug(
