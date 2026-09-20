@@ -121,9 +121,9 @@ class AnalysisResults:
             )
 
     def _candidate_video_path(self):
-        """Return the original video matching this results dir, or ``None``.
+        """Return the original video matching this results dir, or "None".
 
-        The prediction folder is named ``<video_stem>_<tracker>``. The video
+        The prediction folder is named "<video_stem>_<tracker>". The video
         normally lives two levels up
         (<video_dir>/octron_predictions/<folder>/), but the prediction folder
         may also sit directly next to the video.
@@ -193,7 +193,7 @@ class AnalysisResults:
         Counts lines without parsing, subtracting the fixed metadata header
         lines plus the single column-header row. This is the one place that
         encodes the CSV header offset for cheap row counts; full parsing uses
-        ``skiprows`` elsewhere.
+        "skiprows" elsewhere.
         """
         with open(csv_file) as f:
             n = sum(1 for _ in f)
@@ -655,12 +655,10 @@ class AnalysisResults:
     ):
         """Get the tracking data for all csvs, keyed by track_id.
 
-        Raw, unprocessed data by default (``interpolate=False``,
-        ``sigma=0``): callers making decisions from position data (e.g.
+        Raw, unprocessed data by default ("interpolate=False",
+        "sigma=0"): callers making decisions from position data (e.g.
         the prediction cleaner's join review) should never silently see
-        gap-filled or smoothed positions. Pass ``interpolate=True``
-        and/or ``sigma>0`` explicitly to opt into gap-filling/smoothing
-        for presentation purposes (e.g. a nicer-looking rendered video).
+        gap-filled or smoothed positions.
 
         Returns
         -------
