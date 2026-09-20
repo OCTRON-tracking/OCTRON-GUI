@@ -4107,7 +4107,7 @@ class AnalysisOctron:
     def load_predictions(
         self,
         save_dir,
-        sigma_tracking_pos=2,
+        sigma_tracking_pos=0,
         open_viewer=True,
         show_cleaner_widget=True,
         viewer=None,
@@ -4116,13 +4116,20 @@ class AnalysisOctron:
 
         Optionally displays them in a new napari viewer.
 
+        Track positions are shown raw (no interpolation, no smoothing)
+        by default, so the viewer always reflects the actual recorded
+        data -- this matters for the prediction cleaner's join review,
+        where silently gap-filled or smoothed positions could mislead
+        a fuse/delete decision. Pass ``sigma_tracking_pos`` explicitly
+        for a smoother-looking (but no longer raw) display.
+
         Parameters
         ----------
         save_dir : str or Path
             Path to the directory with the predictions
         sigma_tracking_pos : int
-            Sigma value for tracking position smoothing
-            CURRENTLY FIXED TO 2
+            Sigma for Gaussian smoothing of tracking positions. 0 (the
+            default) disables smoothing.
         open_viewer : bool
             Whether to open the napari viewer or not
         show_cleaner_widget : bool
@@ -4175,9 +4182,7 @@ class AnalysisOctron:
             return
         has_masks = analysis_results.has_masks
         tracking_data = analysis_results.get_tracking_data(
-            interpolate=True,
-            interpolate_method="linear",
-            interpolate_limit=None,
+            interpolate=False,
             sigma=sigma_tracking_pos,
         )
         mask_data = analysis_results.get_mask_data() if has_masks else {}

@@ -646,7 +646,7 @@ class AnalysisResults:
 
     def get_tracking_data(
         self,
-        interpolate=True,
+        interpolate=False,
         interpolate_method: str = "linear",
         interpolate_limit=None,
         sigma=0,
@@ -654,6 +654,13 @@ class AnalysisResults:
         min_observations=0,
     ):
         """Get the tracking data for all csvs, keyed by track_id.
+
+        Raw, unprocessed data by default (``interpolate=False``,
+        ``sigma=0``): callers making decisions from position data (e.g.
+        the prediction cleaner's join review) should never silently see
+        gap-filled or smoothed positions. Pass ``interpolate=True``
+        and/or ``sigma>0`` explicitly to opt into gap-filling/smoothing
+        for presentation purposes (e.g. a nicer-looking rendered video).
 
         Returns
         -------
@@ -930,12 +937,15 @@ class AnalysisResults:
     def get_tracking_for_label(
         self,
         label,
-        interpolate=True,
+        interpolate=False,
         interpolate_method: str = "linear",
         interpolate_limit=None,
         sigma=0,
     ):
         """Get the tracking data (positions) for a given label.
+
+        Raw, unprocessed positions by default -- see
+        :meth:`get_tracking_data` for why.
 
         If the label maps to multiple track IDs, a warning is issued
         (if verbose=True) and data for the first track ID is returned.
@@ -945,7 +955,7 @@ class AnalysisResults:
         label : str
             The label to search for.
         interpolate : bool, optional
-            Whether to interpolate missing frames. Default is True.
+            Whether to interpolate missing frames. Default is False.
         interpolate_method : str, optional
             Method for interpolation if `interpolate` is True.
             Default is 'linear'.

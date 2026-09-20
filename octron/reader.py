@@ -78,7 +78,6 @@ def read_octron_folder(path: "PathOrPaths") -> list["LayerData"]:
         analysis_octron = AnalysisOctron()
         for label, track_id, _, _, _, _ in analysis_octron.load_predictions(
             save_dir=folder,
-            sigma_tracking_pos=2,  # Fixed for now
         ):
             logger.debug(
                 f"Adding tracking result to viewer | Label: {label}, "
